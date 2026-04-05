@@ -1,0 +1,3656 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "The Triadic Cognitive Architecture: Bounding Autonomous Action via Spatio-Temporal and Epistemic Friction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                151,
+                155,
+                846,
+                205
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Davide Di Gioia "
+                    }
+                ]
+            },
+            "bbox": [
+                433,
+                224,
+                566,
+                239
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "ucesigi@ucl.ac.uk "
+                    }
+                ]
+            },
+            "bbox": [
+                411,
+                243,
+                584,
+                258
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Abstract "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                465,
+                291,
+                531,
+                303
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Current autonomous AI agents, driven primarily by Large Language Models (LLMs), operate in a state of cognitive weightlessness: they process information without an intrinsic sense of network topology, temporal pacing, or epistemic limits. Consequently, heuristic agentic loops (e.g., ReAct) can exhibit failure modes in interactive environments, including excessive tool use under congestion, prolonged deliberation under time decay, and brittle behavior under ambiguous evidence. In this paper, we propose the Triadic Cognitive Architecture (TCA), a unified mathematical framework that grounds machine reasoning in continuous-time physics. By synthesizing nonlinear filtering theory, Riemannian routing geometry, and optimal control, we formally define the concept of Cognitive Friction. We map the agent’s deliberation process to a coupled stochastic control problem where information acquisition is path-dependent and physically constrained. Rather than relying on arbitrary heuristic stop-tokens, the TCA uses an HJB-motivated stopping boundary and instantiates a rollout-based approximation of belief-dependent value-of-information with a net-utility halting condition. Through empirical validation in a simulated Emergency Medical Diagnostic Grid (EMDG), we demonstrate that while greedy baselines over-deliberate under latency and congestion costs, the triadic policy reduces time-to-action while improving patient viability without degrading diagnostic accuracy in this environment. "
+                    }
+                ]
+            },
+            "bbox": [
+                179,
+                310,
+                818,
+                531
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "1 Introduction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                140,
+                555,
+                318,
+                571
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The pursuit of autonomous machine intelligence has largely converged on iterative, prompt-driven reasoning loops wrapped around autoregressive language models. Frameworks such as ReAct, Tree-of-Thoughts, and AutoGPT have successfully demonstrated that LLMs can emulate sequential planning [17, 18, 1]. However, these systems remain fundamentally disembodied from the physics of realworld execution. They operate under the implicit, catastrophic assumption of a frictionless cognitive environment, where gathering information is presumed to be instantaneous, structurally free, and uniformly reliable. "
+                    }
+                ]
+            },
+            "bbox": [
+                138,
+                587,
+                857,
+                690
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "When deployed outside of static text-generation benchmarks and into dynamic, physical, or highly networked environments, this assumption mathematically can lead to systematic failure modes. Without intrinsic bounds on spatial topology, temporal pacing, or epistemic resolution, unconstrained agents exhibit three critical failure modes: "
+                    }
+                ]
+            },
+            "bbox": [
+                138,
+                691,
+                857,
+                750
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "text_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "1. Topological Saturation (Space): Indiscriminate API querying cascades into network congestion and rising per-query load costs, as agents fail to price the structural cost of routing information through a multi-agent swarm or distributed database. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "2. Infinite Deliberation (Time): Lacking a continuous-time pacing mechanism, agents get trapped in recursive thought loops, failing to recognize that the utility of an optimal decision decays exponentially as time elapses. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                762,
+                857,
+                859
+            ]
+        },
+        {
+            "type": "page_aside_text",
+            "content": {
+                "page_aside_text_content": [
+                    {
+                        "type": "text",
+                        "content": "arXiv:2603.30031v1 [cs.AI] 31 Mar 2026 "
+                    }
+                ]
+            },
+            "bbox": [
+                22,
+                277,
+                58,
+                717
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": []
+            },
+            "bbox": [
+                495,
+                917,
+                501,
+                928
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3. Epistemic Collapse (Truth): When faced with unresolvable, contradictory evidence, agents lack a rigorous mathematical framework for doubt. Instead of exposing the ambiguity, they average conflicting claims and confidently hallucinate a hybrid synthesis. "
+                    }
+                ]
+            },
+            "bbox": [
+                155,
+                109,
+                859,
+                155
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In this work, we argue that true autonomous control cannot emerge from unstructured promptreflection; it requires a formal, decision-theoretic optimization layer. We introduce the Triadic Cognitive Architecture (TCA), which fundamentally redefines machine deliberation not as text generation, but as a bounded physical trajectory through Cognitive Spacetime. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                161,
+                862,
+                220
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on related ideas in congestion-aware routing, interval-aware decision-making, and entropic claim resolution [3, 4, 5], we formally couple the belief state of an agent to the physical friction of its environment. We present a continuous-time formulation for generality (nonlinear filtering and HJB-motivated stopping); in our EMDG implementation we instantiate beliefs on a finite hypothesis set and approximate value-of-information by Monte Carlo rollouts (Section 3.4). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                220,
+                861,
+                297
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Novelty and contributions. Unlike existing LLM-based agent frameworks that typically treat deliberation as cost-free and rely on heuristic stopping rules, the Triadic Cognitive Architecture (TCA) formalizes bounded reasoning by explicitly pricing spatio-temporal friction alongside epistemic maintenance. We contribute: (i) an idealized continuous-time stochastic control formulation in which optimal halting is characterized by an HJB free boundary, and (ii) a computable discrete instantiation that estimates belief-dependent value-of-information (VOI) via Monte Carlo rollouts and applies a net-utility stopping rule. Empirically, in EMDG, TCA exhibits earlier halting and improved viability under latency and congestion costs while maintaining diagnostic accuracy, illustrating a practical pathway from principled stopping to implementable agent controllers. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                313,
+                861,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Why this is new. Unlike prior VOI-based or bounded-rationality approaches that typically treat tool costs as static or external, TCA jointly models (i) topology- and congestion-dependent information access costs (Space), (ii) time-dependent opportunity costs under delay (Time), and (iii) beliefdependent value-of-information (Truth), within a single stopping framework motivated by optimal stopping. The key contribution is coupling these three terms in a unified decision rule and providing a computable rollout-based approximation to the resulting stopping boundary. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                465,
+                861,
+                556
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The remainder of this paper is structured as follows. Section 2 reviews related work, anchoring TCA within classical bounded rationality and modern agentic AI. Section 3 formalizes the physics of Cognitive Friction and derives the triadic stochastic control objective. Section 4 empirically validates the framework via the Emergency Medical Diagnostic Grid (EMDG). Finally, Section 5 discusses the implications of TCA as a foundational framework for safe, scalable autonomy. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                556,
+                861,
+                633
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2 Related Work "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                652,
+                336,
+                672
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Triadic Cognitive Architecture bridges classical theories of bounded computation with modern LLM-based agentic reasoning. We briefly contextualize our contributions within these intersecting domains. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                684,
+                861,
+                729
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.1 LLM-Based Autonomous Agents "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                747,
+                504,
+                765
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The rapid proliferation of large language models has led to a paradigm shift toward “agentic” architectures. Frameworks such as ReAct [17], Tree-of-Thoughts [18], and Reflexion [13] have demonstrated that interleaving chain-of-thought prompting with environmental observations significantly improves task success rates. However, these frameworks rely heavily on discrete heuristic hypothesis sets and arbitrary stopping constraints (e.g., token limits or maximum step counts) [16]. Evaluation benchmarks such as AgentBench [9] effectively quantify agent failure modes in interactive settings, but they still implicitly treat deliberation computation as a free resource. TCA argues that safe autonomy demands that computation itself be optimized as a structural cost. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                772,
+                861,
+                893
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "2 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.2 Bounded Rationality and Meta-Reasoning "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                107,
+                599,
+                126
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The necessity of pricing deliberation traces back to Simon’s foundational concept of bounded rationality [15], which posits that agents must make decisions under the strict limits of available information, cognitive capacity, and time. This was formally extended into meta-reasoning and bounded optimality by Russell and Wefald [11], who argued that an agent should compute only until the cost of computation outweighs the expected increase in decision utility. In deep learning, Adaptive Computation Time (ACT) [7] introduced halting mechanisms for recurrent networks based on internal confidence. TCA resurrects these classical concepts for the LLM era, formalizing prompt-driven tool use as a continuous-time physical process subject to topological load and exponential decay. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                132,
+                861,
+                253
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2.3 Active Inference and Stochastic Control "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                271,
+                576,
+                287
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Our framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both theories propose that intelligent agents interact with their environment to minimize surprise (or expected free energy) via a predictive world model. While foundational, exact Bayesian active inference remains largely computationally intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                296,
+                861,
+                434
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3 Formalizing Cognitive Friction: The Coupled Stochastic Control Objective "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                454,
+                864,
+                497
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Problem setup. We consider an agent that acquires information via costly tool queries and must decide both which query to perform next and when to stop deliberating and execute a terminal decision. The agent maintains a belief state over hypotheses and a routing state capturing topologyand congestion-dependent access costs. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                508,
+                861,
+                570
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Intuition (for ML practitioners). At inference time, a tool-using agent faces two coupled questions: which tool should I query next? and when should I stop querying and act? Most agent loops answer both with heuristics (fixed budgets, step limits, or ad hoc confidence thresholds). TCA instead prices deliberation explicitly: each prospective query has (i) a belief-dependent expected benefit (valueof-information (VOI): expected entropy reduction) and (ii) an environment-dependent cost (latency and congestion). The controller chooses the action maximizing net utility and halts when even the best available query has non-positive net value. The continuous-time HJB formulation provides the principled stopping boundary; EMDG instantiates a computable discrete approximation via rollout-based VOI and a myopic stopping rule. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                585,
+                861,
+                720
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We define the active cognitive state at time "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "s _ { t } = \\langle p _ { t } , \\gamma _ { t } \\rangle"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t } ( \\theta )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the belief measure over a fixed hypothesis manifold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Theta"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the routing state on the Riemannian manifold "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathcal { M } , g _ { \\mu \\nu } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The evolution of the routing state is explicitly governed by a control process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "u _ { t } \\in \\mathcal { U }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", such that "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                722,
+                861,
+                768
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\dot {\\gamma} _ {t} = f \\left(\\gamma_ {t}, u _ {t}\\right). \\tag {1}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b89fc4e026002d48c26e707cac063ee5b3f9a0fe8b8e7b475226eed785aa2695.jpg"
+                }
+            },
+            "bbox": [
+                447,
+                779,
+                859,
+                797
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.1 The coupled observation model "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                811,
+                493,
+                829
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Crucially, information acquisition is path-dependent. The observation process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "Y _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "follows an Itô diffusion strictly coupled to the agent’s spatial routing state: "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                837,
+                861,
+                868
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "d Y _ {t} = h \\left(\\theta , \\gamma_ {t}\\right) d t + \\sigma \\left(\\gamma_ {t}\\right) d W _ {t}, \\tag {2}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/1ce08e8deb6caecd9ccf5e1827a2cab137979d006291764644b1bb50ed22ef0a.jpg"
+                }
+            },
+            "bbox": [
+                393,
+                878,
+                859,
+                895
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "3 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h ( \\theta , \\gamma _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the expected evidence under hypothesis "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\theta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "at network location "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". The belief state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "evolves via the Kushner–Stratonovich equation, driven by the innovation process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                109,
+                864,
+                141
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.2 The triadic value function "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                157,
+                442,
+                174
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The agent seeks to maximize expected information gain while minimizing spatio-temporal cognitive friction. We define the instantaneous spatial routing cost canonically as "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                181,
+                861,
+                213
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "L _ {\\text {r o u t i n g}} \\left(\\gamma_ {t}, u _ {t}, t\\right) := c g _ {\\mu \\nu} \\left(\\gamma_ {t}, t\\right) u _ {t} ^ {\\mu} u _ {t} ^ {\\nu}. \\tag {3}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/a174001cab727d96e0a46c7c01ead01decef1910254bb007b13fe4de1baa7974.jpg"
+                }
+            },
+            "bbox": [
+                370,
+                224,
+                859,
+                242
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The value function is defined as the supremum over stopping times "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "T \\geq t"
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                251,
+                666,
+                267
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "V (p, \\gamma , t) = \\sup  _ {T \\geq t} \\mathbb {E} \\left[ \\int_ {t} ^ {T} \\left(\\frac {1}{2} \\mathbb {E} _ {p _ {s}} \\left[ \\operatorname {T r} \\left(I (\\theta , \\gamma_ {s}) \\Sigma_ {s}\\right) \\right] - L _ {\\text {r o u t i n g}} \\left(\\gamma_ {s}, u _ {s}, s\\right) - \\beta (s)\\right) d s \\mid p _ {t} = p, \\gamma_ {t} = \\gamma \\right]. \\tag {4}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/3d6d4b995c08e59fdef3f3d7fef8cd6cac44d13a0a158837f7140c5a3d591f6f.jpg"
+                }
+            },
+            "bbox": [
+                153,
+                276,
+                859,
+                330
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "For readability, we sometimes write "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V ( p , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "when "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is understood from context. "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                330,
+                705,
+                345
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.3 The HJB variational inequality and optimal stopping "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                364,
+                702,
+                382
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Let "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } ^ { u }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the (controlled) infinitesimal generator of the Markov state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p _ { t } , \\gamma _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "under control "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "u _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(including the filtering dynamics in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the routing dynamics "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\dot { \\gamma } _ { t } ~ = ~ f ( \\gamma _ { t } , u _ { t } ) ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". We use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } ^ { u }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as shorthand for the corresponding functional Itô operator; see [8, 2]. By dynamic programming, the system satisfies the Hamilton–Jacobi–Bellman (HJB) variational inequality: "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                388,
+                861,
+                450
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "0 = \\max  \\left\\{\\partial_ {t} V (p, \\gamma , t) + \\sup  _ {u \\in \\mathcal {U}} \\left(\\mathcal {L} ^ {u} V (p, \\gamma , t) + \\frac {1}{2} \\mathbb {E} _ {p} \\left[ \\operatorname {T r} \\left(I (\\theta , \\gamma) \\Sigma\\right) \\right] - L _ {\\text {r o u t i n g}} (\\gamma , u, t) - \\beta (t)\\right), - V (p, \\gamma , t) \\right\\}. \\tag {5}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2efa7e36be7f525b1bee6e6b79cc8e5115feb52807c54f18cb38fc364f9c6a5a.jpg"
+                }
+            },
+            "bbox": [
+                138,
+                460,
+                887,
+                507
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In the discrete EMDG instantiation, the running temporal penalty is approximated by an actiondependent one-step cost proportional to latency "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau ( a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Section 3.4). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                506,
+                861,
+                537
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3.4 Discrete-time instantiation used in EMDG (rollout VOI + myopic stopping) "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                555,
+                861,
+                590
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "While the preceding subsections present an idealized continuous-time formulation (filtering and HJBmotivated stopping), the EMDG experiments instantiate a discrete approximation aligned with toolusing agents. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                597,
+                861,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Notation. We use "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for cost-to-utility scaling, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for temporal decay/latency penalty, and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { S }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for the spatial/topological cost weight; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Omega ( a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau ( a )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote action load and latency. Value-of-information (VOI) is defined as belief-dependent expected entropy reduction, i.e., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\Delta H } ( a \\mid b _ { t } ) = \\mathbb { E } [ H ( b _ { t } ) - H ( b _ { t + 1 } ) \\ |"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a ]"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", estimated by rollouts in EMDG. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                660,
+                859,
+                722
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We estimate the VOI term "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\widehat { \\Delta H } ( a \\mid b _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via rollouts. The belief state is a categorical distribution "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { t } \\in \\Delta ^ { | \\Theta | - 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over a finite hypothesis set. Given an action "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(a tool query) and an observation sample, we update "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "via Bayes’ rule and compute categorical entropy "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { H ( b ) = - \\sum _ { i } b ( i ) \\log \\big ( b ( i ) + \\varepsilon \\big ) } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                724,
+                859,
+                770
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To estimate belief-dependent value-of-information, we use Monte Carlo rollouts on cloned states: "
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                770,
+                854,
+                785
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {\\Delta H} (a \\mid b _ {t}) = \\frac {1}{K} \\sum_ {k = 1} ^ {K} \\left(H \\left(b _ {t}\\right) - H \\left(b _ {t + 1} ^ {(k)} (a)\\right)\\right). \\tag {6}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/abb7c88458c0edb4aefe02e9314eb1f4cd394a70e764042133ca2450a4e77c57.jpg"
+                }
+            },
+            "bbox": [
+                344,
+                797,
+                859,
+                837
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We then score actions by a net-utility objective that prices congestion and latency: "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                845,
+                733,
+                863
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "U (a; b _ {t}, t, C _ {t}) = \\widehat {\\Delta H} (a \\mid b _ {t}) - \\alpha \\left(\\lambda_ {S} \\left(C _ {t} + \\Omega (a)\\right) + \\beta (t + \\tau (a))\\right), \\tag {7}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/948de39067822451ce95ab5a37198be2a7a0f6e2c003fbb3cefb826bfc9b36ab.jpg"
+                }
+            },
+            "bbox": [
+                274,
+                873,
+                859,
+                897
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "4 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and stop when the best continuation utility is non-positive: "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                109,
+                566,
+                125
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text {S T O P} \\iff \\max  _ {a \\in \\mathcal {A}} U (a; b _ {t}, t, C _ {t}) \\leq 0. \\tag {8}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0612a64f9b5e6bec2c3b4e7ea1db424834d43ced9be2bc7276e630e7bbd46c7d.jpg"
+                }
+            },
+            "bbox": [
+                379,
+                135,
+                861,
+                156
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This myopic stopping rule omits continuation value (equivalently, setting a one-step lookahead weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "in a one-step lookahead formulation); we leave explicit continuation-value approximation as future work. Here, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\gamma _ { t }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the routing state introduced above, while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a separate scalar lookahead weight (set to zero in our experiments). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                164,
+                861,
+                224
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "On the discretization gap. The idealized HJB variational inequality optimizes a continuation value over future information paths. Our EMDG controller uses a myopic rule "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta ~ = ~ 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), i.e., it compares immediate VOI against immediate spatio-temporal cost and halts when the best net utility is non-positive. This choice is deliberate: it yields a simple, inference-time controller that is robust and computationally inexpensive. In principle, continuation value can be approximated by multi-step rollouts or learned value functions; we leave systematic evaluation of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and deeper lookahead to future work. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                241,
+                859,
+                348
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theory–implementation bridge. The idealized HJB variational inequality characterizes an optimal stopping boundary for continued information acquisition. Our discrete controller can be interpreted as a first-order, computationally tractable approximation to this boundary under zero continuation value ( "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta \\ : = \\ : 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "): instead of solving for the full value function "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", we estimate immediate belief-dependent VOI (expected entropy reduction) and stop when even the best available action has non-positive net continuation utility. Thus, the implementation approximates the stopping boundary, not the full HJB solution, while preserving the core tradeoff between epistemic gain and spatiotemporal cost. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                364,
+                861,
+                486
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Theorem 1 (Optimal stopping in the idealized TCA model). Assume (i) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h ( \\theta , \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are Lipschitz with linear growth and (ii) "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma \\sigma ^ { \\top }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is uniformly non-degenerate. Then the idealized continuoustime triadic control problem admits an optimal stopping time. Moreover, letting "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "D = \\{ ( p , \\gamma , t ) \\ :"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V ( p , \\gamma , t ) = 0 \\}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denote the stopping region, the minimal optimal stopping time is the first hitting time "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                502,
+                861,
+                565
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "T ^ {*} = \\inf  \\{s \\geq t: (p _ {s}, \\gamma_ {s}, s) \\in D \\}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/e2b84932ae0682c1ba0cdf65e381066b104d6a530193d1f1eff53690e3fdbc71.jpg"
+                }
+            },
+            "bbox": [
+                383,
+                573,
+                614,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Remark (theory vs. instantiation). Theorem 1 concerns the idealized continuous-time formulation. Our EMDG experiments implement a discrete approximation (Section 3.4) using rollout-based VOI estimation and a myopic stopping rule (continuation term disabled). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                604,
+                861,
+                651
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4 Empirical Validation: The Emergency Medical Diagnostic Grid (EMDG) "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                671,
+                859,
+                715
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To demonstrate the necessity of constrained spatio-temporal and epistemic bounds, we simulate a safety-critical autonomous reasoning environment: the Emergency Medical Diagnostic Grid (EMDG). In this simulation, an autonomous diagnostic agent is tasked with identifying a critical pathology and prescribing an intervention. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                726,
+                859,
+                785
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The environment imposes strict physical realities: "
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                786,
+                517,
+                801
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "text_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "• Epistemic ambiguity. The agent begins with a uniform hypothesis prior over five highly fatal pathologies ( "
+                            },
+                            {
+                                "type": "equation_inline",
+                                "content": "B _ { 0 }"
+                            },
+                            {
+                                "type": "text",
+                                "content": "). "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "• Spatial topology. The agent retrieves evidence by routing queries to distributed hospital subsystems (e.g., Hematology Lab, MRI network, Patient History). Each sub-system has a distinct structural load cost ( "
+                            },
+                            {
+                                "type": "equation_inline",
+                                "content": "\\Omega"
+                            },
+                            {
+                                "type": "text",
+                                "content": "). "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                809,
+                861,
+                893
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "5 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "• Temporal decay. Patient survivability decays exponentially with elapsed time. Some queries (e.g., rapid blood tests) cost 5 time-steps; others (e.g., MRI) cost 45 time-steps. "
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                109,
+                859,
+                141
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/a09b7d75cd87fc7a975606f1aaaacce71750dc47ed45e45f5d2e9eb064a811ec.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "EMDG Monte Carlo (N=50): mean trajectories "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                143,
+                184,
+                859,
+                368
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/0eb37f35e50e6f3479bd89f5cc6f8e08f7eddba57e6918e50ffcf721db651e6b.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 1: EMDG Monte Carlo (N=50): mean entropy and patient viability trajectories over a fixed horizon. Step corresponds to discrete tool-query iterations; trajectories are padded after stopping by carrying forward the terminal state, ensuring step-wise consistency (e.g., time cannot decrease). "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                140,
+                378,
+                859,
+                597
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We evaluate a standard state-of-the-art agentic LLM (utilizing a ReAct-style Thought → Act → Observe loop [17]) against the Triadic Cognitive Architecture (TCA). "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                672,
+                857,
+                705
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Evaluation integrity. To prevent estimator/trajectory coupling, we decouple randomness by using a per-environment RNG for the realized transition and observation draws, and a separate independent RNG stream for value-of-information (VOI) rollouts on cloned states. While HJB theory motivates the stopping boundary, our EMDG controller instantiates a rollout-based approximation of beliefdependent VOI with a net-utility halting condition. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                720,
+                861,
+                797
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.1 The failure of the unconstrained agent (ReAct) "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                815,
+                645,
+                834
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Operating without cognitive friction, the baseline ReAct agent greedily maximizes estimated information gain and does not price congestion or latency into action selection. At step 0 it initiates a query to the MRI network. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                840,
+                861,
+                886
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "6 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Spatial failure. Because it ignores the load and congestion penalties associated with routing, it is willing to select high-load tools whenever their immediate estimated gain is maximal. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                109,
+                861,
+                141
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Temporal failure. Because MRI incurs a 45 time-step latency, viability decays exponentially with elapsed time before a low-latency intervention would be taken. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                156,
+                861,
+                188
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Epistemic failure. The baseline lacks a stopping rule that compares marginal information gain to time-sensitive viability loss; as a result, it continues to query even when entropy is already low and additional information is not worth the delay. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                203,
+                861,
+                250
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.2 The success of the triadic agent (TCA) "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                266,
+                568,
+                286
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The TCA dynamically evaluates the unified objective function at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "t = 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". It calculates that while the MRI offers high expected epistemic gain (e.g., Expected Entropy Reduction), its combined temporal friction ( "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Phi"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") and spatial friction (Ω) yields a severely negative net cognitive utility. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                291,
+                861,
+                339
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Action mix. At step 0, greedy ReAct selects MRI_Network in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of seeds, whereas the triadic controller selects Hematology_Lab in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of seeds, reflecting a consistent preference for low-latency evidence acquisition under cognitive friction. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                354,
+                861,
+                398
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Instead, TCA routes a lightweight query to the Hematology Lab ( "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau = 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", low "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\Omega"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). Over a small number of low-latency queries, it reaches a regime where the marginal expected information gain is eclipsed by spatio-temporal cost, and the policy halts. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                398,
+                861,
+                444
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Concretely, we estimate belief-dependent value-of-information by Monte Carlo rollouts: "
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                444,
+                787,
+                459
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\widehat {\\Delta H} (a \\mid b _ {t}) = \\frac {1}{K} \\sum_ {k = 1} ^ {K} \\left(H \\left(b _ {t}\\right) - H \\left(b _ {t + 1} ^ {(k)} (a)\\right)\\right), \\tag {9}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2926d0614d174132b590c84daf2097cc19e9d1517cadf16ff0f3472f903668e9.jpg"
+                }
+            },
+            "bbox": [
+                344,
+                467,
+                861,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and score actions by net utility: "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                515,
+                372,
+                531
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "U (a; b _ {t}, t, C _ {t}) = \\widehat {\\Delta H} (a \\mid b _ {t}) - \\alpha \\left(\\lambda_ {S} \\left(C _ {t} + \\Omega (a)\\right) + \\beta (t + \\tau (a))\\right), \\tag {10}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/829a080086f6c9deb6569b4b939001e359325edaeca15579001a07bda457cafb.jpg"
+                }
+            },
+            "bbox": [
+                274,
+                537,
+                861,
+                564
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "selecting "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "a _ { t } = \\arg \\operatorname* { m a x } _ { a \\in \\mathcal { A } } U ( a ; b _ { t } , t , C _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and stopping when "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                570,
+                563,
+                585
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text {S T O P} \\iff \\max  _ {a \\in \\mathcal {A}} U (a; b _ {t}, t, C _ {t}) \\leq 0. \\tag {11}",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/9f292ceb62a4e82900537335a0f998b32ff74cee9f8f42a06880aaa18117bfab.jpg"
+                }
+            },
+            "bbox": [
+                377,
+                594,
+                859,
+                616
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The TCA terminates deliberation once the best continuation utility is non-positive, and executes action earlier. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                622,
+                859,
+                651
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We report mean ± 95% confidence intervals computed as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 . 9 6 \\hat { \\sigma } / \\sqrt { N }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 5 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "seeds, using terminal-per-seed values (last logged row per seed). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                652,
+                861,
+                684
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/9e229bc36f2222b1f1cd006ba5076ec5a6316320a63059c88afb26991482cb20.jpg"
+                },
+                "table_caption": [
+                    {
+                        "type": "text",
+                        "content": "Table 1: EMDG results (N=50). Terminal values are taken from the last logged row per seed. Total information gain is the per-episode sum of info_gain; in this setup it equals entropy reduction "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H ( b _ { 0 } ) - H ( b _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(a telescoping sum). At step 0, ReAct selects MRI_Network in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of seeds while TCA selects Hematology_Lab in "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 0 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of seeds. "
+                    }
+                ],
+                "table_footnote": [],
+                "html": "<table><tr><td>Agent</td><td>Time</td><td>Viability</td><td>Entropy</td><td>Accuracy</td><td>ptrue</td><td>Total info gain</td></tr><tr><td>ReAct (Greedy)</td><td>112.5 ± 6.3</td><td>57.34 ± 1.80</td><td>0.0406 ± 0.0081</td><td>1.00 ± 0.00</td><td>0.9938 ± 0.0014</td><td>1.5688 ± 0.0081</td></tr><tr><td>Triadic Control</td><td>14.4 ± 0.8</td><td>93.06 ± 0.36</td><td>0.1645 ± 0.0202</td><td>1.00 ± 0.00</td><td>0.9664 ± 0.0055</td><td>1.4450 ± 0.0202</td></tr></table>",
+                "table_type": "simple_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                138,
+                767,
+                857,
+                820
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Note. In EMDG, info_gain is logged per step as "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H ( b _ { t } ) - H ( b _ { t + 1 } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", so per-episode total information gain telescopes to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "H ( b _ { 0 } ) - H ( b _ { T } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Because "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "b _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is fixed by the uniform prior, the dispersion (and thus CI width) of total information gain matches that of terminal entropy. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                848,
+                861,
+                895
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "7 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Scalability considerations. The EMDG environment is intentionally small to isolate boundeddeliberation effects under congestion and latency. In larger tool ecosystems, naive Monte Carlo VOI rollouts can be costly. However, VOI estimation can be amortized via (i) learned surrogates for expected entropy reduction, (ii) caching/reuse of rollouts for similar belief states, (iii) restricting candidate tools via cheap screening heuristics, or (iv) using analytic approximations (e.g., Fisherinformation or local linearization) when available. These approximations align with the TCA view: the controller requires priced estimates of marginal information value, not necessarily exact computation. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                108,
+                864,
+                217
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Generalization to heterogeneous tool ecosystems. A key direction for future work is evaluating TCA in multi-domain agent settings with heterogeneous tool suites (e.g., web navigation, code execution, and multi-hop QA), where tools exhibit diverse latency and congestion profiles. In such environments, a central question is whether a single set of spatio-temporal cost parameters can yield consistent utility trade-offs without per-domain retuning. Demonstrating that TCA maintains efficient stopping behavior and cost-aware tool selection across domains would provide strong evidence that cognitive friction constitutes a general principle for bounded agent reasoning, rather than an artifact of a specific environment such as EMDG. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                232,
+                859,
+                354
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.3 Hyperparameters and reproducibility "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                372,
+                552,
+                390
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In EMDG, the cost-to-utility scaling "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", temporal decay "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and spatial cost weight "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { S }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "are fixed across all seeds to reflect a time-sensitive diagnosis regime under congestion. In our current implementation these correspond to cost_scale ( "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathit { \\Delta } \\alpha \\ = \\ 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), beta "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta = 0 . 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), and lambda_s ( "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\lambda _ { S } ~ = ~ 0 . 8"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), respectively (see emdg_sim.py). We leave a systematic sensitivity sweep over these parameters (and explicit continuation-value approximation with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\eta > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") to future work. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                396,
+                861,
+                474
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Sensitivity (planned). Because "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\alpha , \\beta , \\lambda _ { S }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "govern the tradeoff between information gain and spatiotemporal cost, we plan to include a sensitivity sweep over these parameters (e.g., "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pm 2 5 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "ranges) to quantify robustness and calibrate recommended defaults. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                489,
+                861,
+                535
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4.4 Ablation study "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                553,
+                336,
+                570
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To isolate the contribution of each component of the triadic controller, we run a controlled ablation sweep over "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "N = 5 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "Monte Carlo seeds. We ablate (i) the HJB stopping rule by disallowing STOP (No-Stop), (ii) the spatial/topological term by setting the spatial friction weight to zero (No-Space), (iii) the temporal term by setting the temporal friction weight to zero (No-Time), and (iv) the congestion feedback term by ignoring the live congestion state in the spatial friction calculation (No-Congestion). Figure 2 reports terminal patient viability and terminal deliberation time (means "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pm 1 \\sigma"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                578,
+                859,
+                672
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "8 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5e0d55231a9d4fe0cef5516b324e037968250488aa75c42843ef443a19579946.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "EMDG ablations (N=50): terminal means "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pm 1 \\sigma"
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                143,
+                241,
+                857,
+                435
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/578156a07f8f592b5e4af0621ed07c97bf1e850e61ff7c649c0751b357e70c99.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 2: EMDG ablations (N=50): terminal patient viability and terminal deliberation time across controller variants. Bars show means and error bars denote "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\pm 1 \\sigma"
+                    },
+                    {
+                        "type": "text",
+                        "content": "over seeds. The full triadic controller achieves the highest viability while minimizing deliberation time, illustrating the necessity of jointly pricing space, time, and enforcing an explicit stopping boundary. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                143,
+                457,
+                857,
+                698
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "9 "
+                    }
+                ]
+            },
+            "bbox": [
+                493,
+                917,
+                504,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5 Implications: TCA as a Foundational Framework for Bounded Agent Reasoning "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                104,
+                866,
+                148
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Triadic Cognitive Architecture (TCA) provides a blueprint for transitioning from disembodied pattern matchers to grounded, autonomous agents. By formalizing cognitive friction, TCA introduces a mathematically rigorous safety mechanism against the runaway resource consumption inherent in unconstrained LLM reasoning loops. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                159,
+                861,
+                220
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.1 Coupling Space, Time, and Epistemic Truth "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                238,
+                617,
+                257
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Within the TCA framework, an agent’s reasoning is strictly bounded by three interacting modules (see Figure 3): "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                262,
+                859,
+                294
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "text_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "• Space (Topological Grounding): The environment is not treated as a flat list of callable APIs, but as a Riemannian manifold. The metric tensor "
+                            },
+                            {
+                                "type": "equation_inline",
+                                "content": "g _ { \\mu \\nu }"
+                            },
+                            {
+                                "type": "text",
+                                "content": "dynamically updates based on latency and network congestion, forcing the agent to route queries along structural geodesics. This prevents API spamming and protects fragile sub-agents from cascade failures. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "• Time (Temporal Consistency): Infinite context lengths do not circumvent the reality that the physical world evolves while the agent deliberates. The exponential decay factor "
+                            },
+                            {
+                                "type": "equation_inline",
+                                "content": "\\beta ( t )"
+                            },
+                            {
+                                "type": "text",
+                                "content": "ensures that the agent respects the temporal opportunity cost of computation, intrinsically preventing infinite deliberation loops. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "• Truth (Epistemic Maintenance): By defining belief revision via the Kushner-Stratonovich equation, the agent maintains a calibrated probability measure over hypotheses. It explicitly models the Fisher Information of incoming data, naturally avoiding the trap of averaging contradictory evidence and subsequently hallucinating. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                303,
+                861,
+                505
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Taken together, these three forms of friction (spatial, temporal, and epistemic) define a bounded control envelope for autonomous reasoning. Rather than optimizing accuracy in isolation, TCA determines when to act, what to query, and how long to deliberate by explicitly trading off information gain against physical and temporal cost. This triadic coupling provides a principled mechanism for preventing over-deliberation, network saturation, and epistemic overconfidence in autonomous agents. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                515,
+                861,
+                590
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/9f216a2616e8104eecc9d895b7602a6c444b007a8ce4ac6ad1da3438f1bb4678.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Figure 3: Triadic Cognitive Architecture (TCA): a coupled loop between Space (state), Time (dynamics), and Epistemic Truth (belief revision). "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                253,
+                602,
+                746,
+                758
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.2 The Inference-Time Controller "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                835,
+                488,
+                852
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The core of TCA is an inference-time controller motivated by HJB optimal stopping. It continuously aggregates the spatial routing cost and temporal decay, dynamically weighing them against "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                859,
+                861,
+                892
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "10 "
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                917,
+                508,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "the expected epistemic gain. This controller acts as an autonomic nervous system for the AI: just as biological organisms intuitively halt exploration when caloric costs exceed potential rewards, the TCA agent halts API queries and triggers execution once the marginal value of additional evidence is eclipsed by spatio-temporal cost. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                109,
+                861,
+                171
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.3 Positioning Relative to Cognitive Theories "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                188,
+                602,
+                207
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Extensive work has been done in prompt-driven multi-step reasoning, notably ReAct [17], Tree-of-Thoughts [18], and Reflexion [13]. However, these frameworks rely on heuristic, discrete hypothesis sets, ignore network-dependent physical costs, and lack principled mathematical criteria for optimal stopping [9, 16]. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                212,
+                861,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The TCA framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both propose that intelligent agents seek to minimize surprise in a predictive world model. However, Active Inference relies on variational bounds that remain largely intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                273,
+                861,
+                395
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.4 Conclusion "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                412,
+                297,
+                429
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Triadic Cognitive Architecture offers a unifying perspective: robust autonomy requires explicit coupling of structured space, temporal dynamics, and epistemic truth maintenance. By casting deliberation as a constrained physical trajectory, TCA provides a principled framework for bounded reasoning in tool-using agents. While we evaluate a discrete rollout-based instantiation in EMDG, the underlying formulation generalizes naturally to heterogeneous environments where information acquisition incurs real spatio-temporal cost. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                436,
+                861,
+                529
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "5.5 Broader Impact & Significance "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                546,
+                488,
+                565
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The Triadic Cognitive Architecture (TCA) reframes safe and scalable autonomy in AI by explicitly coupling epistemic certainty, temporal dynamics, and spatial/topological constraints. In doing so, TCA addresses a critical gap in modern agentic AI: current LLM-driven reasoning systems operate in a “cognitive vacuum,” ignoring the real-world costs of information acquisition and deliberation. By formalizing Cognitive Friction and enforcing a principled stopping boundary (motivated by HJB optimal stopping and instantiated via computable rollout-based VOI in our experiments), TCA transforms computation from an unlimited abstraction into a measurable, optimizable resource. This has implications across multiple domains: in healthcare, it can help autonomous diagnostic agents make timely, reliable decisions without over-deliberation; in robotics, it supports safer task execution under physical and temporal constraints; and in AI research, it provides a replicable, closed-loop model bridging stochastic control theory with LLM-driven cognition. Beyond these immediate applications, TCA offers a foundation for next-generation proto-AGI-style systems, illustrating how intelligent systems can reason, act, and halt autonomously while reducing the risk of epistemic collapse, temporal overrun, and systemic overloading. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                571,
+                862,
+                785
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "11 "
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                917,
+                508,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "References "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                137,
+                104,
+                263,
+                125
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[1] AutoGPT (2023).Open-source project. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[2] Bain, A. and Crisan, D. (2009).Fundamentals of Stochastic Filtering.Springer Science & Business Media. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[3] Di Gioia, D. (2026).Cascade-Aware Multi-Agent Routing.Unpublished manuscript / under review. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[4] Di Gioia, D. (2026). Interval-Aware Reinforcement Learning. Unpublished manuscript / under review. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[5] Di Gioia, D. (2026).Entropic Claim Resolution.Unpublished manuscript / under review. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[6] Friston, K. (2010).The free-energy principle: a unified brain theory?Nature Reviews Neuroscience, 11(2), 127–138. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[7] Graves, A. (2016). Adaptive Computation Time for Recurrent Neural Networks. arXiv preprint arXiv:1603.08983. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[8] Kushner, H. J. (1964).On the differential equations satisfied by conditional probability densities of Markov processes. Journal of the Society for Industrial and Applied Mathematics, Series A: Control, 2(1), 106–119. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[9] Liu, X., et al. (2023).AgentBench: Evaluating LLMs as Agents.arXiv preprint arXiv:2308.03688. (Published in ICLR 2024.) "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[10] Øksendal, B. (2003). Stochastic Differential Equations: An Introduction with Applications. Springer. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[11] Russell, S. J. and Wefald, E. (1991). Do the Right Thing: Studies in Limited Rationality. MIT Press. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[12] Shannon, C. E. (1948).A Mathematical Theory of Communication.Bell System Technical Journal. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[13] Shinn, N., et al. (2023).Reflexion: Language agents with verbal reinforcement learning.NeurIPS. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[14] Peskir, G. and Shiryaev, A. N. (2006). Optimal Stopping and Free-Boundary Problems. Lectures in Mathematics ETH Zürich.DOI: 10.1007/978-3-7643-7390-0. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[15] Simon, H. A. (1955).A behavioral model of rational choice.The Quarterly Journal of Economics, 69(1), 99–118. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[16] Xi, Z., et al. (2023). The Rise and Potential of Large Language Model Based Agents: A Survey. arXiv preprint arXiv:2309.07864. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[17] Yao, S., et al. (2023).ReAct: Synergizing Reasoning and Acting in Language Models.ICLR. "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[18] Yao, S., et al. (2023).Tree of Thoughts: Deliberate Problem Solving with Large Language Models. NeurIPS. "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                138,
+                135,
+                862,
+                775
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "12 "
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                917,
+                508,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "A Proof sketch for Theorem 1 (idealized continuous-time model) "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                135,
+                106,
+                867,
+                127
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This appendix provides a proof sketch for the idealized continuous-time formulation in Section 3 (Kushner–Stratonovich filtering and HJB-motivated optimal stopping). It does not apply directly to the discrete EMDG controller, which uses rollout-based VOI estimation and a myopic net-utility stopping rule (Section 3.4). "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                137,
+                861,
+                196
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We restate the core claim for the idealized model: under standard regularity conditions, the triadic cognitive control problem admits an optimal stopping time characterized by an HJB free boundary. "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                198,
+                859,
+                229
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 1: Regularity of the filtering dynamics and Markov state. Let the observation process be governed by "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                244,
+                859,
+                275
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "d Y _ {t} = h (\\theta , \\gamma_ {t}) d t + \\sigma (\\gamma_ {t}) d W _ {t}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/aac3fb8e28d69c5c8d7eabf6071f13cafb6bb9a85773e317714e87e5918d5e48.jpg"
+                }
+            },
+            "bbox": [
+                393,
+                276,
+                604,
+                292
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Assume "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "h ( \\theta , \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\sigma ( \\cdot )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "satisfy uniform Lipschitz continuity and linear growth bounds. Assume uniform non-degeneracy: there exists "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\epsilon > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "such that "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                297,
+                859,
+                329
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\xi^ {\\top} (\\sigma \\sigma^ {\\top}) \\xi \\geq \\epsilon \\| \\xi \\| ^ {2} \\quad \\forall \\xi \\in \\mathbb {R} ^ {d}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/4f7e6cf8d3cb87384a771082dc27d03d97e35f805751c0fea7cafa990b2acded.jpg"
+                }
+            },
+            "bbox": [
+                385,
+                339,
+                612,
+                357
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Under these assumptions, the innovation process "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is a Brownian motion with respect to the observation filtration "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { F } _ { t } ^ { Y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and the associated nonlinear filter (Kushner–Stratonovich; schematic form) is well-posed; see, e.g., [8, 2]. In particular, the controlled state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p _ { t } , \\gamma _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is Markov with respect to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { F } _ { t } ^ { Y }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                369,
+                861,
+                428
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Define "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\begin{array} { r } { h ( \\gamma _ { t } ) = \\int _ { \\Theta } h ( \\theta , \\gamma _ { t } ) p _ { t } ( \\theta ) d \\theta } \\end{array}"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and the innovation "
+                    }
+                ]
+            },
+            "bbox": [
+                158,
+                429,
+                540,
+                445
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "d \\nu_ {t} = d Y _ {t} - \\bar {h} (\\gamma_ {t}) d t.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/33b49279208cc45a21d003adc102576193000f7218f1f8a4fc2d3702931f2f83.jpg"
+                }
+            },
+            "bbox": [
+                424,
+                457,
+                571,
+                472
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A schematic form of the Kushner–Stratonovich update is "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                484,
+                547,
+                500
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "d p _ {t} (\\theta) = p _ {t} (\\theta) \\left(h (\\theta , \\gamma_ {t}) - \\bar {h} (\\gamma_ {t})\\right) ^ {\\top} (\\sigma \\sigma^ {\\top}) ^ {- 1} d \\nu_ {t} \\quad \\text {(o m i t t i n g d r i f t / n o r m a l i z a t i o n t e r m s ; s e e [ 8 , 2 ])}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/996cae7379f21bf5143fe44c34d05254bca7d8f8a7f7180c6b72e413cb8581e9.jpg"
+                }
+            },
+            "bbox": [
+                156,
+                511,
+                836,
+                531
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 2: Value function and dynamic programming. The agent seeks to maximize expected epistemic gain minus cognitive friction. For a stopping time "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\tau \\geq t"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", write "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                547,
+                859,
+                578
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "J (\\tau) = \\mathbb {E} \\left[ \\int_ {t} ^ {\\tau} f (p _ {s}, \\gamma_ {s}, s) d s \\right],",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/535a2875dd3d39d6c0f7abff0bbedee0341806e3790ada50b8d1a55946eab91c.jpg"
+                }
+            },
+            "bbox": [
+                392,
+                588,
+                606,
+                622
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f ( p , \\gamma , t )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "denotes the instantaneous net reward (information surrogate minus routing cost and temporal penalty), consistent with Section 3. Let "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                632,
+                859,
+                662
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "V(p,\\gamma ,t) = \\sup_{\\tau \\geq t}J(\\tau)",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/ef3ebd0e006a16ecc6bf0ab58aa5b43d0c00deb0c56af9ebc8edccddb4b99840.jpg"
+                }
+            },
+            "bbox": [
+                426,
+                676,
+                571,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "denote the value function. Assuming sufficient regularity of "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(or working in the viscosity-solution framework), standard dynamic programming arguments for controlled Markov processes yield a variational inequality characterization [14, 10]. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                710,
+                861,
+                758
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Step 3: HJB variational inequality and the free boundary. By optimal stopping theory, the value function satisfies a variational inequality of the form "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                773,
+                859,
+                805
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\max \\left\\{\\partial_ {t} V (p, \\gamma , t) + \\sup _ {u \\in \\mathcal {U}} \\left[ (\\mathcal {L} ^ {u}) V (p, \\gamma , t) + f (p, \\gamma , t; u) \\right], - V (p, \\gamma , t) \\right\\} = 0,",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/b56d542919fe2443dbf397f54c420a94a8284d684feb5dccc8a3dcfa0e497048.jpg"
+                }
+            },
+            "bbox": [
+                243,
+                816,
+                756,
+                844
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "in an appropriate classical or viscosity sense [14, 10], where "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathcal { L } ^ { u }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the controlled infinitesimal generator for the Markov state "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p _ { t } , \\gamma _ { t } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as in Section 3. Because "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "f"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is continuous and bounded under the assumed "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                856,
+                859,
+                887
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "13 "
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                917,
+                508,
+                929
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "cost structure, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "V"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is continuous under standard assumptions. Define the stopping region as the closed set "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                109,
+                859,
+                137
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "D = \\{(p, \\gamma , t): V (p, \\gamma , t) = 0 \\},",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/8c000b2abe565b369f75ee8ae842c0c94bab8033969d4b88c31e90f078876745.jpg"
+                }
+            },
+            "bbox": [
+                388,
+                138,
+                607,
+                155
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "and the continuation region as the open set "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                162,
+                452,
+                176
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "C = \\{(p, \\gamma , t): V (p, \\gamma , t) > 0 \\}.",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/0f774616c1ce8e58a1463e7fe404988d637375379a39e63113a6b1a8c1e2e883.jpg"
+                }
+            },
+            "bbox": [
+                388,
+                189,
+                607,
+                205
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Then the first hitting time of the stopping region, "
+                    }
+                ]
+            },
+            "bbox": [
+                135,
+                218,
+                496,
+                233
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "T ^ {*} = \\inf  \\{s \\geq t: (p _ {s}, \\gamma_ {s}, s) \\in D \\},",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/d6f4a73e9627dacf70c47489504a00cf81885d9457b0225bb955b2d0097f862b.jpg"
+                }
+            },
+            "bbox": [
+                380,
+                244,
+                614,
+                262
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "is an optimal stopping time; moreover, it is the smallest (minimal) optimal stopping time in the usual sense for such problems [14]. This completes the proof sketch. "
+                    }
+                ]
+            },
+            "bbox": [
+                133,
+                272,
+                859,
+                304
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "14 "
+                    }
+                ]
+            },
+            "bbox": [
+                488,
+                917,
+                509,
+                929
+            ]
+        }
+    ]
+]

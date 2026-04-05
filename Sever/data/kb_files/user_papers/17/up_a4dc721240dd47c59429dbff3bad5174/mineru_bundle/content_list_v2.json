@@ -1,0 +1,4414 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Divergent responses of leaf traits to latitudinal gradients in natural and planted forests "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                122,
+                939,
+                175
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Jianxiao Su1 , Jiali "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathsf { X } } { \\mathsf { u } } ^ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", Mengyao "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { Y u } ^ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and Jie "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { G a o } ^ { 1 , 2 ^ { * } }"
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                182,
+                448,
+                199
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "text_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "1 Key Laboratory for the Conservation and Regulation Biology of Species in Special Environments, College of life science, Xinjiang Normal University, Urumqi 830054, China "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "2 Key Laboratory of Earth Surface Processes of Ministry of Education, College of Urban and Environmental Sciences, Peking University, Beijing 100871, China "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "* Correspondence: jiegao@pku.edu.cn (Gao J) "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                201,
+                919,
+                239
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Abstract "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                62,
+                260,
+                139,
+                273
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf functional traits are key indicators of plant resource use and environmental adaptation, playing a crucial role in regulating carbon cycling and ecosystem stability. However, how leaf traits respond to latitudinal gradients in natural and planted forests remains insufficiently understood. Based on 482 forest plots across China (105 natural and 377 planted forests) surveyed from 2008 to 2020, latitudinal variation in specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen (LN), and leaf phosphorus (LP) were examined using quadratic polynomial fitting, variance partitioning, CatBoost analysis, and structural equation modeling (SEM). Natural and planted forests exhibited marked structural differences: natural forests had higher species richness and high stand diversity, whereas planted forests were structurally simplified, younger, and strongly shaped by management. Planted forests showed pronounced non-monotonic variation along latitude, with SLA and LP peaking at mid-latitudes, whereas natural forests exhibited weaker and more gradual latitudinal changes. Climatic and soil factors jointly dominated trait variation in natural forests, while latitude and stand structure were the primary determinants in planted forests. SEM further revealed that latitude affected leaf traits through indirect pathways mediated by climate, soil, and stand factors, with opposite effects between forest types. Natural forests showed consistent and climate-dominated trait responses, with soil properties mediating these effects in predictable ways, reflecting long-term environmental filtering. In contrast, planted forests exhibited greater short-term environmental plasticity. These findings highlight divergent mechanisms of trait–environment relationships between natural and planted forests and underscore the importance of integrating stand structure and climate matching in planted forests management to enhance ecological resilience and carbon sequestration under global change. "
+                    }
+                ]
+            },
+            "bbox": [
+                60,
+                275,
+                934,
+                465
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Keywords: Leaf functional traits, Latitudinal gradient, Planted forest vs natural forest, Trait–environment coupling, Resource utilization strategy, Climate–soil–forest interactions "
+                    }
+                ]
+            },
+            "bbox": [
+                60,
+                469,
+                932,
+                495
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Citation: Su J, Xu J, Yu M, Gao J. 2026. Divergent responses of leaf traits to latitudinal gradients in natural and planted forests. Forestry Research 6: e002 https://doi.org/10.48130/forres-0026-0002 "
+                    }
+                ]
+            },
+            "bbox": [
+                60,
+                522,
+                932,
+                548
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Introduction "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                571,
+                196,
+                589
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Plants adopt a series of coordinated strategies to acquire, use, and conserve resources in response to environmental constraints, and these strategies are strongly mediated by their functional traits[1,2]. Leaf functional traits—such as specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen (LN), and leaf phosphorus (LP)—serve as key indicators of these strategies by reflecting the balance between rapid resource acquisition and conservative resource retention[3,4]. For instance, high SLA and LN values are typically associated with acquisitive strategies characterized by fast photosynthetic turnover and high growth rates, whereas high LDMC and low SLA represent conservative strategies that enhance tissue durability and resource-use efficiency under stressful conditions[5]. These trait combinations are not only essential for determining species-level performance but also scale up to influence community assembly and ecosystem functioning by shaping patterns of primary productivity, carbon sequestration, and nutrient cycling[6]. Consequently, understanding variation in leaf functional traits provides crucial insights into the mechanisms linking plant resource-use strategies with ecosystem processes and stability. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                597,
+                489,
+                861
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Latitudinal gradients offer a powerful natural experiment for examining how plants adjust their functional traits to broad-scale environmental variation[7]. Latitude integrates multiple climatic drivers—such as mean annual temperature, precipitation regimes, radiation, and season length—that are known to shape plant "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                861,
+                489,
+                931
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "metabolic rates, nutrient-use strategies, and life-history trade-offs[8]. As plants experience increasingly colder temperatures, shorter growing seasons, and reduced nutrient availability toward higher latitudes, they typically shift from acquisitive to more conservative resource-use strategies, reflected in systematic changes in leaf traits such as SLA, LDMC, LN, and LP[9]. However, these responses are often curvilinear rather than strictly monotonic, frequently displaying quadratic or threshold-like patterns that reflect plant adaptation strategies and trade-offs along environmental gradients[10,11]. "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                571,
+                944,
+                695
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In addition to latitude, climate, soil, and forest structural factors are also important drivers of spatial variation in leaf traits. Climate acts as a primary constraint on plant function at macroecological scales by regulating temperature regimes, water availability, and solar radiation. These climatic controls shape plant physiological processes, metabolic rates, and photosynthetic capacity, thereby influencing leaf trait expression[12,13]. Temperature and precipitation jointly define the thermal and hydric framework limiting plant growth: in warm and humid regions, higher photosynthetic rates and nutrient cycling favor the development of thin, nitrogen-rich leaves[14], whereas in cold and arid regions, plants tend to produce thick leaves with high LDMC to enhance tissue toughness and drought resistance[15]. Soil factors influence plant traits and stress adaptation through nutrient availability and chemical properties. In many terrestrial ecosystems, nitrogen and phosphorus are the primary limiting nutrients, and their availability strongly influences leaf N and leaf P concentrations and their stoichiometric "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                696,
+                944,
+                930
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                38,
+                164,
+                74
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "ARTICLE "
+                    }
+                ]
+            },
+            "bbox": [
+                870,
+                57,
+                942,
+                71
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Open Access "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                83,
+                168,
+                101
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "https://doi.org/10.48130/forres-0026-0002 "
+                    }
+                ]
+            },
+            "bbox": [
+                710,
+                86,
+                944,
+                100
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                774,
+                102,
+                942,
+                114
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "equation_inline",
+                        "content": "\\circledcirc"
+                    },
+                    {
+                        "type": "text",
+                        "content": "The Author(s) "
+                    }
+                ]
+            },
+            "bbox": [
+                55,
+                945,
+                141,
+                956
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "www.maxapress.com/forres "
+                    }
+                ]
+            },
+            "bbox": [
+                796,
+                946,
+                941,
+                956
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "balance[16,17]. Soil pH indirectly affects nutrient uptake and utilization efficiency by regulating nutrient forms and microbial activity[18]. In nutrient-poor soils of arid or high-latitude regions, plants often adapt by enhancing nutrient use efficiency or producing high-LDMC leaves, consistent with the 'nutrient limitation hypothesis', which has been validated across multiple ecosystems[19,20]. Forest structural factors reflect the combined influence of community structure and biotic interactions. Forest age indicates successional stage and historical resource accumulation, with trait differences among ages reflecting dynamic trade-offs between growth and conservation strategies[21]. Forest density affects light distribution, competition intensity, and water use, thereby shaping leaf traits; for example, individuals in high-density stands often increase SLA or reduce LDMC to enhance light capture efficiency[22,23]. Species richness represents community diversity and determines the range and community-weighted mean (CWM) of functional traits, ultimately influencing ecosystem functional stability and nutrient use efficiency[24]. Such diversity differences between forest types are especially relevant because they influence community functional composition and modulate how leaf traits respond to climate, soil conditions, and stand structure[25]. Although previous studies have highlighted these drivers, most have focused on local or regional scales and considered the effects of single environmental factors on traits. Few studies have integrated climate, soil, and forest structure at a national scale. In complex environments such as arid, cold, or transitional ecological zones, climatic, edaphic, and stand structural factors often interact rather than acting independently, jointly shaping plant resource-use strategies and leaf traits[26]. Therefore, there is an urgent need to disentangle the relative contributions and pathways through which multiple environmental drivers shape spatial variation in leaf traits at macroecological scales. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                80,
+                485,
+                503
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Meanwhile, the ecological response differences between natural and planted forests have received increasing attention. Natural forests typically undergo long-term succession, resulting in higher species diversity, greater structural complexity, and more stable community functional states shaped by prolonged environmental filtering[27]. Their leaf traits often represent conservative ecological strategies—such as higher dry matter investment and lower specific leaf area—reflecting long-term evolutionary acclimation and functional optimization to relatively stable environmental conditions[28]. In contrast, planted forests are shaped by anthropogenic interventions, including afforestation, thinning, fertilization, and species selection, which lead to simplified stand structures, younger stand ages, and reduced community complexity. Consequently, leaf traits in planted forests tend to show higher environmental plasticity and weaker long-term trait coordination relative to natural forests[29,30]. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                505,
+                485,
+                710
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Previous studies in Chinese forest ecosystems have reported substantial spatial variation in key leaf traits along climatic and edaphic gradients: SLA generally decreases toward colder or less favorable environments[31], while LDMC and structural investment increase with environmental stress, reflecting shifts from acquisitive to conservative strategies[32]. In planted forests, high trait plasticity has been widely documented, driven by stand age, density, and management intensity, with fast-growing species typically showing higher SLA and nutrient concentrations than those in natural forests[33]. However, most existing studies are restricted to specific regions, single forest types, or narrow environmental gradients, and few have simultaneously compared natural and planted forests across broad latitudinal zones using integrative climate–soil–stand frameworks. This knowledge gap limits our understanding of largescale differences in trait–environment coupling, and constrains predictions of forest functional dynamics and the ecological "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                711,
+                485,
+                928
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "consequences of management strategies under environmental change. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                81,
+                942,
+                107
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Building on the above knowledge gaps, this study aims to quantify broad-scale latitudinal patterns of four key leaf functional traits (SLA, LDMC, LN, LP) in natural and planted forests across China and to identify the dominant environmental drivers shaping these patterns. Specifically, we seek to: (i) determine whether natural and planted forests exhibit distinct latitudinal trends in leaf morphological and nutrient traits; (ii) disentangle the relative contributions of climate, soil, and stand structure to trait variation across forest types; and (iii) clarify the direct and indirect pathways through which latitude regulates leaf traits. These objectives establish an integrated framework for assessing differences in trait–environment coupling and evaluating the functional stability of natural versus planted forests across broad environmental gradients. To address these objectives, latitudinal variation was analyzed in SLA, LDMC, LN, and LP using 482 forest plots across China (105 natural and 377 planted forests), surveyed between 2008 and 2020. Non-monotonic trait–latitude relationships were quantified using quadratic polynomial models, and the relative importance of climatic, soil, and stand structural factors evaluated through correlation analysis, variance partitioning, machine-learning–based feature importance assessment, and structural equation modeling (SEM). Because climate and soil constraints do not change linearly with latitude—showing midlatitude climatic optima, nutrient thresholds, and shifts between acquisitive and conservative strategies—leaf functional traits frequently respond in nonlinear or unimodal patterns along largescale geographic gradients. Based on previous large-scale trait–climate analyses and evidence for management-induced trait plasticity, three explicit, testable hypotheses are proposed: (i) Leaf functional traits show non-monotonic latitudinal patterns (U- or inverted U-shaped), especially for traits associated with climatic optima (e.g., SLA, LP); (ii) because management regulates resource availability and stand structure, planted forests are expected to show stronger trait sensitivity to stand variables (age, density, species richness) and to latitude compared with natural forests; (iii) the effects of latitude on leaf traits occur primarily through indirect climatic and edaphic pathways (latitude climate → soil stand structure traits), with the strength of these pathways differing between natural and planted forests. Understanding these mechanisms has important implications for forest management. For natural forests, identifying trait–environment relationships can inform conservation strategies that maintain structural complexity and long-term functional stability under climate change. For planted forests, clarifying how stand structure and management practices regulate leaf traits can guide the optimization of planting density, species composition, and resource inputs to enhance productivity, resilience, and carbon sequestration. "
+                    }
+                ]
+            },
+            "bbox": [
+                509,
+                109,
+                942,
+                741
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Materials and methods "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                512,
+                767,
+                764,
+                784
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Sample data "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                804,
+                620,
+                817
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "A total of 482 forest plots were included in the present study, comprising 246 plots from original field surveys, and 236 plots compiled from published literature. This study integrated field survey data and literature sources collected between 2008 and 2020, covering forest ecosystems across different climatic zones, and vegetation types in China. A total of 482 forest plots were obtained, including 377 planted forests, and 105 natural forests. Natural forests were defined as forest communities that have "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                819,
+                942,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                39,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                699,
+                50,
+                942,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 2 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                946,
+                126,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                707,
+                946,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "regenerated naturally without artificial planting, typically characterized by complex canopy structures, high species diversity, and minimal anthropogenic disturbance. Planted forests were defined as stands established through afforestation or reforestation, generally composed of one or a few tree species and subject to management interventions such as thinning, fertilization, or pruning. The data for all planted and natural forest plots are provided in Supplementary Data 1. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                80,
+                485,
+                189
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Plot selection followed three criteria: (i) forest type was clearly defined (natural or planted); (ii) complete information on forest structure and environmental conditions was available; and (iii) plots were representative of regional vegetation and climate characteristics. To ensure consistency and comparability between the field and literature data, the following procedures were applied: strict inclusion criteria for literature data were adopted, including only studies reporting the same forest types, geographic locations, and leaf traits (SLA, LDMC, LN, LP) measured following standardized protocols. All literature data were carefully checked and converted to match the units, measurement methods, and trait definitions used in the field surveys. Environmental and stand variables (e.g., climate, soil, forest structure) from literature sources were also verified for compatibility with field measurements, and any outliers or inconsistent entries were excluded. Through these steps, the combined dataset of 482 plots is comparable and reliable for analyzing latitudinal patterns of leaf traits. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                190,
+                485,
+                423
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At each site, four adjacent "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "3 0 \\times 3 0 ~ \\mathrm { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "subplots were established, avoiding areas with obvious human disturbance. GPS devices were used to record latitude, longitude, and elevation. Forest structural factors included forest age, forest density, and species richness. Fertilization is not routinely applied in the studied forest types, and no plots had documented fertilization records in the inventory datasets used in this study. Therefore, fertilization was not included as a stand-level variable. Forest age and management history were obtained through field surveys, interviews, and literature sources. For planted forests, stand age was obtained from local forestry bureaus and management records, where planted forests establishment years are explicitly documented. For natural forests, forest age was taken from official stand-age descriptions provided by local forestry and resource management agencies during field surveys. These records reflect regionally recognized stand developmental stages, rather than precise tree ages, and are the most reliable stand-level age information available for large-scale analyses. This standardized classification is widely used in regional forest ecological studies. Species richness was recorded at the plot level, and used as a structural variable; species identities were not required for community-level trait analyses. Forest density was quantified as the number of trees per unit area, which, together with stand age and species richness, provides an effective representation of key components of stand structure in large-scale forest assessments. In this study, stand age, stand density, and species richness were focused on as forest structural variables, as these metrics are consistently defined across large-scale forest inventories and literature sources, and they effectively capture the dimensions of stand structure that are relevant to leaf trait variation at the national scale. Other metrics (e.g., canopy height, basal area) may enrich local-scale analyses but are not essential for the present cross-regional comparisons. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                426,
+                485,
+                853
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Functional trait data "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                53,
+                872,
+                233,
+                885
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Four representative leaf functional traits—specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen content (LN), and leaf phosphorus content (LP)—were selected to reflect plant strategies "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                887,
+                485,
+                928
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "for resource acquisition, utilization, and conservation. Within each plot, 3–5 dominant tree species were sampled. While species were selected based on dominance in the canopy, their identities were not documented, consistent with the focus on plot-averaged functional traits. For each species, 3–5 healthy, mature individuals were selected, and 5–10 fully expanded sun-exposed leaves were collected per individual during July–August to ensure phenological consistency. Leaf area was measured using a scanner (Canon CanoScan LIDE 110). Leaf fresh mass was measured immediately after harvesting using a high-precision electronic balance (0.0001 g), with particular care taken to minimize the time between leaf excision and weighing to limit water loss. Given the field-based sampling conditions, leaf fresh mass was determined directly after harvest without a rehydration step[34]. After weighing, leaves were heated at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 0 5 ~ ^ { \\circ } \\mathsf { C }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for 15 min to deactivate enzymes, and then ovendried at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "60 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "for "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "4 8 \\mathrm { - } 7 2 \\mathrm { ~ h ~ }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "until reaching constant mass. SLA "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\mathsf { m } ^ { 2 } / \\mathsf { k g } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "was calculated as the ratio of leaf area to dry mass, and LDMC "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( { \\mathfrak { g } } / { \\mathfrak { g } } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "as the ratio of dry mass to fresh mass. Leaf nitrogen content was measured using an elemental analyzer, while leaf phosphorus content was determined by the molybdenum–antimony anticolorimetric method. All measurements followed the standardized protocols proposed by Cornelissen et al.[35], to ensure comparability across forest types[32]. At the plot scale, community-weighted mean (CWM) leaf trait values were calculated by weighting species-level mean traits by their relative abundance within each plot, thereby providing an integrated representation of community-level functional composition relevant to this macroecological analysis. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                81,
+                942,
+                452
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Environmental data "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                470,
+                685,
+                484
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Climatic variables included mean annual temperature (MAT), mean annual precipitation (MAP), mean annual evapotranspiration (MAE), and annual sunshine duration (ASD), obtained from the WorldClim database (www.worldclim.org, 1 km resolution), and the China Meteorological Data Service Center (http://data.cma.cn). Soil variables were collected from the national soil databases (http://soil.geodata.cn; www.osgeo.cn/data/wc137, "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "2 5 0 \\ \\mathsf { m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "resolution) and included pH, total nitrogen (Soil N), and total phosphorus (Soil P) for the "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "0 { - } 3 0 ~ \\mathsf { c m }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "soil layer. Spatial distribution maps of the plots were generated using ArcMap (v10.8), and climate and soil data were matched to each plot's GPS coordinates using bilinear interpolation implemented via the raster and terra packages in R, ensuring high spatial accuracy of environmental variables. Forest structural variables included forest age, forest density (trees ha−1), and species richness (number of tree species per plot). "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                486,
+                942,
+                692
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Data analysis "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                711,
+                626,
+                726
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "All statistical analyses were conducted in the R environment (v4.3.1, R Core Team, 2023). First, the spatial distribution of the 482 forest plots across China was visualized using ArcMap 10.8. Plot coordinates recorded via GPS were overlaid with China's administrative boundary vector data (1:1,000,000) to generate distribution maps for natural and planted forests. These maps provided a visual reference for latitudinal and climatic distribution patterns and guided subsequent trait–environment analyses. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                727,
+                942,
+                835
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To examine latitudinal patterns of leaf functional traits, quadratic polynomial regression models were fitted separately for SLA, LDMC, LN, and LP in natural and planted forests: "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                837,
+                942,
+                876
+            ]
+        },
+        {
+            "type": "equation_interline",
+            "content": {
+                "math_content": "\\text {T r a i t} = \\beta_ {0} + \\beta_ {1} (\\text {L a t i t u d e}) + \\beta_ {2} (\\text {L a t i t u d e} ^ {2}) + \\varepsilon",
+                "math_type": "latex",
+                "image_source": {
+                    "path": "images/2f629bfcaa451737989af98cad01dbc36442aba49465da02c05288388d185e72.jpg"
+                }
+            },
+            "bbox": [
+                601,
+                885,
+                850,
+                897
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "where, Trait represents the leaf functional trait; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 0 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the intercept, reflecting the estimated trait value at latitude zero; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 1 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the linear term "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                902,
+                942,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                49,
+                297,
+                61
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": " Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                867,
+                39,
+                942,
+                63
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                946,
+                287,
+                956
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 3 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                870,
+                946,
+                942,
+                956
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "coefficient, indicating the linear trend of trait variation with latitude "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\beta _ { 1 } > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates increasing trait values with latitude, and vice versa); "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the quadratic term coefficient, representing the nonlinear response to latitude "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\beta _ { 2 } > 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates a U-shaped pattern with lowest values at mid-latitudes, while "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\beta _ { 2 } < 0"
+                    },
+                    {
+                        "type": "text",
+                        "content": "indicates an inverted-U pattern with highest values at mid-latitudes, reflecting an optimal functional zone or inflection point); and "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\varepsilon"
+                    },
+                    {
+                        "type": "text",
+                        "content": "is the residual error. Model fit was assessed using "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { R } ^ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and significance was determined at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p \\leq 0 . 0 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". This approach allowed evaluation of both linear and nonlinear trends in leaf traits along latitudinal gradients and comparison of responses between forest types. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                80,
+                489,
+                232
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Pearson correlation coefficients between leaf traits and environmental variables were calculated using the linkET package in R, and correlation heatmaps were plotted. Climate variables included MAT, MAP, MAE, and ASD; soil variables included Soil N, Soil P, and Soil pH; forest structural variables included forest age, forest density, and species richness. Significance was tested using two-tailed tests "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( ^ { * } p < 0 . 0 5 ; ^ { * * } p < 0 . 0 1 ; ^ { * * * } p < 0 . 0 0 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                232,
+                487,
+                329
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "To quantify the relative contributions of climate, soil, and forest factors to spatial variation in leaf traits, hierarchical partitioning analysis was performed using the rdacca.hp package. This method separates independent and joint contributions of environmental factors, identifying the primary drivers in natural versus planted forests. Linear response strength was visualized via barplots of standardized regression coefficients. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                329,
+                487,
+                426
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Further, the CatBoost machine learning algorithm (Category Boosting) was applied to rank the importance of environmental factors. SLA, LDMC, LN, and LP served as response variables, while climate, soil, and forest variables were predictors. Five-fold crossvalidation was used to reduce overfitting, and feature importance scores quantified the independent contribution of each variable. Permutation tests "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( n = 1 , 0 0 0 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") assessed the significance of differences in feature importance "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p < 0 . 0 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                426,
+                487,
+                537
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Finally, piecewise structural equation modeling (piecewiseSEM) was used to examine direct and indirect effects of latitude, climate, soil, and forest factors on leaf traits. All component equations in the piecewise SEM were fitted using linear models (lm), resulting in a linear structural equation model. In this study, it was considered that "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                537,
+                489,
+                605
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "the response of leaf traits in planted forests and natural forests to latitude exhibits a quadratic polynomial relationship. To satisfy the assumption of linear relationships in structural equation modeling (SEM), a square-root transformation was performed on the dependent variable of leaf traits to approximate its linearity with the independent variables (i.e., presenting a linear relationship in one variable). Subsequently, a linear SEM was constructed based on this to conduct path analysis, ensuring that the model assumptions were met. This allowed the reliable assessment of the direct and indirect effects of climate, soil, and stand factors on leaf traits and to quantify the multi-factor interactions at a large spatial scale. Linear models (lm) were used for each path, and standardized path coefficients quantified effect strength and direction. Model fit was evaluated using Fisher's C statistic, and paths were considered significant at "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "p < 0 . 0 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Separate SEMs were constructed for natural and planted forests to compare structural differences in trait formation mechanisms. Path diagrams illustrated the direction and magnitude of effects (arrow direction indicates positive or negative effect, line thickness reflects effect strength). In addition to estimating path coefficients, total effects were decomposed into direct and indirect components to quantify the mediated influence of latitude, climate, soil properties, and forest structure on leaf traits. This linear formulation follows the standard implementation of the piecewiseSEM framework, and is widely used in ecological applications. Because the goal of the SEM is to quantify direct and indirect pathways rather than model detailed non-monotonic functional forms, linear paths provide an appropriate and reliable approximation for evaluating multi-factor interactions at broad spatial scales. Multicollinearity was assessed via variance inflation factors (VIF), retaining variables with "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ \\mathsf { V I F } } < 1 0 "
+                    },
+                    {
+                        "type": "text",
+                        "content": ". All significance tests were two-tailed "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\alpha = 0 . 0 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), and multiple comparisons were corrected using the Benjamini– Hochberg method. "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                80,
+                944,
+                514
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Results "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                507,
+                537,
+                591,
+                556
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Specific leaf area (SLA) in planted forests exhibited a significant quadratic relationship with latitude "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p \\leq 0 . 0 0 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), with higher values at mid-latitudes, and lower values at low and high latitudes, indicating "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                563,
+                944,
+                605
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2281cc55aa969b7c827381417553474b7d1d0d5dc9200d5ba5df73f56b4c8c02.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                67,
+                625,
+                465,
+                900
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5064fef5f6b16b5ac0465a5b3d619c061bab39daaeb011665f40250a41ffc8d9.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                485,
+                624,
+                705,
+                750
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/4a93b8d00490f9a56fe5b0b8206b4b4149471f4c7eccc9abb85e15c7ef8d6ff5.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                709,
+                625,
+                929,
+                750
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/d62ded0a5f1c125a7ebd8c56b1a2a7f21a27ad579ecc65aa31e92121b7f77836.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                487,
+                755,
+                705,
+                898
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/bd04b965160ce26c6dcd1686092100f8f81229209ea09b186ed56c2709749cf4.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 1 (a) Spatial distribution of natural forests (green), and planted forests (orange) sampling sites; (b)–(e) Latitudinal variation patterns of specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen (LN), and leaf phosphorus (LP) in the two forest types. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                709,
+                757,
+                929,
+                898
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                38,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                697,
+                49,
+                942,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 4 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                945,
+                127,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                705,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "strong plasticity of leaf structure along the latitudinal gradient. Leaf dry matter content (LDMC) showed no significant latitudinal response in either forest type "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p > 0 . 0 5 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", suggesting low sensitivity of LDMC to latitude (Fig. 1c). Leaf nitrogen content (LN) slightly increased with latitude in planted forests "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p = 0 . 0 2 9 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "but showed no significant trend in natural forests, implying that planted forests at higher latitudes may enhance nitrogen accumulation or optimize nutrient-use strategies to cope with lower temperatures (Fig. 1d). Leaf phosphorus content (LP) also displayed a significant quadratic relationship with latitude in planted forests "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( p \\leq 0 . 0 0 1 )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", whereas no significant response was observed in natural forests (Fig. 1e). Overall, leaf traits in planted forests responded more strongly to latitudinal gradients than in natural forests, indicating higher environmental plasticity, while natural forests exhibited greater homeostatic stability. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                80,
+                489,
+                281
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Environmental driver analysis revealed distinct trait–environment response patterns between forest types. In natural forests, SLA, "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                282,
+                487,
+                309
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "LDMC, and LP were significantly correlated only with mean annual evapotranspiration (MAE): SLA and LP were negatively correlated, whereas LDMC was positively correlated; LN showed no significant response to environmental factors (Fig. 2a–d). In contrast, leaf traits in planted forests were significantly influenced by multiple environmental factors. Forest age had a prominent effect, positively correlated with SLA and LP, but negatively with LDMC and LN. SLA, LN, and LP were negatively correlated with species richness, suggesting that higher community complexity may constrain leaf trait development in planted forests. Soil nutrients also played a key role: Soil N was negatively associated with SLA, LN, and LP; Soil P was negatively associated with LN and LP, but positively with LDMC. LN and LP were additionally modulated by climate variables (Fig. 2e–h). "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                80,
+                944,
+                268
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Integrative analyses of climate, soil, and forest factors demonstrated significant differences in environmental response mechanisms between natural and planted forests (Fig. 3). Variance "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                268,
+                944,
+                309
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6df927dece0c6ffda655d0e89d1c2edfa693b8c20d6b59be2d639923e4ddc5ca.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                330,
+                282,
+                444
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/c189df940f9e5f6edd1e915e14e106b46a4ad9fce75f2df693ad2b87f3e715d7.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                285,
+                330,
+                497,
+                444
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/f53ebdca2cf22a0784cc79ab08447c96f304910e9b403eb03018f4ebc17de0bf.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                500,
+                330,
+                710,
+                444
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/87c24b8ee04ccb43c99a282db02306835e0f03251ffbab3dd4f3bc2c1b50734b.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                715,
+                330,
+                927,
+                444
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/72dbb030a89efd6b1ebe47c5a0ec99eb39988a0a7f95bfcbea6518aa62379c9c.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                451,
+                284,
+                578
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1f27e00405c2331846decb101df5b86d63c80286c05cec1cb2b2ed8dd00979b2.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                287,
+                448,
+                497,
+                578
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2bb4255741be5a2c99f59e3c9d2e678bd3d406c7e9cb0391a97933c11ec8c063.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                500,
+                449,
+                710,
+                577
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/ba6982e6ef75dc525ea541d24836b57447f6338db7d1b637744e2660b64546f3.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 2 Correlation analysis between leaf traits and environmental factors. Pearson correlation coefficients between leaf traits and climate, soil, stand structure, and latitude are shown for natural and planted forests. (a)–(d) represent natural forests, and (e)–(h) represent planted forests. Blue, pink, green, and orange bars correspond to climate, soil, forest structure, and latitude factors, respectively; bar length indicates the magnitude of the correlation coefficient, and the direction (positive or negative) indicates the correlation sign. Significance levels: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast \\ast \\ast } p < 0 . 0 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast \\ast } p < 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { * } p < 0 . 0 5 ,"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". SLA: specific leaf area; LDMC: leaf dry matter content; LN: leaf nitrogen concentration; LP: leaf phosphorus concentration. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                715,
+                449,
+                927,
+                577
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/15717e82665b707706ebeada5bd7dfebd36e040f449e154ca3f246734b259065.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                68,
+                664,
+                487,
+                876
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/007305598a956ccc5d84853c3374716619c03296f13824f0354aa30ad5e778a4.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 3 Multiple correlation analysis of potential drivers influencing leaf traits in (a) natural, and (b) planted forests. Climate factors include mean annual temperature (MAT), mean annual precipitation (MAP), mean annual evapotranspiration (MAE), and annual sunshine duration (ASD); soil factors include soil total nitrogen (N), available phosphorus (P), and soil pH; forest factors include forest age, forest density, and species richness. Significance levels: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { * * * } p < 0 . 0 0 1"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "{ ^ { * * * } p } < 0 . 0 0 1 ; { ^ { * * } p } < 0 . 0 1 ; { ^ { * } p } < 0 . 0 5"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast \\ast } p < 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                507,
+                662,
+                927,
+                876
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                49,
+                297,
+                61
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research? "
+                    }
+                ]
+            },
+            "bbox": [
+                865,
+                39,
+                942,
+                63
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                945,
+                289,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 5 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                868,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "partitioning and multiple linear regression showed that leaf traits in natural forests were primarily jointly influenced by climate and soil, with latitude exerting relatively weak direct effects (Fig. 4a–d). Conversely, leaf traits in planted forests responded strongly to latitude, especially SLA, LN, and LP. Latitude contributed most to LP variation in planted forests, exceeding the influence of climate and forest factors. Specifically, SLA "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 7 8 . 7 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "and LDMC "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 6 3 . 1 1 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ") were primarily driven by forest factors; LN was influenced by forest "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 3 2 . 7 1 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", climate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 3 0 . 4 5 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and soil "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 3 2 . 7 9 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "jointly; LP was mainly driven by soil "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 4 9 . 0 7 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "), followed by latitude "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "1 8 . 6 7 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", climate "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 7 . 4 7 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", and forest "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( 1 5 . 2 0 \\% )"
+                    },
+                    {
+                        "type": "text",
+                        "content": "(Fig. 4e–h). "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                80,
+                489,
+                228
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Feature importance analysis further highlighted forest age as a key determinant of all four leaf traits in both forest types. Latitude also played a prominent role in explaining SLA variation across both forests. In natural forests, climate factors were among the top "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                229,
+                489,
+                283
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "predictors for SLA, LDMC, and LP, except for LN. In planted forests, soil nitrogen and phosphorus were consistently important across all traits, and forest density significantly influenced all traits except LN (Fig. 5). "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                80,
+                944,
+                135
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Piecewise structural equation modeling revealed contrasting paths of multi-factorial influence on leaf traits between forest types (Figs 6, 7). In natural forests, SLA (path coefficient "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "= 0 . 2 4 7 "
+                    },
+                    {
+                        "type": "text",
+                        "content": "), LDMC (–0.014), and LP (0.253) were directly influenced by latitude. In planted forests, SLA (–0.300), LDMC (–0.084), and LP (–0.140) were also directly influenced by latitude, but with opposite directions. LN in both forest types was primarily driven by forest factors, with indirect modulation via climate. Decomposition of the SEM pathways showed that latitude influenced leaf traits both directly and indirectly through its effects on climate, soil nutrients, and forest structure, with these mediated pathways constituting a substantial "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                135,
+                944,
+                283
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/98ec98dfcbf88721514e29a2eaa92126e06781e3f81689c8e3025c0a32319596.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                307,
+                278,
+                418
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/a94b6650d0d3c671856b27e912e302ba7cd06321f0c5a710fe8b1b6d111336b3.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                282,
+                304,
+                492,
+                417
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/7b476f3d68c2937f688da76aa5308f22f4293452bfae6846bca6737f9747d711.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                495,
+                306,
+                707,
+                418
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/32a2bb86c5e8519eba80ec17b5e52ac915cb8813e3788a46517b3ea1904df852.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                712,
+                304,
+                926,
+                418
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/3043401ff27d85e145d55c732836ca8610e42ddbf7affe5858e5f0a6ea27fa2e.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                422,
+                278,
+                542
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/8b2a7ad60c389db9856d12762d7b3737c9fdf22b8867e05b3e218753e0d925e3.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                282,
+                420,
+                495,
+                542
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/239558554fd44be152a3b6d521dc9bcf5d208bd7e421c54d47321297c9d8ed5e.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                495,
+                420,
+                710,
+                542
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/834fbd87443fe47272cb15b2563c6ee9ac8ffc7483d36753ba61debb36b39633.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 4 Relative contributions of environmental and stand structural variables to geographic variation in leaf functional traits (SLA, LDMC, LN, and LP) in natural and planted forests. Each panel consists of two sub-panels. The left sub-panel shows the partitioning of explained variance among four predictor groups—Latitude, Soil (Soil N, Soil P, Soil pH), Climate (MAT, MAP, MAE, ASD), and Forest structure (species richness, forest age, forest density)—based on hierarchical partitioning using adjusted "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\mathsf { R } ^ { 2 }"
+                    },
+                    {
+                        "type": "text",
+                        "content": "from redundancy analysis (RDA). The right sub-panel presents standardized regression coefficients "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( \\pm \\mathsf { S E } )"
+                    },
+                    {
+                        "type": "text",
+                        "content": ", quantifying the direction and magnitude of individual predictors. Positive values indicate positive effects, and negative values indicate negative effects. A broken-axis transformation was applied where necessary to visualize both small and large coefficient estimates simultaneously. Filled points are colored by predictor category (Forest, Climate, Soil, Latitude), significance levels: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast \\ast \\ast } p < 0 . 0 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { * * } p < 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "1; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast } p < 0 . 0 5"
+                    },
+                    {
+                        "type": "text",
+                        "content": ". Panel descriptions: Natural forests: (a) SLA, (b) LDMC, (c) LN, (d) LP; Planted forests: (e) SLA, (f) LDMC, (g) LN, (h) LP. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                712,
+                420,
+                926,
+                542
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/3c462c2b26c49b8535d3990090f7ee1b93a50fa7178d67617abbff59d996eae0.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                667,
+                285,
+                752
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6b6820eb0e4b1f8e79798ea9fb5e536f65e923653ffded11c2d2f44b30a9079f.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                290,
+                666,
+                499,
+                752
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/ae4d1185bcf5784aa320ad153d7f0b69591f28306a706451eed78b80910f3a6d.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                504,
+                667,
+                712,
+                752
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/7ee26b6b7239ac2a0df4e63262dc669efd946e30e211c334e410865b33a68478.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                715,
+                666,
+                929,
+                752
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6fad41f218589420ebaba3db487b209afa524499b6b217ed22408a992473ec59.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                70,
+                757,
+                285,
+                851
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/7060729b44162409f277baf179596b9f9f0904c5eb45866b9338db5a1c0cd216.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                290,
+                755,
+                499,
+                851
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/57ad5f140504bc5136c63fb10d70e2d8b339665c12747d6b88f92ecd7c2f255e.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                502,
+                755,
+                712,
+                851
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6956a1dec6ed3f30244e7de0142fa9f4a2cfa01f223f21a09543d0f4c57540ff.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 5 Relative importance of environmental and stand structural predictors for leaf functional traits in natural and planted forests based on CatBoost models. Results for natural forests—(a) SLA, (b) LDMC, (c) LN, and (d) LP—and planted forests—(e) SLA, (f) LDMC, (g) LN, and (h) LP. Predictor variables were grouped into four categories: Climate (MAT, MAP, ASD, MAE), Soil (Soil pH, Soil N, Soil P), Stand structure (species richness, forest age, forest density), and Latitude. Feature importance was derived from CatBoost using 300 iterations and RMSE loss. Bars represent the relative contribution of each predictor, with colors indicating predictor groups. Asterisks mark relative importance ranks (*** top 3, ** top 4–5, ns "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "="
+                    },
+                    {
+                        "type": "text",
+                        "content": "not ranked), highlighting the most influential predictors for each trait. Higher bar height indicates stronger predictive contribution to trait variation. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                715,
+                755,
+                929,
+                851
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                38,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                697,
+                49,
+                944,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 6 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                945,
+                127,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                705,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/09aab659f732a7aa17ac82eb2f20965b5f44a90ef66f27a907d1454d77eed8a9.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                80,
+                529,
+                211
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/3e77da93d21650d8cc475132f85f38c884440ba52deb69026d01df4f73bc1ab8.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                529,
+                78,
+                786,
+                201
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/07ea03e6128d0cedda41795810e9f1c1a8629a21004b0067c764324c5d5983bb.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                213,
+                213,
+                521,
+                353
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/56470d5c7809e68e40e8bee11434377256b64123d95a170ffc7f778ca300639d.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                524,
+                211,
+                786,
+                337
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/2d916dfae0a5898b2bb7b3e562baacff8dbc105eec82ac330bff1af87dbb277c.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                353,
+                529,
+                495
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/bfb6403285d21eac83c7ee8720cf36c3955d3ba83a1c9ddcfd856710eceb1e6e.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                524,
+                345,
+                784,
+                472
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/9f276b55952b86232fcdb05466a5969fd1165f499bb70cbddaaced46f9dd956e.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                489,
+                531,
+                636
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/5d64637a2bf453a486aa522ae134071956462feddbe48d9dcdf630d889d4d851.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 6 Structural equation models (SEMs) and effect decomposition of leaf trait responses to latitude in natural forests. (a), (c), (e), (g) Represent SEMs for specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen concentration (Leaf N), and leaf phosphorus concentration (Leaf P), respectively. (b), (d), (f), (h) Show the decomposition of standardized direct effects (blue), indirect effects (orange), and total effects (green) of environmental factors on leaf traits. Solid blue arrows indicate significant positive paths, solid red arrows indicate significant negative paths, and arrow thickness represents the magnitude of standardized path coefficients. Dashed arrows denote non-significant paths. Numbers adjacent to arrows indicate standardized path coefficients for significant paths only "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( ^ { * } p < 0 . 0 5 ; ^ { * * } p < 0 . 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "; "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { * * * } p < 0 . 0 0 1 ."
+                    },
+                    {
+                        "type": "text",
+                        "content": "). Fisher's C statistic is shown as a measure of model fit. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                524,
+                485,
+                786,
+                641
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "portion of the total effects (Figs 6, 7). Planted forests exhibited higher sensitivity and response magnitude under these multi-factor regulatory mechanisms, reflecting stronger plasticity, and adaptive capacity of leaf functional traits to environmental gradients. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                741,
+                489,
+                796
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Discussion "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                820,
+                174,
+                838
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At the national scale, this study systematically compared spatial variation patterns of leaf functional traits along latitudinal gradients, and their multidimensional environmental drivers in natural and planted forests. The results demonstrate pronounced divergence in the responses of leaf morphological and nutrient traits to latitude, climate, soil, and forest factors between the two forest types. Natural "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                846,
+                490,
+                931
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "forests exhibited strong functional homeostasis and consistent environmental adaptation, whereas planted forests showed higher plasticity and greater sensitivity to environmental variation. These differences reflect the distinct pathways through which long-term natural selection and anthropogenic management shape plant functional strategies, highlighting the potential trade-offs between ecosystem stability and the intensity of human intervention. "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                742,
+                944,
+                838
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Differentiation of leaf functional traits along latitudinal gradients and their ecological adaptation mechanisms "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                505,
+                855,
+                899,
+                900
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The present study revealed that specific leaf area (SLA), and leaf phosphorus content (LP) in planted forests exhibited significant "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                900,
+                944,
+                929
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                49,
+                300,
+                61
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": " Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                865,
+                38,
+                944,
+                63
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                944,
+                290,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 7 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                868,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/84b310f98bbce44a8afa3ad768cea594e6b7b57f1f5ebddfe848381164b349e5.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                80,
+                531,
+                211
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/f8a4bbc69634489e72d8698c08451e3355b808e0e873827b48b3eec5bf5ff4ac.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                532,
+                78,
+                786,
+                203
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/6bf5a684955c44fa7d79796e5dc8e0444b310394fd42b989d5b9161422caa916.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                213,
+                214,
+                531,
+                355
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/d14d3d0a401e0151c8de228e2df149641aa25744b0675bae258d1c6ac0aad7ec.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                532,
+                211,
+                786,
+                339
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/0d7280c77d1f0c6ae24691bb362ce164f17f34346238b5a743986801b049a022.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                346,
+                531,
+                496
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/9e393472e8798d88d104fc8b89cc8a645970dc9c9bfbb884709bfa7041ff9283.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                529,
+                346,
+                784,
+                474
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/82d1b4ac868f05b540eef6223578fb1c67f286fd729be277a09188a40216e788.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                211,
+                489,
+                531,
+                639
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/51f38f3aac7a5d65204a810ffb6c5ce959539f07402d12f1843c9f0407b6aa32.jpg"
+                },
+                "image_caption": [
+                    {
+                        "type": "text",
+                        "content": "Fig. 7 Structural equation models (SEMs) and effect decomposition of leaf trait responses to latitude in planted forests. (a), (c), (e), (g) Represent SEMs for specific leaf area (SLA), leaf dry matter content (LDMC), leaf nitrogen concentration (Leaf N), and leaf phosphorus concentration (Leaf P), respectively. (b), (d), (f), (h) Show the decomposition of standardized direct effects (blue), indirect effects (orange), and total effects (green) of environmental factors on leaf traits. Solid blue arrows indicate significant positive paths, solid red arrows indicate significant negative paths, and arrow thickness reflects the magnitude of standardized path coefficients. Dashed arrows denote non-significant paths. Numbers adjacent to arrows indicate standardized path coefficients for significant paths only "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "( ^ { * } p < 0 . 0 5 ; ^ { * * } p < 0 . 0 1 ; ^ { * * * } p < 0 . 0 0 1"
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "^ { \\ast \\ast \\ast } p < 0 . 0 0 1"
+                    },
+                    {
+                        "type": "text",
+                        "content": "). Fisher's C statistic is presented as a measure of model fit. "
+                    }
+                ],
+                "image_footnote": []
+            },
+            "bbox": [
+                529,
+                486,
+                786,
+                643
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "quadratic relationships with latitude, whereas changes in natural forests were comparatively muted (Fig. 1b–e). This indicates that leaf structure and function in planted forests are more responsive to geographic environments, reflecting higher phenotypic plasticity. These quadratic patterns may partly reflect shifts in community composition or dominant-species contributions along the latitudinal gradient. However, species-level trait and phylogenetic data were not consistently available across the literature-based and fieldsurvey datasets used in this study, and community-level structural variables (stand age, density, and richness) were therefore used as integrative proxies. Species-specific mechanisms remain an important direction for future research. SLA, a key indicator of photosynthetic potential and resource acquisition capacity, represents the resource-acquisitive end of the leaf economics spectrum[36,37]. The "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                734,
+                489,
+                929
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "pattern of elevated SLA at mid-latitudes, and reduced values at both low and high latitudes in planted forests suggests that in climatically moderate and sufficiently wet mid-latitude regions, planted species invest in a larger photosynthetic area to achieve rapid growth[38]. In contrast, resource limitations in cold highlatitude, and hot low-latitude regions drive a shift toward conservative strategies, resulting in lower SLA. This reflects adaptations to thermal stress, nutrient constraints, or competition in warmer lowlatitude environments, which are often humid but seasonally variable in moisture[39]. This non-monotonic response supports the 'optimal climatic niche hypothesis', in which leaf traits exhibit functional optima along environmental gradients[40]. In natural forests, the lack of a significant latitudinal response in SLA indicates that long-term species replacement and community assembly have "
+                    }
+                ]
+            },
+            "bbox": [
+                505,
+                734,
+                944,
+                930
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                38,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                697,
+                49,
+                942,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 8 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                945,
+                127,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                705,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "produced a stable functional structure. This stability reduces the sensitivity of SLA to external climatic gradients, reflecting a strong ecological buffering capacity[41,42]. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                80,
+                485,
+                121
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf dry matter content (LDMC) did not show significant latitudinal variation in either forest type, yet its patterns were strongly linked to stand structural attributes and broader environmental conditions. This indicates that variation in leaf mass investment—a key component of the leaf economics spectrum associated with leaf durability—is jointly governed by stand structure, competitive dynamics[43]. Higher LDMC is generally linked to enhanced drought resistance, prolonged tissue longevity, and conservative resourceuse strategies[44,45]. In dense or older stands, individuals increase tissue density to withstand light competition and drought stress, a trend reflected in variance partitioning results, with forest factors explaining up to "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "6 3 . 1 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": "of LDMC variation in planted forests. In natural forests, LDMC was positively correlated with mean annual evapotranspiration (MAE), suggesting that in areas with higher evaporative demand, plants tend to develop structurally dense, long-lived leaves to maintain carbon balance and water stability. This pattern aligns with the 'drought-adaptive conservative strategy', indicating that long-term environmental filtering can shape trait stability at the community level[46,47]. The present analysis relies on plot-level CWM trait values aggregated from all sampled species, without considering intraspecific variation. This communityaggregated approach is appropriate for capturing broad-scale functional patterns across large environmental gradients, but it does not allow the attribution of trait variation to specific taxa, or specieslevel strategies. Consequently, species-specific adaptations and phylogenetic influences may not be fully resolved. Future studies that integrate species identity and abundance information would enable a more detailed assessment of taxonomic and phylogenetic contributions to trait–environment relationships. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                122,
+                485,
+                515
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Synergistic regulation of leaf functional traits by climate and soil "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                53,
+                535,
+                477,
+                565
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Climate and soil constitute the two primary environmental axes shaping the spatial patterns of leaf functional traits. The present results indicate that leaf traits in natural forests are predominantly driven by the combined effects of climate and soil, whereas in planted forests, forest structure, and latitude play more prominent roles. Climatic factors directly influence photosynthetic rate, transpiration balance, and energy-use efficiency by modulating temperature and precipitation regimes[48], while soil factors determine the availability of nutrients and the rate of rhizosphere nutrient transformation[49]. In natural forests, SLA, LDMC, and LP were significantly correlated with mean annual evapotranspiration (MAE), highlighting the dominant role of climate in shaping trait orientation under long-term natural selection (Fig. 2a–d). Climatic regulation typically operates by affecting leaf metabolic activity, enzymatic reaction rates, and the stability of the photosynthetic apparatus[50]. Within the framework of the leaf economics spectrum (LES), plants exhibit coordinated trait syndromes reflecting trade-offs between rapid resource acquisition and conservation. In warm and humid environments, plants tend to produce 'resource-acquisitive' leaves characterized by high specific leaf area (SLA), and elevated leaf nitrogen content (LN), which facilitate rapid photosynthetic rates, high growth potential, and a fast plant life-history strategy[51]. Conversely, in cold or drought-prone environments, plants invest in 'resource-conservative' leaves with high leaf dry matter content (LDMC), and low SLA, optimizing structural stability, nutrient retention, and longevity, consistent with a slow life-history strategy[52]. These patterns illustrate that latitudinal gradients in "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                567,
+                485,
+                926
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "climate select for distinct leaf trait syndromes that mediate ecological performance and community assembly across forest ecosystems. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                81,
+                942,
+                107
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Soil nutrient availability exhibited distinct effects between the two forest types (Fig. 2). In planted forests, soil nitrogen (Soil N) was negatively correlated with LN, LP, and SLA, indicating that higher total soil nitrogen does not necessarily translate into increased leaf nutrient content. This pattern likely reflects differences in planted forests establishment history and species selection, which can influence soil nutrient dynamics, and leaf nitrogen uptake strategies[53]. Although stand-level management records were not available across all data sources, the large-scale and multi-source nature of our dataset provides a robust basis for identifying community-level soil–leaf nitrogen relationships. The specific roles of management legacy and species composition warrant further investigation in studies with detailed stand-level documentation. Additionally, soil phosphorus (Soil P) was positively associated with LDMC, but negatively with LN and LP, suggesting that in phosphorus-limited sites, plants enhance tissue density and longevity to maintain long-term nutrient-use efficiency[54,55]. In natural forests, these relationships were milder, indicating that leaf traits and soil nutrients have reached a dynamic equilibrium through long-term successional processes. Overall, climatic factors exert more pronounced direct effects on leaf traits, while soil influences traits indirectly by modulating nutrient uptake and energy allocation. The interaction of climate and soil ultimately governs the spatial differentiation of leaf functional traits[32,56]. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                107,
+                942,
+                434
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Modulatory role of forest structure "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                454,
+                813,
+                469
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Forest-level factors serve as critical intermediaries linking environmental conditions with community functional structure. The present results indicate that in planted forests, forest age and density contribute significantly more to leaf trait variation than in natural forests. Feature importance ranking from CatBoost analysis revealed that forest age consistently ranked among the top five predictors across all leaf traits, highlighting the pervasive regulatory role of community age structure in shaping functional traits (Fig. 5). "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                470,
+                942,
+                578
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "In young stands, plants tend to adopt fast-growth strategies characterized by high SLA and low LDMC, facilitating rapid resource acquisition and canopy occupation. Conversely, older stands exhibit conservative strategies with high LDMC and low SLA, maintaining ecological balance and structural stability[57]. Forest age in natural forests was obtained from official inventory-based stand-age classes, reflecting developmental stages rather than the exact ages of individual trees. This standardized classification is widely used in large-scale assessments, ensuring comparability at the national level. High-density stands intensify competition, promoting thinner leaves to maximize light capture, whereas in sparse stands, thicker leaves enhance water retention and defensive capacity[58,59]. In planted forests, low-diversity planting schemes and density-dependent competition shape both horizontal and vertical structure, which in turn influence leaf trait expression. The negative association between leaf traits and species richness likely reflects management-driven functional convergence in these simplified communities. Species richness in planted forests was significantly negatively correlated with SLA, LN, and LP, indicating that in low-diversity communities, functional convergence is reinforced, and communitylevel traits fluctuate more strongly with the characteristics of dominant species. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                579,
+                942,
+                872
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The interaction between forest structure and latitude is particularly pronounced in planted forests. Latitude not only modifies the physical environment via climate but also indirectly influences stand composition and management intensity[60]. For example, northern "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                874,
+                942,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                50,
+                297,
+                61
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": " Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                867,
+                39,
+                942,
+                63
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                946,
+                287,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 9 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                870,
+                946,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "planted forests are dominated by conifers adapted to cold and dry conditions, whereas southern planted forests are often composed of fast-growing broadleaf species favoring resource-acquisitive strategies[61,62]. This coupling of geographic context and management practices generates pronounced non-linear responses of leaf traits to latitude in planted forests. In contrast, natural forests exhibit stable community assembly through long-term niche differentiation and species turnover, resulting in markedly lower leaf trait sensitivity to latitudinal gradients. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                80,
+                485,
+                201
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Multi-path interactions and integrated mechanisms "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                53,
+                221,
+                391,
+                250
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Piecewise structural equation modeling further revealed the multi-path regulatory mechanisms underlying leaf trait formation. Latitude indirectly influenced leaf traits through climate, soil, and forest structure, while its direct effects differed in direction between forest types: in natural forests, latitude exerted positive direct effects on SLA and LP, whereas in planted forests, the effects were negative (Figs 6, 7). This indicates that species turnover and functional adaptation in natural forests enhance photosynthetic investment and phosphorus utilization at higher latitudes, whereas in planted forests, constraints imposed by species composition and management practices promote more conservative resource strategies. Leaf nitrogen (LN) was primarily governed by direct stand-level effects in both forest types, with climate exerting indirect modulation, suggesting that community structure, rather than geographic position, predominantly drives nitrogen accumulation strategies. Direct fertilization records were not available for the planted forest plots in the present dataset, and large-scale forest inventory datasets seldom document such management details. Nonetheless, occasional management interventions may influence leaf nitrogen patterns; therefore, the observed latitudinal increase in LN should be viewed in light of potential management effects, as both management history and environmental gradients may jointly shape nitrogen dynamics. These findings support the 'structural mediation hypothesis', whereby latitude and climate influence functional traits through modifications of community structure[63]. The lack of detailed information on management history, including fertilization and rotation practices, represents a key source of uncertainty in interpreting leaf nitrogen patterns in planted forests. Therefore, the observed LN–latitude relationship should not be attributed solely to climatic or geographic gradients, as unrecorded management practices may also contribute. This underscores the need for caution in interpretation and highlights the importance of future studies integrating detailed management information. "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                251,
+                485,
+                693
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Limitations and future directions "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                53,
+                711,
+                342,
+                726
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "At the national scale of this study, the spatial distribution of forest plots is uneven, with natural forests more common in southern China and planted forests more prevalent in northern regions, reflecting both biogeographic patterns and the legacy of large-scale afforestation programs. Accordingly, the observed latitudinal variation in leaf functional traits represents broad-scale macroecological patterns shaped by environmental gradients, together with regional land-use history and management context. In this study, forest structure was represented by three stand-level variables—stand age, density, and species richness—which capture key aspects of light competition and niche differentiation. Stand age provides a coarse indicator of developmental stage and canopy closure dynamics, influencing the spatiotemporal heterogeneity of light availability. Stand density reflects individual crowding and competitive intensity, directly linked to resource allocation, while species "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                728,
+                485,
+                926
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "richness represents community compositional diversity and potential functional differentiation. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                81,
+                942,
+                106
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "We recognize that these variables are simplified proxies of structural complexity, as they do not fully encompass vertical stratification, canopy height, basal area, or other three-dimensional attributes that critically mediate light interception and microhabitat heterogeneity. Consequently, interpretations of structure–trait relationships should be framed at a macroecological scale, acknowledging that fine-scale mechanisms may not be fully resolved. For natural forests, stand age estimates were derived from forest inventories and local forestry bureaus, a common practice in large-scale ecological analyses. Although this approach allows broad-scale inference, it introduces unavoidable uncertainty in precise age determination. Future work integrating field-measured stand age alongside multidimensional structural indices—such as canopy layering, basal area, and structural complexity metrics—will be essential to more rigorously elucidate the mechanistic links between forest structure and leaf trait expression. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                107,
+                942,
+                325
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Overall, the divergence in leaf trait formation mechanisms between natural and planted forests reflects two adaptive strategies: 'stability regulation' vs 'plastic response'. Natural forests achieve trait–environment optimization through long-term succession, exhibiting strong ecological resilience and functional stability. In contrast, planted forests, characterized by low species diversity and frequent anthropogenic interventions, are highly responsive to environmental variation, displaying elevated dynamic plasticity. This distinction has important implications for forest ecosystem functional stability and carbon cycling: natural forests are likely to maintain relatively stable carbon sequestration under global change, whereas planted forests may exhibit substantial functional variability in response to climatic fluctuations and management differences. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                328,
+                942,
+                506
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Consequently, a multivariate framework integrating climate, soil, and stand structural attributes would provide a more robust basis for interpreting how forest structure mediates leaf trait variation across broad geographic gradients. In parallel, sustained attention to nutrient constraints and soil–leaf coupling processes will be important for improving the representation of carbon, nitrogen, and phosphorus cycling in forest models. The multi-factor integrative analytical framework presented here provides new insights into the geographic regulation of forest ecosystem functions and offers valuable guidance for the sustainable management of forests in arid and temperate regions. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                508,
+                942,
+                657
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Conclusions "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                510,
+                682,
+                643,
+                700
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This study reveals clear divergences in how natural and planted forests regulate leaf functional traits along latitudinal gradients, reflecting fundamentally different ecological strategies. Planted forests exhibited pronounced non-monotonic trait responses to latitude, demonstrating high environmental plasticity driven by strong sensitivity to stand structure and management-related factors. In contrast, natural forests showed only gradual latitudinal shifts in leaf traits, indicating long-term adaptive optimization shaped by climatic and edaphic filtering. These contrasting patterns arise from different underlying mechanisms. Climate and soil jointly constrained trait variation in natural forests, consistent with resource-conservation strategies and strong trait–environment coupling accumulated through succession. Planted forests, however, relied more on stand structure and exhibited decoupled structural–nutrient relationships, reflecting fast-growth strategies, shorter evolutionary history, and enhanced management effects. "
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                708,
+                942,
+                926
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                39,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                699,
+                50,
+                942,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 10 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                946,
+                134,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                707,
+                946,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "SEM further demonstrated that latitude influences traits primarily through indirect pathways, but the direction and strength of these pathways differ sharply between forest types, underscoring divergent ecological controls on leaf economics. Theoretically, the present findings highlight that forest origin alters the balance between environmental filtering and plastic adjustment, shaping macroecological trait patterns across biomes. Practically, the high sensitivity of planted forests traits to structural and climatic variability suggests that enhancing stand complexity, species diversity, and soil nutrient regulation is essential to improve the functional stability and carbon sequestration capacity of planted forests under ongoing global change. The present findings provide actionable insights for climate-adaptive plantation design. Specifically, tree species selection and planting density can be optimized by prioritizing trait combinations that balance resource acquisition and conservation, and implementing site-specific management and regeneration strategies to enhance planted forests' stability and productivity under future warming and variable moisture conditions. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                80,
+                492,
+                344
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Author contributions "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                359,
+                243,
+                372
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The authors confirm their contributions to the paper as follows: conceived and designed the study, reviewed and edited the manuscript: Gao J, Su J; collected and organized the data: Yu M, Xu J; performed data analysis and interpreted the results: Su J, Xu J, Gao J; developed the methodological framework: Gao J; prepared the first draft of the manuscript: Su J; responsible for data curation and visualization: Xu J, Yu M. All authors reviewed the results and approved the final version of the manuscript. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                381,
+                489,
+                491
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Data availability "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                508,
+                201,
+                525
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The datasets generated during and/or analyzed during the current study are available from the corresponding author upon reasonable request. "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                531,
+                489,
+                574
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Acknowledgments "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                589,
+                223,
+                605
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "This work was supported by the National Natural Science Foundation of China (Grant No. 32401662), the Young Top Talent Project of Xinjiang Normal University (Grant No. XJNUQB2023-14). "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                610,
+                489,
+                654
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Conflict of interest "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                667,
+                220,
+                684
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "The authors declare that they have no conflict of interest. "
+                    }
+                ]
+            },
+            "bbox": [
+                67,
+                691,
+                431,
+                705
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Supplementary information accompanies this paper online at (https://doi.org/10.48130/forres-0026-0002) "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                719,
+                487,
+                748
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "Dates "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                764,
+                107,
+                778
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Received 18 October 2025; Revised 25 December 2025; Accepted 6 January 2026; Published online 30 January 2026 "
+                    }
+                ]
+            },
+            "bbox": [
+                50,
+                786,
+                487,
+                814
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "References "
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                52,
+                830,
+                154,
+                843
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[1] Song X, Zhang Z, Huang H, Guan X, Jin L, et al. 2025. Leaf functional metabolic traits reveal the adaptation strategies of larch trees along the R/B ratio gradient at the stand level. Scientific Reports 15:19185 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[2] Singh R, Rawat M, Pandey R. 2023. Quantifying leaf-trait co-variation and strategies for ecosystem functioning of Quercus leucotrichophora (Ban Oak) forest in Himalaya. Ecological Indicators 150:110212 "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                852,
+                487,
+                928
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[3] Liu Z, Zhao M, Zhang H, Ren T, Liu C, et al. 2023. Divergent response and adaptation of specific leaf area to environmental change at different spatio-temporal scales jointly improve plant survival. Global Change Biology 29:1144−1159 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "[4] Kuppler J, Albert CH, Ames GM, Armbruster WS, Boenisch G, et al. 2020. Global gradients in intraspecific variation in vegetative and floral traits are partially associated with climate and species richness. Global Ecology and Biogeography 29:992−1007 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Li Y, Zhang C, Cheng Y, Zeng S, Yang S, et al. 2024. Mixed-species[5] stands improve the coordination between leaf and fine root traits in a common garden experiment. Forests 15(5):744 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "He N, Yan P, Liu C, Xu L, Li M, et al. 2023. Predicting ecosystem produc-[6] tivity based on plant community traits. Trends in Plant Science 28:43−53 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "De Frenne P, Graae BJ, Rodríguez-Sánchez F, Kolb A, Chabrerie O, et al.[7] 2013. Latitudinal gradients as natural laboratories to infer species' responses to temperature. Journal of Ecology 101:784−795 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Joswig JS, Wirth C, Schuman MC, Kattge J, Reu B, et al. 2022. Climatic[8] and soil factors explain the two-dimensional spectrum of global plant trait variation. Nature Ecology & Evolution 6:36−50 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Thakur D, Rathore N, Jandová V, Münzbergová Z, Doležal J. 2026. Shift[9] from acquisitive to conservative plant strategies with increasing drought and temperature extremes in an alpine shrub. Annals of Botany 137(1):125−139 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Cui G, Wang Y, Pugnaire FI, Zhang L. 2025. Non-linear responses of[10] plants enhance their resistance to drought in drylands. The Innovation Geoscience 3:100136 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhou X, Weng E, Luo Y. 2008. Modeling patterns of nonlinearity in[11] ecosystem responses to temperature, "
+                            },
+                            {
+                                "type": "equation_inline",
+                                "content": "\\mathsf { C O } _ { 2 } ,"
+                            },
+                            {
+                                "type": "text",
+                                "content": "and precipitation changes. Ecological Applications 18:453−466 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Becklin KM, Anderson JT, Gerhart LM, Wadgymar SM, Wessinger CA, et[12] al. 2016. Examining plant physiological responses to climate change through an evolutionary lens. Plant Physiology 172:635−649 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Proctor J, Zeppetello LV, Chan D, Huybers P. 2025. Climate change[13] increases the interannual variance of summer crop yields globally through changes in temperature and water supply. Science Advances 11:eady3575 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "In 't Zandt D, Florianová A, Šurinová M, In 't Zandt MH, Klanderud K, et[14] al. 2025. Temperature and precipitation jointly shape the plant microbiome by regulating the start of the growing season. Global Change Biology 31(8):e70431 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Visakorpi K, Manzanedo RD, Görlich AS, Schiendorfer K, Altermatt[15] Bieger A, et al. 2024. Leaf-level resistance to frost, drought and heat covaries across European temperate tree seedlings. Journal of Ecology 112:559−574 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ågren GI, Wetterstedt JÅM, Billberger MFK. 2012. Nutrient limitation[16] on terrestrial plant growth – modeling the interaction between nitrogen and phosphorus. New Phytologist 194:953−960 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Batool F, Bahadur S, Long W. 2024. Soil nutrients determine leaf traits[17] and above-ground biomass in the tropical cloud forest of Hainan Island. Frontiers in Forests and Global Change 7:1342135 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Neina D. 2019. The role of soil pH in plant nutrition and soil remedia-[18] tion. Applied and Environmental Soil Science 2019:5794869 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Du E, Terrer C, Pellegrini AFA, Ahlström A, van Lissa CJ, et al. 2020.[19] Global patterns of terrestrial nitrogen and phosphorus limitation. Nature Geoscience 13:221−226 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Fay PA, Gherardi LA, Yahdjian L, Adler PB, Bakker JD, et al. 2025. Inter-[20] actions among nutrients govern the global grassland biomass–precipitation relationship. Proceedings of the National Academy of Sciences of the United States of America 122:e2410748122 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Joshi RK, Mishra A, Gupta R, Garkoti SC. 2024. Leaf and tree age-related[21] changes in leaf ecophysiological traits, nutrient, and adaptive strategies of Alnus nepalensis in the central Himalaya. Journal of Biosciences 49:24 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Burgess AJ, Cardoso AA. 2023. Throwing shade: limitations to photo-[22] synthesis at high planting densities and how to overcome them. Plant Physiology 191:825−827 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhai B, Sun M, Shen X, Zhu Y, Li G, et al. 2024. Effects of stand density[23] on growth, soil water content and nutrients in black locust plantations in the semiarid Loess Hilly Region. Sustainability 16(1):376 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Sun C, Yao J, Huang J, Willemen L, Wang T, et al. 2025. Forest struc-[24] tural attributes as indicators and mediators of aboveground carbon "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                80,
+                942,
+                928
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                49,
+                297,
+                61
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research? "
+                    }
+                ]
+            },
+            "bbox": [
+                865,
+                39,
+                942,
+                63
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                52,
+                945,
+                290,
+                957
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 11 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                860,
+                945,
+                942,
+                957
+            ]
+        }
+    ],
+    [
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "storage and woody plant species richness in natural forests. Ecological Indicators 181:114398 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Lee YJ, Lee MK, Lee CB. 2025. Combined effects of environmental[25] conditions and stand age–induced tree size variation on temperate forest carbon pools among stand types in South Korea. Forest Ecology and Management 581:122553 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Chelli S, Simonetti E, Wellstein C, Campetella G, Carnicelli S, et al. 2019.[26] Effects of climate, soil, forest structure and land use on the functional composition of the understorey in Italian forests. Journal of Vegetation Science 30:1110−1121 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Feng T, Zheng H, Wei W, Wang P, Bi H, et al. 2025. Natural forests accel-[27] erate soil hydrological processes and enhance water-holding capacities compared to planted forests after long-term restoration. Water Resources Research 61(9):e2025WR040857 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhang X, Duan J, Ji Y, Liu W, Gao J. 2024. Leaf nutrient traits exhibit[28] greater environmental plasticity compared to resource utilization traits along an elevational gradient. Frontiers in Plant Science 15:1484744 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Carnus JM, Parrotta J, Brockerhoff E, Arbez M, Jactel H, et al. 2006.[29] Planted forests and biodiversity. Journal of Forestry 104(2):65−77 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wang L, Wei F, Tagesson T, Fang Z, Svenning JC. 2025. Transforming[30] forest management through rewilding: Enhancing biodiversity, resilience, and biosphere sustainability under global change. One Earth 8:101195 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Meng TT, Wang H, Harrison SP, Prentice IC, Ni J, et al. 2015. Responses[31] of leaf traits to climatic gradients: Adaptive variation versus compositional shifts. Biogeosciences 12(18):5339−5352 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wang X, Wang J, Zhang L, Lv C, Liu L, et al. 2022. Climatic factors deter-[32] mine the distribution patterns of leaf nutrient traits at large scales. Plants 11:2171 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Bohman K. 2004. Functional and morphological diversity of trees in[33] different land use types-along a rainforest margin in Sulawesi, Indonesia. PhD. Thesis. Georg-August-Universität Göttingen, Germany. doi: 10.53846/goediss-3435 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Rawat M, Arunachalam K, Arunachalam A, Alatalo JM, Pandey R. 2021.[34] Assessment of leaf morphological, physiological, chemical and stoichiometry functional traits for understanding the functioning of Himalayan temperate forest ecosystem. Scientific Reports 11:23807 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Cornelissen JHC, Lavorel S, Garnier E, Díaz S, Buchmann N, et al. 2003.[35] A handbook of protocols for standardised and easy measurement of plant functional traits worldwide. Australian Journal of Botany 51(4):335−380 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Ma JG, Yu JF, Wang XB, Hou FJ. 2025. Plant and microbial communities[36] follow fast-to-slow strategies in response to grazing in an arid rangeland. Agriculture, Ecosystems & Environment 384:109550 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zheng L, Barry KE, Guerrero-Ramírez NR, Craven D, Reich PB, et al.[37] 2024. Effects of plant diversity on productivity strengthen over time due to trait-dependent shifts in species overyielding. Nature Communications 15:2078 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Swann ALS, Fung IY, Chiang JCH. 2012. Mid-latitude afforestation shifts[38] general circulation and tropical precipitation. Proceedings of the National Academy of Sciences 109:712−716 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Sun K, Sun R, Li Y, Ji H, Jia B, et al. 2023. Plant economic strategies in[39] two contrasting forests. BMC Plant Biology 23:366 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Coelho MTP, Barreto E, Rangel TF, Diniz-Filho JAF, Wüest RO, et al.[40] 2023. The geography of climate and the global patterns of species diversity. Nature 622:537−544 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Huang S, Li R, Li Y, Xue S, Fang P, et al. 2025. Forest greenness stability[41] in response to climate change along forest edge–core gradients. Agricultural and Forest Meteorology 375:110850 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Pérez-Ramos IM, Matías L, Gómez-Aparicio L, Godoy Ó. 2019. Func-[42] tional traits and phenotypic plasticity modulate species coexistence across contrasting climatic conditions. Nature Communications 10:2555 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Wang H, Prentice IC, Wright IJ, Warton DI, Qiao S, et al. 2023. Leaf[43] economics fundamentals explained by optimality principles. Science Advances 9(3):eadd5667 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Li R, Cheng X, Dai P, Zhang M, Li M, et al. 2025. Plant architectural[44] structure and leaf trait responses to environmental change: a metaanalysis. Plants 14(11):1717 "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                55,
+                81,
+                487,
+                904
+            ]
+        },
+        {
+            "type": "list",
+            "content": {
+                "list_type": "reference_list",
+                "list_items": [
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Song Y, Sterck F, Zhou X, Liu Q, Kruijt B, et al. 2022. Drought resilience[45] of conifer species is driven by leaf lifespan but not by hydraulic traits. New Phytologist 235:978−992 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Luo W, Griffin-Nolan RJ, Song L, Te N, Chen J, et al. 2023. Interspecific[46] and intraspecific trait variability differentially affect communityweighted trait responses to and recovery from long-term drought. Functional Ecology 37:504−512 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Shi K, Naz M, Zhang C, Shao H. 2025. Aridity and grazing are associ-[47] ated with reduced trait complementarity and higher invasion intensity of Solanum rostratum in native plant communities. Functional Ecology 39:3255−3268 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Oishy MN, Shemonty NA, Fatema SI, Mahbub S, Mim EL, et al. 2025.[48] Unravelling the effects of climate change on the soil-plant-atmosphere interactions: a critical review. Soil & Environmental Health 3:100130 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Thepbandit W, Athinuwat D. 2024. Rhizosphere microorganisms[49] supply availability of soil nutrients and induce plant defense. Microorganisms 12:558 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Beugnon R, Nolwenn, Milcu A, Lenoir J, Puissant J, et al. 2024. Microcli-[50] mate modulation: An overlooked mechanism influencing the impact of plant diversity on ecosystem functioning. Global Change Biology 30(3):e17214 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Augusto L, Borelle R, Boča A, Bon L, Orazio C, et al. 2025. Widespread[51] slow growth of acquisitive tree species. Nature 640:395−401 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Kramp RE, Liancourt P, Herberich MM, Saul L, Weides S, et al. 2022.[52] Functional traits and their plasticity shift from tolerant to avoidant under extreme drought. Ecology 103(12):e3826 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Waring EF, Perkowski EA, Smith NG. 2023. Soil nitrogen fertilization[53] reduces relative leaf nitrogen allocation to photosynthesis. Journal of Experimental Botany 74:5166−5180 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Han Y, White PJ, Cheng L. 2022. Mechanisms for improving phospho-[54] rus utilization efficiency in plants. Annals of Botany 129:247−258 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Khan F, Siddique AB, Shabala S, Zhou M, Zhao C. 2023. Phosphorus[55] plays key roles in regulating plants' physiological responses to abiotic stresses. Plants 12:2861 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Fan Z, Xie T, Shan L, Wang H, Ma J, et al. 2025. Soil-driven coupling of[56] plant community functional traits and diversity in desert–oasis transition zone. Plants 14:1997 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhang X, Chen X, Ji Y, Wang R, Gao J. 2024. Forest age drives the[57] resource utilization indicators of trees in planted and natural forests in China. Plants 13:806 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Cachinero-Vivar AM, Navarro-Cerrillo RM, Cabrera-Puerto RJ,[58] Pérez-Priego O. 2024. Impact of thinning on leaf economics, plant hydraulics, and growth dynamics. Forest Ecology and Management 562:121914 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Gabira MM, Girona MM, DesRochers A, Kratz D, da Silva RBG, et al.[59] 2023. The impact of planting density on forest monospecific plantations: an overview. Forest Ecology and Management 534:120882 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Malizia A, Blundo C, Carilla J, Osinaga Acosta O, Cuesta F, et al. 2020.[60] Elevation and latitude drives structure and tree species composition in Andean forests: Results from a large-scale plot network. PLoS One 15:e0231553 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Garfield D, Brukas V. 2025. Fast-growing broadleaf trees in niche[61] configurations: a business model approach to economization and socio-technical transitions. Journal of Forest Business Research 4(1):96−127 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Silvestro R, Mura C, Alano Bonacini DA, de Lafontaine G, Faubert P, et[62] al. 2023. Local adaptation shapes functional traits and resource allocation in black spruce. Scientific Reports 13:21257 "
+                            }
+                        ]
+                    },
+                    {
+                        "item_type": "text",
+                        "item_content": [
+                            {
+                                "type": "text",
+                                "content": "Zhang X, He X, Gao J, Wang L. 2019. Latitudinal and climate effects on[63] key plant traits in Chinese forest ecosystems. Global Ecology and Conservation 17:e00527 "
+                            }
+                        ]
+                    }
+                ]
+            },
+            "bbox": [
+                510,
+                80,
+                942,
+                814
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/1fc4fa6b2b491785dc308037bea8541cfeff568dc6554f8988a11c6ca6c12f45.jpg"
+                },
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "bbox": [
+                509,
+                835,
+                601,
+                861
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "Copyright: "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "\\circledcirc"
+                    },
+                    {
+                        "type": "text",
+                        "content": "2026 by the author(s). Published by Maximum Academic Press, Fayetteville, GA. This article "
+                    }
+                ]
+            },
+            "bbox": [
+                605,
+                835,
+                942,
+                862
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "is an open access article distributed under Creative Commons Attribution License (CC BY 4.0), visit https://creativecommons.org/ licenses/by/4.0/. "
+                    }
+                ]
+            },
+            "bbox": [
+                507,
+                864,
+                942,
+                904
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Forestry Research "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                38,
+                129,
+                63
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "Leaf trait responses to latitude in forests "
+                    }
+                ]
+            },
+            "bbox": [
+                697,
+                49,
+                942,
+                61
+            ]
+        },
+        {
+            "type": "page_number",
+            "content": {
+                "page_number_content": [
+                    {
+                        "type": "text",
+                        "content": "Page 12 of12 "
+                    }
+                ]
+            },
+            "bbox": [
+                53,
+                945,
+                134,
+                957
+            ]
+        },
+        {
+            "type": "page_footer",
+            "content": {
+                "page_footer_content": [
+                    {
+                        "type": "text",
+                        "content": "Su et al. Forestry Research 2026, 6: e002 "
+                    }
+                ]
+            },
+            "bbox": [
+                705,
+                945,
+                942,
+                957
+            ]
+        }
+    ]
+]

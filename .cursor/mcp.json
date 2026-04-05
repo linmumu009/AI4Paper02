@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "user-persistent-chat": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\Liu Lin\\.cursor-loop\\bridge.js"
+      ],
+      "disabled": false,
+      "autoApprove": [
+        "wait_for_user_input"
+      ]
+    }
+  }
+}

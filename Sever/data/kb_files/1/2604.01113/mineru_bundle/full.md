@@ -1,0 +1,488 @@
+# CARE: Privacy-Compliant Agentic Reasoning with Evidence Discordance
+
+Haochen Liu1∗, Weien $\mathbf { L i } ^ { 2 }$ , Rui Song2, Zeyu $\mathbf { L i } ^ { 2 }$ , Chun Jason Xue3,
+
+Xiao-Yang Liu4, Sam Nallaperuma1, Xue Liu2, 3, 5, Ye Yuan2, 3, 5∗
+
+1University of Cambridge, 2McGill University,   
+3MBZUAI - Mohamed bin Zayed University of Artificial Intelligence,   
+4Columbia University, 5Mila - Quebec AI Institute
+
+# Abstract
+
+Large language model (LLM) systems are increasingly used to support high-stakes decision-making, but they typically perform worse when the available evidence is internally inconsistent. Such a scenario exists in realworld healthcare settings, with patient-reported symptoms contradicting medical signs. To study this problem, we introduce MIMIC-DOS, a dataset for short-horizon organ dysfunction worsening prediction in the intensive care unit (ICU) setting. We derive this dataset from the widely recognized MIMIC-IV, a publicly available electronic health record dataset, and construct it exclusively from cases in which discordance between signs and symptoms exists. This setting poses a substantial challenge for existing LLM-based approaches, with single-pass LLMs and agentic pipelines often struggling to reconcile such conflicting signals. To address this problem, we propose CARE: a multi-stage privacy-compliant agentic reasoning framework in which a proprietary LLM provides guidance by generating structured categories and transitions without accessing sensitive patient data, while a local LLM uses these categories and transitions to support evidence acquisition and final decision-making. Empirically, CARE achieves stronger performance across all key metrics compared to multiple baseline settings, showing that CARE can more robustly handle conflicting clinical evidence while preserving privacy.
+
+# 1 Introduction
+
+Large language model (LLM) systems are increasingly being used as decision-support tools in high-stakes domains (Singhal et al., 2023; Thirunavukarasu et al., 2023). This trend is partly driven by recent advances in prompting, tool use, and agentic orchestration, which have improved LLM performance on complex tasks (Yao et al., 2023; Wang et al., 2024). However, such capabilities are often evaluated in relatively protected settings, where the available evidence is internally consistent and supports a clear decision. Real-world decisionmaking, by contrast, frequently involves incomplete, noisy, and conflicting information that must be reconciled before a reliable judgment can be made (Helou et al., 2020). As a result, it remains unclear whether current LLM systems can reason robustly when the available evidence is internally discordant.
+
+In this work, we focus on cases where subjective and objective evidence point toward different clinical judgments. For example, patient-reported symptoms or bedside narrative assessments may appear reassuring, while structured physiological signs indicate risk of deterioration. Such cases are especially difficult because the correct decision cannot be obtained by naively aggregating all available signals (Helou et al., 2020). Instead, the model
+
+![](images/1fbadbf822c4d0ad0582acc6614af6711963eb11acb5340fa1ecf5bf834fadec.jpg)  
+Figure 1: Comparison of three decision-making settings: (1) single-pass inference with a proprietary LLM (left, light blue), (2) single-pass inference with a local LLM (middle, light yellow), and (3) our proposed CARE framework (right, light red). In the single-pass settings, the model receives raw patient values and feature columns directly as input. Using a proprietary LLM in this way risks privacy leakage, while relying only on a self-hosted local LLM can lead to poorer decisions. In contrast, CARE enables the proprietary LLM to provide structured guidance to the local LLM without accessing raw patient values, allowing privacy-compliant decision making while preserving strong performance.
+
+should identify what additional information is needed and revise its judgment as new evidence becomes available (Li et al., 2024). Existing single-pass LLMs and current medical evaluation paradigms are poorly matched to this setting. They are typically studied in static, single-pass formats (Johri et al., 2025), yet performance becomes noticeably fragile when information must be elicited and integrated over multiple turns (Hager et al., 2024).
+
+Healthcare settings are further complicated by privacy constraints (Price & Cohen, 2019; Jonnagaddala & Wong, 2025). In many realistic scenarios, the strongest available model is likely to be a closed-source system that cannot be allowed to access raw patient data, whereas an open-source model can be deployed locally but may still underperform frontier proprietary models on some clinical reasoning tasks (Safavi-Naini et al., 2025; Wada et al., 2025). As illustrated in Figure 1, this creates a fundamental challenge for our setting: the model best suited for high-level reasoning is not allowed to fully observe the instance, while the model with access to the instance may not reason reliably (Fleming et al., 2024). As a result, end-to-end use of a stronger proprietary model is infeasible, whereas relying on a weaker local model can lead to degenerate decisions (Hager et al., 2024; Wada et al., 2025).
+
+To address this complicated challenge while preserving privacy, we proposed CARE, a multistage privacy-Compliant Agentic REasoning framework that separates global guidance from patient-specific reasoning. Rather than sending raw patient values to the stronger closed-source model, CARE uses it to provide structured guidance over the reasoning process, including transition-level policies and, by design, rubric-level structure derived from feature semantics and task structure. A local workflow then applies this structure to private patient data for initial state assignment, targeted evidence acquisition, transition evaluation, and final decision-making. This decomposition allows CARE to combine the reasoning strength of closed-source models with the privacy guarantees of local inference, while explicitly supporting disagreement-aware, state-transition-based reasoning.
+
+To study this setting in a controlled way, we construct MIMIC-DOS, a disagreementfocused benchmark from MIMIC-IV (Johnson et al., 2024; 2023; Goldberger et al., 2000) consisting exclusively of cases in which subjective and objective signals point in different directions. Because such cases are relatively rare and easily obscured in broader clinical datasets, isolating them allows us to directly evaluate whether LLM systems can reason
+
+under evidence conflict rather than succeed through agreement-driven shortcuts. We further balance this subset to enable stable comparison across methods, while noting that such balance does not reflect real deployment conditions. On MIMIC-DOS, we find that baseline single-pass LLMs and open-source agentic pipelines frequently collapse to degenerate oneclass predictions, a behavior that may appear superficially competitive under balanced evaluation but is not practically usable in realistic clinical settings. In contrast, CARE avoids this failure mode and yields more robust performance under evidence discordance.
+
+Our contributions are threefold:
+
+• First, we identify sign-symptom discordance as a critical yet underexplored challenge for LLM-based clinical decision support and introduce MIMIC-DOS, a benchmark derived from MIMIC-IV that isolates this mode for controlled evaluation.   
+• Second, we propose CARE, a multi-stage privacy-Compliant Agentic REasoning framework that combines structured remote guidance with local patient-specific reasoning under explicit privacy constraints.   
+• Third, we show empirically that existing single-pass LLMs and open-source agentic pipelines are prone to degenerate one-class collapse in this setting, whereas CARE achieves more robust and more balanced performance.
+
+# 2 Related work
+
+Evidence discordance and the limits of conventional ICU deterioration models Predicting patient deterioration in intensive care units (ICU) has long relied on early warning scores and machine learning models trained on electronic health record datasets such as MIMIC-IV. Recent studies applied gradient boosting models like XGBoost to predict sepsis mortality, achieving high classification metrics (Li et al., 2023). However, these traditional models often operated as black boxes (Rudin, 2019). They flattened complex temporal physiological data into static vectors, offering limited interpretable clinical reasoning to the attending physician, a limitation that drove recent interest in attention-based and inherently interpretable architectures (Choi et al., 2016). More importantly, they struggled to resolve conflicting signals between a patient’s subjective presentation and objective physiological measurements. This limitation was particularly critical in clinical settings such as occult hypoperfusion (cryptic shock), where patients could appear hemodynamically stable despite elevated risk (Howell et al., 2007; Puskarich et al., 2011). In sepsis cohorts, mortality in cryptic shock was reported not to differ significantly from that of overt septic shock (Puskarich et al., 2011), and elevated lactate has been associated with worse outcomes even in otherwise stable high-risk patients (Meregalli et al., 2004). Together, these findings highlighted a fundamental challenge: clinically important deterioration often manifests as discordance between subjective observations and objective physiological signals, a regime where conventional models are not designed to reason.
+
+LLM and agentic clinical reasoning under conflicting evidence Large language models (LLMs) have recently emerged as a promising alternative for clinical decision support. Models including Med-PaLM demonstrated expert-level proficiency on static medical board examinations (Singhal et al., 2023; Nori et al., 2023). However, directly applying single LLMs to electronic health records remains challenging due to the dynamic, contradictory, and incomplete nature of clinical data (Jiang et al., 2023). Single-pass models were also susceptible to automation bias and misleading textual cues (Goddard et al., 2012; Ji et al., 2023), often overweighting reassuring subjective descriptions (e.g., “patient appears calm”) while underweighting subtle but critical physiological abnormalities. To address these limitations, recent work shifted toward tool-augmented and multi-agent paradigms (Schick et al., 2023; Tang et al., 2023). Frameworks such as ReAct enabled models to iteratively query external tools, grounding reasoning in factual data (Yao et al., 2023), while multi-agent debate systems attempt to improve robustness through collective reasoning (Du et al., 2024). However, these approaches introduced new challenges in coordinating agents and achieving reliable consensus. For example, agents could fail to communicate reasoning advantages
+
+effectively or converge prematurely to incorrect conclusions (Lin & Hooi, 2025). Confidenceaware debate frameworks mitigated this issue by calibrating agent confidence, but they require additional training data, limiting applicability in privacy-constrained and lowresource clinical settings (Lin & Hooi, 2025). Concurrent efforts such as FACTS (Yuan et al., 2025) addressed structured data reliability through offline template generation, separating reasoning logic from data execution. Building on this insight, we propose an asymmetric hybrid framework that avoids training-dependent calibration by enforcing safe consensus through programmatic gating. Specifically, sensitive patient data is processed locally by open-source models, whereas remote proprietary models provide high-level reasoning guidance without direct access to raw data, enabling robust decision-making under evidence discordance while preserving privacy.
+
+# 3 Dataset and task
+
+MIMIC-IV dataset Our experiments involve MIMIC-IV v3.1 (Johnson et al., 2024; 2023; Goldberger et al., 2000), a large de-identified dataset with longitudinal ICU and hospital electronic health records from Beth Israel Deaconess Medical Center between 2008 and 2022. The dataset includes bedside monitoring data, laboratory results, medications, procedures, and clinical documentation, making it suitable for time-indexed ICU prediction tasks.
+
+Construction of MIMIC-DOS From MIMIC-IV, we construct MIMIC-DOS, a dataset designed to study ICU states characterized by discordance between bedside subjective presentation and objective physiologic risk. Each sample is defined at the ICU stay–hour level as a pair (stay id, $t _ { \mathrm { e v a l } , }$ , where $t _ { \mathrm { e v a l } }$ denotes a study-defined hourly evaluation time within an ICU stay. Cohort construction is based on three routinely available bedside measures in the one-hour window preceding $t _ { \mathrm { e v a l } } ,$ including two subjective bedside assessments and one objective hemodynamic measurement. The first is a structured pain self-assessment reported by patients, recorded in MIMIC-IV as an integer-valued bedside pain score ranging from 0 to 10, where 0 indicates no pain (Devlin et al., 2018). The second is the Richmond Agitation-Sedation Scale (RASS), a standard ICU bedside assessment of agitation and sedation ranging from $^ { - 5 }$ (unarousable) to $+ 4$ (combative), with 0 indicating an alert and calm state (Sessler et al., 2002). The third is mean arterial pressure (MAP), a routinely monitored hemodynamic variable widely used to assess systemic perfusion. A MAP below $6 5 \mathrm { m m H g }$ is commonly treated as clinically concerning in critical care (Evans et al., 2021).
+
+A sample (stay id, $t _ { \mathrm { e v a l . } }$ ) is included only if all of the following conditions are satisfied: (1) the maximum pain score in the preceding hour is 0, indicating no recorded pain; (2) at least one RASS observation is available in the preceding hour, with maximum RASS no greater than 0 and minimum RASS greater than $- 3$ , excluding agitated and deeply sedated states; and (3) MAP remains below $6 5 \mathrm { m m H g }$ for a cumulative duration over 5 minutes during the preceding hour. These criteria define ICU stay–hour states in which subjective bedside indicators remain relatively reassuring while objective hemodynamic instability is present.
+
+Task formulation and sample extraction MIMIC-DOS is designed for a binary classification task. Each sample (stay id, $t _ { \mathrm { e v a l } } )$ is associated with a feature set anchored at $t _ { \mathrm { e v a l } } ,$ consisting of 2 subjective features and 20 objective features. Detailed explanations are in Appendix A.1. The model predicts whether the patient will experience worsening organ dysfunction within the subsequent 12 hours. Organ dysfunction is operationalized using the MIMIC-IV hourly Sequential Organ Failure Assessment (SOFA) score representation, where each hourly SOFA value is a rolling summary over the preceding 24 hours. A sample is labeled positive if the maximum SOFA score observed from $t _ { \mathrm { e v a l } } + 1$ to $t _ { \mathrm { e v a l } } + 1 2$ exceeds the SOFA score at $t _ { \mathrm { e v a l } }$ by at least 2 points, and negative otherwise, following the Sepsis-3 convention that a SOFA increase of at least 2 points indicates clinically meaningful organ dysfunction (Singer et al., 2016). After label assignment, cohort filtering, and overlap exclusion, the eligible evaluation pool contains 25,090 ICU stay–hour pairs, including 2,179 positive and 22,911 negative samples. We then construct a locked benchmark by deterministic pair-level sampling and fix the released evaluation set at 1,000 samples, balanced to 500 positive and 500 negative cases. This size keeps evaluation computationally feasible, and
+
+![](images/082dca27782d3995290c8d0b643d1a2af5847eb47050c040d33e8807054a551a.jpg)  
+Figure 2: Overview of the CARE framework. In Stage 1, a proprietary LLM constructs a rubric schema over intermediate patient states from task information, and the local side applies this rubric to patient data to obtain an initial state assignment. In Stage 2, the local LLM performs evidence checks by determining whether additional features are needed given the current state and observed values. In Stage 3, the proprietary LLM generates transition guidance from an abstract view of the current state and available feature types; the local side updates the state through recomputation and constrained merge without exposing raw patient data. In Stage 4, the local LLM produces the final task decision from the patient data and the accumulated reasoning trace over states. In our framework, raw patient values remain local throughout the entire pipeline, allowing the framework to preserve privacy.
+
+the class balance is used for clearer analysis rather than for training, since our workflows operate in a zero-shot setting. The final evaluation set contains 1,000 samples from 912 ICU stays and 881 unique patients.
+
+# 4 Method
+
+To solve the challenging problem of disagreement in subjective and objective evidence under the strict privacy constraints, we introduce CARE (privacy-Compliant Agentic REasoning). Rather than relying on a single end-to-end prediction step, CARE decomposes reasoning into structured stages that enable remote guidance and local inference to work together in a privacy-preserving manner. In this section, we start to define the privacy scope in Section 4.1, followed by elaborating the details of our proposed CARE framework in Section 4.2.
+
+# 4.1 Privacy scope
+
+CARE is designed under a threat model in which all sensitive clinical measurements and personally identifiable information remain local. The proprietary model is allowed to access only task-level metadata, such as feature names, feature descriptions, category definitions, and other value-independent semantic information for construct structured guidance. CARE therefore protects sensitive patient data from direct exposure to the external model.
+
+# 4.2 CARE framework
+
+Operationally, CARE consists of four stages, as shown in Figure 2: (1) rubric generation and initial state assignment; (2) category-aware data acquisition; (3) transition reasoning; (4) final decision-making. The proprietary model is used to produce value-independent
+
+guidance, while the local model and programmatic components apply this guidance to patient-specific data across the local execution stages. This decomposition allows CARE to combine the abstract reasoning capability of a closed-source model with the privacy guarantees of local inference and to support disagreement-aware transition-based reasoning. Examples of the four stages are in Appendix A.4.1, A.4.2, A.4.3. and A.4.4.
+
+Stage 1: rubric generation and initial state assignment In the initial stage, CARE seeks to establish a structured state space for downstream reasoning. States could be organized as an ordered scale indicating how likely the patient is to be experiencing worsening of organ dysfunction. By design, this rubric schema can be generated from task-level information, including feature descriptions, feature semantics, and the task objective, without exposing patient-specific values. The rubric defines the intermediate patient states, their semantic interpretations, and the types of evidence that are typically required to support each state. More generally, the rubric serves as structured prior knowledge and need not be generated by the proprietary model. When reliable domain expertise is available, it can instead be specified or refined by human experts. In our experiments, since we study a single fixed task, we reuse one shared predefined rubric schema rather than regenerating it during inference. The locally available patient data are then mapped onto this rubric to compute an initial category assignment. By separating rubric structure from patient-specific instantiation, Stage 1 allows CARE to leverage abstract guidance without exposing raw patient values.
+
+Stage 2: category-aware data acquisition Given the initial state assignment, CARE next determines whether the currently available evidence is sufficient for reliable decisionmaking. The local model uses the current category, the patient’s observed values, and the category-specific evidence requirements induced by the rubric to identify which additional features should be retrieved. This stage is therefore not a generic retrieval step, but a state-conditioned acquisition process in which the relevance of new evidence depends on the patient’s current inferred state. After retrieval, CARE re-evaluates evidence sufficiency and determines whether the available information is adequate for transition reasoning.
+
+Stage 3: transition reasoning Once obtained sufficient evidence, CARE evaluates how the patient’s state should change based on the newly available information. The proprietary model receives the current category, the set of available feature types, and the rubric-level transition structure, but still does not observe any raw patient values. Based on this abstract view, it produces structured transition guidance together with candidate state transitions that are plausible to consider. The local side then combines this advisory output with the actual patient values through local recomputation and constrained merge, determining whether the patient remains in the same category or transitions to a different one. This stage is central to CARE’s design, as it enables explicit reasoning over disagreement resolution through state updates rather than forcing a one-shot prediction from conflicting evidence.
+
+Stage 4: final decision-making In the final stage, the local model converts the updated state representation into the task-level prediction. This decision is made using the accumulated reasoning trace, including the initial category assignment, the acquired evidence, the transition guidance, and the final updated category. By grounding the final judgment in the structured outputs of the earlier stages, CARE avoids relying on a single free-form inference pass over heterogeneous evidence. Instead, it produces the final prediction through a staged reasoning process in which patient-specific data remain local throughout.
+
+# 5 Experiments
+
+To structure the empirical evaluation, we study three research questions: RQ1: How does CARE compare with representative single-pass and multi-agent baseline workflows on MIMIC-DOS? RQ2: How do different local LLMs affect workflow performance? RQ3: How do the stages of CARE contribute to its final performance?
+
+We evaluate CARE on MIMIC-DOS against multiple baseline LLM and agentic workflows. For candidate local LLMs, we consider gpt-oss-120b (GPT-OSS) (OpenAI et al., 2025),
+
+Table 1: Performance comparison across workflows, local LLMs, and proprietary LLMs.   
+
+<table><tr><td rowspan="2">Workflow</td><td rowspan="2">Local LLM(s)</td><td rowspan="2">Proprietary LLM</td><td>Validity</td><td colspan="2">Class Performance</td><td colspan="3">Metrics</td><td rowspan="2">Efficiency Tokens /Sample</td></tr><tr><td>Valid rate</td><td>TPR(Recall)</td><td>TNR(Specificity)</td><td>BA</td><td>G-mean</td><td>MCC</td></tr><tr><td rowspan="3">Single-pass</td><td>GPT-OSS</td><td>—</td><td>1.0000</td><td>0.1980</td><td>0.8340</td><td>0.5160</td><td>0.4064</td><td>0.0415</td><td>1155.47</td></tr><tr><td>Qwen</td><td>—</td><td>0.9980</td><td>0.3800</td><td>0.6004</td><td>0.4902</td><td>0.4777</td><td>-0.0201</td><td>745.42</td></tr><tr><td>LLaDA</td><td>—</td><td>0.9810</td><td>0.9388</td><td>0.0692</td><td>0.5040</td><td>0.2550</td><td>0.0162</td><td>834.67</td></tr><tr><td>Majority voting</td><td>GPT-OSS + Qwen + LLaDA</td><td>—</td><td>0.9940</td><td>0.4289</td><td>0.5596</td><td>0.4910</td><td>0.4697</td><td>-0.0197</td><td>2739.65</td></tr><tr><td>RSMAD</td><td>GPT-OSS + Qwen + LLaDA</td><td>—</td><td>0.9970</td><td>0.2751</td><td>0.7435</td><td>0.5093</td><td>0.4523</td><td>0.0210</td><td>12912.39</td></tr><tr><td>ConfMAD</td><td>GPT-OSS + Qwen + LLaDA</td><td>—</td><td>1.0000</td><td>0.3360</td><td>0.6620</td><td>0.4990</td><td>0.4716</td><td>-0.0021</td><td>20458.34</td></tr><tr><td rowspan="3">CARE (ours)</td><td>GPT-OSS</td><td>GPT-5</td><td>1.0000</td><td>0.5220</td><td>0.5700</td><td>0.5460</td><td>0.5455</td><td>0.0921</td><td>7771.52</td></tr><tr><td>Qwen</td><td>GPT-5</td><td>1.0000</td><td>0.6520</td><td>0.3560</td><td>0.5040</td><td>0.4818</td><td>0.0084</td><td>7168.53</td></tr><tr><td>LLaDA</td><td>GPT-5</td><td>0.9990</td><td>0.6232</td><td>0.3660</td><td>0.4946</td><td>0.4776</td><td>-0.0111</td><td>7246.58</td></tr></table>
+
+Qwen3.5-122B-A10B (Qwen) (Qwen Team, 2026), and LLaDA2.1-Flash (LLaDA) (Bie et al., 2026), spanning two strong autoregressive LLMs and a diffusion-based LLM, allowing us to check how workflows perform across different generation paradigms. We use GPT-5 (Singh et al., 2025) as the proprietary LLM to support CARE workflow. We include four types of baseline workflows in our experiments: (1) Single-pass LLM baseline: given the feature block, the model receives all available features of the sample in a single prompt and outputs the final prediction in a single LLM call, without any decomposition, interaction, or iterative refinement. (2) Majority voting: three heterogeneous agents based on different local LLMs independently solve the same case without communication (Choi et al., 2025). Each agent produces its own final prediction as in the single-pass LLM baseline, and the overall prediction is determined by majority vote over the agents’ final outputs. (3) Round-synchronous multi-agent debate (RSMAD): following Du et al. (2024), each of the three agent first generates an independent answer, as in the single-pass baseline. In each of the two subsequent round, agents revise their responses using only the responses of the other agents from the previous round, with communication occurring synchronously across rounds. The final prediction is determined by majority vote. (4) Confidence-aware sequential debate (ConfMAD): following Lin & Hooi (2025), each of the three agents first produces an independent answer with its reasoning, final prediction, and confidence. In later two rounds, agents respond sequentially in a fixed order, so later agents can observe updates made earlier in the same round. The final prediction is determined by selecting the answer with the highest confidence in the last round. Detailed explanations of the two MAD-based baselines are provided in Appendix A.2.
+
+We evaluate each workflow in terms of validity, predictive performance, and efficiency. Validity measures whether a workflow returns a valid final output that follows the defined format. Invalid cases are excluded from predictive evaluation. For predictive performance, we report True Positive Rate (TPR), True Negative Rate (TNR), Balanced Accuracy (BA), G-mean, and Matthews Correlation Coefficient (MCC). These metrics are chosen because MIMIC-DOS is a difficult benchmark with subjective–objective discordance, where onesided prediction collapse can be misleading. For efficiency, we report Tokens/Sample, the average total token usage per sample. Metric definitions are provided in Appendix A.3.
+
+# 6 Results and analysis
+
+Main results Table 1 reports the main experimental results. Among all compared workflows, CARE with gpt-oss-120B as the local LLM and GPT-5 as the proprietary LLM achieves the best overall performance, with all outputs being valid and the highest BA (0.5460), G-mean (0.5455), and MCC (0.0921). More importantly, it is the only setting in which both the TPR and TNR exceed 0.5, with $\mathrm { T P R } { = } 0 . 5 \dot { 2 } 2 0$ and $\dot { \mathrm { T N R } } = 0 . 5 7 0 0$ . By contrast, most competing workflows show a pronounced directional bias toward one class.
+
+Table 2: Ablation study of CARE under the 4-stage conceptual decomposition. All runs use GPT-OSS as the local model and GPT-5 as the proprietary model.   
+
+<table><tr><td rowspan="2">Workflow</td><td colspan="2">Class Performance</td><td colspan="3">Metrics</td><td>Efficiency</td></tr><tr><td>TPR (Recall)</td><td>TNR (Specificity)</td><td>BA</td><td>G-mean</td><td>MCC</td><td>Tokens /Sample</td></tr><tr><td>Full workflow</td><td>0.5220</td><td>0.5700</td><td>0.5460</td><td>0.5455</td><td>0.0921</td><td>7771.52</td></tr><tr><td>Backbone only</td><td>0.3900</td><td>0.6920</td><td>0.5410</td><td>0.5195</td><td>0.0860</td><td>4164.42</td></tr><tr><td>Without Stage 1</td><td>0.4980</td><td>0.5660</td><td>0.5320</td><td>0.5309</td><td>0.0641</td><td>7458.60</td></tr><tr><td>Without Stage 3</td><td>0.4160</td><td>0.6660</td><td>0.5410</td><td>0.5264</td><td>0.0847</td><td>4202.36</td></tr></table>
+
+Workflow-level comparison The baseline workflows exhibit a common failure mode: they tend to collapse toward a model-specific operating point rather than maintain a balanced decision policy. This aligns with known vulnerabilities of zero-shot language models to severe label bias and prior probability shifts when forced into immediate classification (Zhao et al., 2021). This is most obvious in the single-pass setting, where the same input is consumed in one shot and the local model must directly commit to a final prediction. For reference only, Appendix A.5 also reports a single-pass GPT-5 result, which exhibits the same workflow-level limitation but is excluded from Table 1 because it falls outside the privacy scope defined in Section 4.1. This suggests that CARE’s effectiveness does not arise solely from the stronger abstract reasoning capability of the proprietary model, but also from the staged agentic framework itself, which structures reasoning beyond a single flat prediction step. Majority voting partially averages out these preferences at the binary label level, but it does not fundamentally remove the class-imbalance tendency. Its improved validity mainly comes from collapsing agent-level disagreement into a binary decision rather than from genuinely stronger agreement among agents, a limitation frequently observed in flat self-consistency protocols (Wang et al., 2023). The two debate baselines are more expensive but still operate on the same flat input representation without an explicit intermediate state model. As a result, they mainly redistribute the false-positive/false-negative trade-off rather than resolve it: the more conservative debate variant retains higher specificity, while ConfMAD shifts modestly toward recall, but neither produces a clear gain in BA or MCC.
+
+CARE differs from the baselines in that it does not make the final decision directly from a flat bundle of mixed evidence. This is especially important in our benchmark, which is defined by subjective–objective discordance: reassuring bedside presentation can coexist with genuine physiological risk. In this setting, the baseline workflows tend to preserve or merely redistribute model-specific bias, whereas CARE explicitly structures state construction, evidence acquisition, and transition reasoning before the final decision. Although CARE consumes more tokens than the single-pass and majority-voting baselines, it achieves the best overall performance on MIMIC-DOS with GPT-OSS as the local LLM and GPT-5 as the proprietary LLM, thereby providing the strongest answer to RQ1.
+
+Comparison by local LLM The benefit of CARE is not uniform across local LLMs. Relative to the corresponding single-pass baseline, the largest improvement occurs with GPT-OSS, where CARE substantially relaxes the original conservative bias and moves the system toward a much more balanced operating point. For Qwen, the gain is smaller. CARE increases positive predictions, but the resulting workflow remains noticeably skewed toward the positive class. For LLaDA, CARE partially corrects the extreme positive bias of the single-pass baseline, but the final system is still less balanced than the GPT-OSS-based CARE configuration. A practical issue with the LLaDA-based workflows is output validity. As shown in Table 1, they fail to produce valid structured outputs more often than the GPT-OSS- and Qwen-based counterparts. Overall, these results answer RQ2 by showing that local LLM choice materially affects workflow performance, and that CARE is most effective when the local model provides a stable enough prior for the workflow to rebalance its original directional tendency rather than simply amplify it.
+
+![](images/a4f22ba5d9833954f47d824cc301f45af4797464caa77702c178fad64f5b9eb4.jpg)  
+Figure 3: Held-out UMAP geometry of MIMIC-DOS. The x- and y-axes are the two coordinates of a UMAP space fit on a separate training cohort and used to project MIMIC-DOS for visualization. They do not correspond to individual clinical variables. Left: local positive prevalence estimated from the ground-truth labels, where GT 0 denotes the negative class and GT 1 denotes the positive class. Right: local neighborhood purity. Persistent label mixing across both panels highlights the strong overlap structure of the benchmark.
+
+Ablation study In our 4-stage decomposition, the workflow backbone consists only of Stage 2 (evidence acquisition) and Stage 4 (final decision-making), which together form the minimal executable pipeline. Table 2 summarizes the ablation results for CARE. Relative to the full workflow, the backbone-only variant shows a small but consistent drop in overall performance, indicating that the additional stages provide measurable value beyond this minimal backbone. The workflow without Stage 1 (rubric generation and initial state assignment) causes a further degradation, suggesting that the initial framing step contributes a useful prior for subsequent reasoning. The workflow without Stage 3 (transition reasoning) leads to a more substantial change in decision behavior. The workflow becomes noticeably more conservative, with TPR decreasing from 0.5220 to 0.4160 and TNR increasing from 0.5700 to 0.6660. This suggests that Stage 3 is important not merely as a refinement step, but as the component that integrates the acquired evidence into the final risk judgment and prevents the workflow from remaining overly conservative. Overall, these ablation results answer RQ3 by supporting the full staged design of CARE: Stage 1 provides a modest but useful prior, whereas Stage 3 contributes a more important post-acquisition correction, and the best performance is obtained only when all stages are retained.
+
+MIMIC-DOS task difficulty MIMIC-DOS is difficult and remains far from solved. Even in structured feature space, the positive and negative classes substantially overlap: when trained on a separate, non-overlapping 400-case cohort constructed under the same benchmark definition and evaluated on MIMIC-DOS, a logistic regression classifier achieves only $\Gamma \mathrm { P R } { = } 0 . 5 6 4 0$ and $\mathrm { T N R } { = } 0 . 5 6 6 0$ , while a stronger random forest classifier improves only modestly to T $\mathrm { \mathrm { ? R } } { = } 0 . 5 4 6 0$ and $\mathrm { T N R } { = } 0 . 6 6 8 0$ . This is consistent with both the score-overlap analysis, where $7 8 . 8 \%$ of negatives and $6 9 . 0 \%$ of positives fall into the intermediate score band (0.3, 0.7), and the held-out Uniform Manifold Approximation and Projection (UMAP) geometry in Figure 3, which shows persistent local label mixing rather than clean separation. Relative to these supervised classifiers, the privacy-constrained CARE workflow remains sufficiently competitive in the zero-shot setting.
+
+# 7 Conclusion and discussion
+
+We highlight evidence discordance as an important yet underexplored challenge for LLMbased decision-making, and introduce MIMIC-DOS to isolate this case in a controlled yet difficult benchmark. We further propose CARE, a privacy-compliant agentic workflow that
+
+achieves the strongest overall performance among the evaluated workflows on MIMIC-DOS and, more importantly, is the only evaluated workflow in which both TPR and TNR exceed $5 0 \%$ , suggesting greater robustness than single-pass, voting, and debate-based baselines under conflicting evidence. Our study also has limitations. First, it focuses on only one subtype of evidence discordance and uses a restricted benchmark rather than reflecting real deployment prevalence. Second, CARE reduces direct exposure of patient-level values but does not fully hide higher-level metadata semantics. Future work will expand MIMIC-DOS to a broader family of clinically meaningful discordant cases and test whether CARE can generalize to more realistic clinical evidence and privacy conditions.
+
+# Ethics Statement
+
+This study used the MIMIC-IV v3.1 dataset, a de-identified clinical dataset derived from routine clinical care at the Beth Israel Deaconess Medical Center (BIDMC). The collection of patient information and creation of the research resource were reviewed by the Institutional Review Board at BIDMC, which granted a waiver of informed consent and approved the data sharing initiative. Access to the dataset for this work was limited to an authorized credentialed user who completed the required human-subjects research training and agreed to the PhysioNet Credentialed Health Data Use Agreement and license terms. All handling of the restricted raw records and experiments in our study was performed only by the credentialed user who completed the required training and signed the data usage agreement. This work is a retrospective secondary analysis of existing de-identified records, does not involve new data collection or patient contact, and reports only aggregate results without disclosing identifiable patient information.
+
+# References
+
+Tiwei Bie, Maosong Cao, Xiang Cao, Bingsen Chen, Fuyuan Chen, Kun Chen, Lun Du, Daozhuo Feng, Haibo Feng, Mingliang Gong, Zhuocheng Gong, Yanmei Gu, Jian Guan, Kaiyuan Guan, Hongliang He, Zenan Huang, Juyong Jiang, Zhonghui Jiang, Zhenzhong Lan, Chengxi Li, Jianguo Li, Zehuan Li, Huabin Liu, Lin Liu, Guoshan Lu, Yuan Lu, Yuxin Ma, Xingyu Mou, Zhenxuan Pan, Kaida Qiu, Yuji Ren, Jianfeng Tan, Yiding Tian, Zian Wang, Lanning Wei, Tao Wu, Yipeng Xing, Wentao Ye, Liangyu Zha, Tianze Zhang, Xiaolu Zhang, Junbo Zhao, Da Zheng, Hao Zhong, Wanli Zhong, Jun Zhou, Junlin Zhou, Liwang Zhu, Muzhi Zhu, and Yihong Zhuang. LLaDA2.1: speeding up text diffusion via token editing, 2026.   
+Edward Choi, Mohammad Taha Bahadori, Jimeng Sun, Joshua Kulas, Andy Schuetz, and Walter F. Stewart. RETAIN: an interpretable predictive model for healthcare using reverse time attention mechanism. In Daniel D. Lee, Masashi Sugiyama, Ulrike von Luxburg, Isabelle Guyon, and Roman Garnett (eds.), Advances in Neural Information Processing Systems 29: Annual Conference on Neural Information Processing Systems 2016, December 5-10, 2016, Barcelona, Spain, pp. 3504–3512, 2016.   
+Hyeong Kyu Choi, Jerry Zhu, and Sharon Li. Debate or vote: which yields better decisions in multi-agent large language models? In The Thirty-ninth Annual Conference on Neural Information Processing Systems, 2025.   
+John W Devlin, Yoanna Skrobik, Celine G ´ elinas, Dale M Needham, Arjen JC Slooter, Pratik P ´ Pandharipande, Paula L Watson, Gerald L Weinhouse, Mark E Nunnally, Bram Rochwerg, Michele C Balas, Mark van den Boogaard, Karen J Bosma, Nathaniel E Brummel, Gerald Chanques, Linda Denehy, Xavier Drouot, Gilles L Fraser, Jocelyn E Harris, Aaron M Joffe, Michelle E Kho, John P Kress, Julie A Lanphere, Sharon McKinley, Karin J Neufeld, Margaret A Pisani, Jean Francois Payen, Brenda T Pun, Kathleen A Puntillo, Richard R Riker, Bryce RH Robinson, Yahya Shehabi, Paul M Szumita, Chris Winkelman, John E Centofanti, Carrie Price, Sina Nikayin, Cheryl J Misak, Pamela D Flood, Ken Kiedrowski, and Waleed Alhazzani. Clinical practice guidelines for the prevention and management of pain, agitation/sedation, delirium, immobility, and sleep disruption in adult patients in the ICU. Critical care medicine, 46(9):e825–e873, 2018.   
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B. Tenenbaum, and Igor Mordatch. Improving factuality and reasoning in language models through multiagent debate. In Forty-first International Conference on Machine Learning, ICML 2024, Vienna, Austria, July 21-27, 2024, 2024.   
+Laura Evans, Andrew Rhodes, Waleed Alhazzani, Massimo Antonelli, Craig M Coopersmith, Craig French, Flavia R Machado, Lauralyn Mcintyre, Marlies Ostermann, Hallie C Prescott, ´ Christa Schorr, Steven Simpson, W Joost Wiersinga, Fayez Alshamsi, Derek C Angus, Yaseen Arabi, Luciano Azevedo, Richard Beale, Gregory Beilman, Emilie Belley-Cote, Lisa Burry, Maurizio Cecconi, John Centofanti, Angel Coz Yataco, Jan De Waele, R Phillip Dellinger, Kent Doi, Bin Du, Elisa Estenssoro, Ricard Ferrer, Charles Gomersall, Carol Hodgson, Morten Hylander Møller, Theodore Iwashyna, Shevin Jacob, Ruth Kleinpell, Michael Klompas, Younsuck Koh, Anand Kumar, Arthur Kwizera, Suzana Lobo, Henry Masur, Steven McGloughlin, Sangeeta Mehta, Yatin Mehta, Mervyn Mer, Mark Nunnally, Simon Oczkowski, Tiffany Osborn, Elizabeth Papathanassoglou, Anders Perner, Michael Puskarich, Jason Roberts, Luregn J Schlapbach, Maureen Seckel, Jonathan Sevransky, Charles L Sprung, Tobias Welte, Janice Zimmerman, and Mitchell Levy. Surviving sepsis campaign: international guidelines for management of sepsis and septic shock 2021. Critical care medicine, 49(11):e1063–e1143, 2021.   
+Scott L Fleming, Alejandro Lozano, William J Haberkorn, Jenelle A Jindal, Eduardo Reis, Rahul Thapa, Louis Blankemeier, Julian Z Genkins, Ethan Steinberg, Ashwin Nayak, et al. Medalign: A clinician-generated dataset for instruction following with electronic medical records. In The Thirty-Eighth AAAI Conference on Artificial Intelligence, AAAI-24, Vancouver, Canada, February 20-27, 2024, 2024.
+
+Kate Goddard, Abdul Roudsari, and Jeremy C Wyatt. Automation bias: a systematic review of frequency, effect mediators, and mitigators. Journal of the American Medical Informatics Association, 19(1):121–127, 2012.   
+Ary L Goldberger, Luis AN Amaral, Leon Glass, Jeffrey M Hausdorff, Plamen Ch Ivanov, Roger G Mark, Joseph E Mietus, George B Moody, Chung-Kang Peng, and H Eugene Stanley. PhysioBank, PhysioToolkit, and PhysioNet: components of a new research resource for complex physiologic signals. circulation, 101(23):e215–e220, 2000.   
+Paul Hager, Friederike Jungmann, Robbie Holland, Kunal Bhagat, Inga Hubrecht, Manuel Knauer, Jakob Vielhauer, Marcus Makowski, Rickmer Braren, Georgios Kaissis, and Daniel Rueckert. Evaluation and mitigation of the limitations of large language models in clinical decision-making. Nature medicine, 30(9):2613–2622, 2024.   
+Marieka A Helou, Deborah DiazGranados, Michael S Ryan, and John W Cyrus. Uncertainty in decision making in medicine: a scoping review and thematic analysis of conceptual models. Academic Medicine, 95(1):157–165, 2020.   
+Michael D Howell, Michael Donnino, Peter Clardy, Daniel Talmor, and Nathan I Shapiro. Occult hypoperfusion and mortality in patients with suspected infection. Intensive care medicine, 33:1892–1899, 2007.   
+Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan Su, Yan Xu, Etsuko Ishii, Yejin Bang, Andrea Madotto, and Pascale Fung. Survey of hallucination in natural language generation. ACM Computing Surveys, 55(12):1–38, 2023.   
+Lavender Yao Jiang, Xujin Chris Liu, Nima Pour Nejatian, Mustafa Nasir-Moin, Duo Wang, Anas Abidin, Kevin Eaton, Howard Antony Riina, Ilya Laufer, Paawan Punjabi, Madeline Miceli, Nora C Kim, Cordelia Orillac, Zane Schnurman, Christopher Livia, Hannah Weiss, David Kurland, Sean Neifert, Yosef Dastagirzada, Douglas Kondziolka, Alexander T M Cheung, Grace Yang, Ming Cao, Mona Flores, Anthony B Costa, Yindalon Aphinyanaphongs, Kyunghyun Cho, and Eric Karl Oermann. Health system-scale language models are all-purpose prediction engines. Nature, 619(7969):357–362, 2023.   
+Alistair Johnson, Lucas Bulgarelli, Tom Pollard, Brian Gow, Benjamin Moody, Steven Horng, Leo Anthony Celi, and Roger Mark. MIMIC-IV. PhysioNet, October 2024. Version 3.1.   
+Alistair EW Johnson, Lucas Bulgarelli, Lu Shen, Alvin Johnson, Salih Gokaslan, Li-wei Lehman, and Roger G Mark. MIMIC-IV, a freely accessible electronic health record dataset. Scientific data, 10(1):1, 2023.   
+Shreya Johri, Jaehwan Jeong, Benjamin A Tran, Daniel I Schlessinger, Shannon Wongvibulsin, Leandra A Barnes, Hong-Yu Zhou, Zhuo Ran Cai, Eliezer M Van Allen, David Kim, Roxana Daneshjou, and Pranav Rajpurkar. An evaluation framework for clinical use of large language models in patient interaction tasks. Nature medicine, 31(1):77–86, 2025.   
+Jitendra Jonnagaddala and Zoie Shui-Yee Wong. Privacy preserving strategies for electronic health records in the era of large language models. npj Digital Medicine, 8(1):34, 2025.   
+Shuhe Li, Ruoxu Dou, Xiaodong Song, Ka Yue Lui, Jiwei Xu, Zhipeng Guo, Xiaobo Hu, Xiangdong Guan, and Changjie Cai. Developing an interpretable machine learning model to predict in-hospital mortality in sepsis patients: a retrospective temporal validation study. Journal of Clinical Medicine, 12(3):915, 2023.   
+Shuyue Stella Li, Vidhisha Balachandran, Shangbin Feng, Jonathan Ilgen, Emma Pierson, Pang Wei W. Koh, and Yulia Tsvetkov. MediQ: question-asking LLMs and a benchmark for reliable interactive clinical reasoning. In Amir Globersons, Lester Mackey, Danielle Belgrave, Angela Fan, Ulrich Paquet, Jakub M. Tomczak, and Cheng Zhang (eds.), Advances in Neural Information Processing Systems 38: Annual Conference on Neural Information Processing Systems 2024, NeurIPS 2024, Vancouver, BC, Canada, December 10 - 15, 2024, 2024.
+
+Zijie Lin and Bryan Hooi. Enhancing multi-agent debate system performance via confidence expression. In Christos Christodoulopoulos, Tanmoy Chakraborty, Carolyn Rose, and Violet Peng (eds.), Findings of the Association for Computational Linguistics: EMNLP 2025, pp. 6453–6471, Suzhou, China, 2025. ISBN 979-8-89176-335-7.   
+Alessandro Meregalli, Rui P Oliveira, and Gilberto Friedman. Occult hypoperfusion. Intensive care medicine, 30:36–41, 2004.   
+Harsha Nori, Nicholas King, Scott Mayer McKinney, Dean Jenkins, and Emma Pierson. Capabilities of GPT-4 on medical challenge problems. ArXiv preprint, abs/2303.13375, 2023.   
+OpenAI, :, Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K. Arora, Yu Bai, Bowen Baker, Haiming Bao, Boaz Barak, Ally Bennett, Tyler Bertao, Nivedita Brett, Eugene Brevdo, Greg Brockman, Sebastien Bubeck, Che Chang, Kai Chen, Mark Chen, Enoch Cheung, Aidan Clark, Dan Cook, Marat Dukhan, Casey Dvorak, Kevin Fives, Vlad Fomenko, Timur Garipov, Kristian Georgiev, Mia Glaese, Tarun Gogineni, Adam Goucher, Lukas Gross, Katia Gil Guzman, John Hallman, Jackie Hehir, Johannes Heidecke, Alec Helyar, Haitang Hu, Romain Huet, Jacob Huh, Saachi Jain, Zach Johnson, Chris Koch, Irina Kofman, Dominik Kundel, Jason Kwon, Volodymyr Kyrylov, Elaine Ya Le, Guillaume Leclerc, James Park Lennon, Scott Lessans, Mario Lezcano-Casado, Yuanzhi Li, Zhuohan Li, Ji Lin, Jordan Liss, Lily, Liu, Jiancheng Liu, Kevin Lu, Chris Lu, Zoran Martinovic, Lindsay McCallum, Josh McGrath, Scott McKinney, Aidan McLaughlin, Song Mei, Steve Mostovoy, Tong Mu, Gideon Myles, Alexander Neitz, Alex Nichol, Jakub Pachocki, Alex Paino, Dana Palmie, Ashley Pantuliano, Giambattista Parascandolo, Jongsoo Park, Leher Pathak, Carolina Paz, Ludovic Peran, Dmitry Pimenov, Michelle Pokrass, Elizabeth Proehl, Huida Qiu, Gaby Raila, Filippo Raso, Hongyu Ren, Kimmy Richardson, David Robinson, Bob Rotsted, Hadi Salman, Suvansh Sanjeev, Max Schwarzer, D. Sculley, Harshit Sikchi, Kendal Simon, Karan Singhal, Yang Song, Dane Stuckey, Zhiqing Sun, Philippe Tillet, Sam Toizer, Foivos Tsimpourlas, Nikhil Vyas, Eric Wallace, Xin Wang, Miles Wang, Olivia Watkins, Kevin Weil, Amy Wendling, Kevin Whinnery, Cedric Whitney, Hannah Wong, Lin Yang, Yu Yang, Michihiro Yasunaga, Kristen Ying, Wojciech Zaremba, Wenting Zhan, Cyril Zhang, Brian Zhang, Eddie Zhang, and Shengjia Zhao. gpt-oss-120b & gpt-oss-20b model card, 2025.   
+W Nicholson Price and I Glenn Cohen. Privacy in the age of medical big data. Nature medicine, 25(1):37–43, 2019.   
+Michael A Puskarich, Matthew R Marchick, Jeffrey A Kline, Michael T Steuerwald, and Alan E Jones. Outcomes of patients undergoing early sepsis resuscitation for cryptic shock compared with overt shock. Resuscitation, 82(10):1289–1293, 2011.   
+Qwen Team. Qwen3.5: towards native multimodal agents, February 2026.   
+Cynthia Rudin. Stop explaining black box machine learning models for high stakes decisions and use interpretable models instead. Nature Machine Intelligence, 1(5):206–215, 2019.   
+Seyed Amir Ahmad Safavi-Naini, Shuhaib Ali, Omer Shahab, Zahra Shahhoseini, Thomas Savage, Sara Rafiee, Jamil S Samaan, Reem Al Shabeeb, Farah Ladak, Jamie O Yang, Juan Echavarria, Sumbal Babar, Aasma Shaukat, Samuel Margolis, Nicholas P Tatonetti, Girish Nadkarni, Bara El Kurdi, and Ali Soroush. Benchmarking proprietary and open-source language and vision-language models for gastroenterology clinical reasoning. npj Digital Medicine, 2025.   
+Timo Schick, Jane Dwivedi-Yu, Roberto Dess`ı, Roberta Raileanu, Maria Lomeli, Eric Hambro, Luke Zettlemoyer, Nicola Cancedda, and Thomas Scialom. Toolformer: language models can teach themselves to use tools. In Alice Oh, Tristan Naumann, Amir Globerson, Kate Saenko, Moritz Hardt, and Sergey Levine (eds.), Advances in Neural Information Processing Systems 36: Annual Conference on Neural Information Processing Systems 2023, NeurIPS 2023, New Orleans, LA, USA, December 10 - 16, 2023, 2023.
+
+Curtis N Sessler, Mark S Gosnell, Mary Jo Grap, Gretchen M Brophy, Pam V O’Neal, Kimberly A Keane, Eljim P Tesoro, and RK12421743 Elswick. The Richmond Agitation– Sedation Scale: validity and reliability in adult intensive care unit patients. American journal of respiratory and critical care medicine, 166(10):1338–1344, 2002.   
+Mervyn Singer, Clifford S. Deutschman, Christopher Warren Seymour, Manu Shankar-Hari, Djillali Annane, Michael Bauer, Rinaldo Bellomo, Gordon R. Bernard, Jean-Daniel Chiche, Craig M. Coopersmith, Richard S. Hotchkiss, Mitchell M. Levy, John C. Marshall, Greg S. Martin, Steven M. Opal, Gordon D. Rubenfeld, Tom van der Poll, Jean-Louis Vincent, and Derek C. Angus. The third international consensus definitions for sepsis and septic shock (Sepsis-3). JAMA, 315(8):801–810, 2016. ISSN 0098-7484.   
+Aaditya Singh, Adam Fry, Adam Perelman, Adam Tart, Adi Ganesh, Ahmed El-Kishky, Aidan McLaughlin, Aiden Low, AJ Ostrow, Akhila Ananthram, Akshay Nathan, Alan Luo, Alec Helyar, Aleksander Madry, Aleksandr Efremov, Aleksandra Spyra, Alex Baker-Whitcomb, Alex Beutel, Alex Karpenko, Alex Makelov, Alex Neitz, Alex Wei, Alexandra Barr, Alexandre Kirchmeyer, Alexey Ivanov, Alexi Christakis, Alistair Gillespie, Allison Tam, Ally Bennett, Alvin Wan, Alyssa Huang, Amy McDonald Sandjideh, Amy Yang, Ananya Kumar, Andre Saraiva, Andrea Vallone, Andrei Gheorghe, Andres Garcia Garcia, Andrew Braunstein, Andrew Liu, Andrew Schmidt, Andrey Mereskin, Andrey Mishchenko, Andy Applebaum, Andy Rogerson, Ann Rajan, Annie Wei, Anoop Kotha, Anubha Srivastava, Anushree Agrawal, Arun Vijayvergiya, Ashley Tyra, Ashvin Nair, Avi Nayak, Ben Eggers, Bessie Ji, Beth Hoover, Bill Chen, Blair Chen, Boaz Barak, Borys Minaiev, Botao Hao, Bowen Baker, Brad Lightcap, Brandon McKinzie, Brandon Wang, Brendan Quinn, Brian Fioca, Brian Hsu, Brian Yang, Brian Yu, Brian Zhang, Brittany Brenner, Callie Riggins Zetino, Cameron Raymond, Camillo Lugaresi, Carolina Paz, Cary Hudson, Cedric Whitney, Chak Li, Charles Chen, Charlotte Cole, Chelsea Voss, Chen Ding, Chen Shen, Chengdu Huang, Chris Colby, Chris Hallacy, Chris Koch, Chris Lu, Christina Kaplan, Christina Kim, CJ Minott-Henriques, Cliff Frey, Cody Yu, Coley Czarnecki, Colin Reid, Colin Wei, Cory Decareaux, Cristina Scheau, Cyril Zhang, Cyrus Forbes, Da Tang, Dakota Goldberg, Dan Roberts, Dana Palmie, Daniel Kappler, Daniel Levine, Daniel Wright, Dave Leo, David Lin, David Robinson, Declan Grabb, Derek Chen, Derek Lim, Derek Salama, Dibya Bhattacharjee, Dimitris Tsipras, Dinghua Li, Dingli Yu, DJ Strouse, Drew Williams, Dylan Hunn, Ed Bayes, Edwin Arbus, Ekin Akyurek, Elaine Ya Le, Elana Widmann, Eli Yani, Elizabeth Proehl, Enis Sert, Enoch Cheung, Eri Schwartz, Eric Han, Eric Jiang, Eric Mitchell, Eric Sigler, Eric Wallace, Erik Ritter, Erin Kavanaugh, Evan Mays, Evgenii Nikishin, Fangyuan Li, Felipe Petroski Such, Filipe de Avila Belbute Peres, Filippo Raso, Florent Bekerman, Foivos Tsimpourlas, Fotis Chantzis, Francis Song, Francis Zhang, Gaby Raila, Garrett McGrath, Gary Briggs, Gary Yang, Giambattista Parascandolo, Gildas Chabot, Grace Kim, Grace Zhao, Gregory Valiant, Guillaume Leclerc, Hadi Salman, Hanson Wang, Hao Sheng, Haoming Jiang, Haoyu Wang, Haozhun Jin, Harshit Sikchi, Heather Schmidt, Henry Aspegren, Honglin Chen, Huida Qiu, Hunter Lightman, Ian Covert, Ian Kivlichan, Ian Silber, Ian Sohl, Ibrahim Hammoud, Ignasi Clavera, Ikai Lan, Ilge Akkaya, Ilya Kostrikov, Irina Kofman, Isak Etinger, Ishaan Singal, Jackie Hehir, Jacob Huh, Jacqueline Pan, Jake Wilczynski, Jakub Pachocki, James Lee, James Quinn, Jamie Kiros, Janvi Kalra, Jasmyn Samaroo, Jason Wang, Jason Wolfe, Jay Chen, Jay Wang, Jean Harb, Jeffrey Han, Jeffrey Wang, Jennifer Zhao, Jeremy Chen, Jerene Yang, Jerry Tworek, Jesse Chand, Jessica Landon, Jessica Liang, Ji Lin, Jiancheng Liu, Jianfeng Wang, Jie Tang, Jihan Yin, Joanne Jang, Joel Morris, Joey Flynn, Johannes Ferstad, Johannes Heidecke, John Fishbein, John Hallman, Jonah Grant, Jonathan Chien, Jonathan Gordon, Jongsoo Park, Jordan Liss, Jos Kraaijeveld, Joseph Guay, Joseph Mo, Josh Lawson, Josh McGrath, Joshua Vendrow, Joy Jiao, Julian Lee, Julie Steele, Julie Wang, Junhua Mao, Kai Chen, Kai Hayashi, Kai Xiao, Kamyar Salahi, Kan Wu, Karan Sekhri, Karan Sharma, Karan Singhal, Karen Li, Kenny Nguyen, Keren Gu-Lemberg, Kevin King, Kevin Liu, Kevin Stone, Kevin Yu, Kristen Ying, Kristian Georgiev, Kristie Lim, Kushal Tirumala, Kyle Miller, Lama Ahmad, Larry Lv, Laura Clare, Laurance Fauconnet, Lauren Itow, Lauren Yang, Laurentia Romaniuk, Leah Anise, Lee Byron, Leher Pathak, Leon Maksin, Leyan Lo, Leyton Ho, Li Jing, Liang Wu, Liang Xiong, Lien Mamitsuka, Lin Yang, Lindsay McCallum, Lindsey Held, Liz Bourgeois, Logan Engstrom, Lorenz Kuhn, Louis Feuvrier, Lu Zhang, Lucas Switzer, Lukas Kondraciuk, Lukasz Kaiser, Manas Joglekar, Mandeep
+
+Singh, Mandip Shah, Manuka Stratta, Marcus Williams, Mark Chen, Mark Sun, Marselus Cayton, Martin Li, Marvin Zhang, Marwan Aljubeh, Matt Nichols, Matthew Haines, Max Schwarzer, Mayank Gupta, Meghan Shah, Melody Huang, Meng Dong, Mengqing Wang, Mia Glaese, Micah Carroll, Michael Lampe, Michael Malek, Michael Sharman, Michael Zhang, Michele Wang, Michelle Pokrass, Mihai Florian, Mikhail Pavlov, Miles Wang, Ming Chen, Mingxuan Wang, Minnia Feng, Mo Bavarian, Molly Lin, Moose Abdool, Mostafa Rohaninejad, Nacho Soto, Natalie Staudacher, Natan LaFontaine, Nathan Marwell, Nelson Liu, Nick Preston, Nick Turley, Nicklas Ansman, Nicole Blades, Nikil Pancha, Nikita Mikhaylin, Niko Felix, Nikunj Handa, Nishant Rai, Nitish Keskar, Noam Brown, Ofir Nachum, Oleg Boiko, Oleg Murk, Olivia Watkins, Oona Gleeson, Pamela Mishkin, Patryk Lesiewicz, Paul Baltescu, Pavel Belov, Peter Zhokhov, Philip Pronin, Phillip Guo, Phoebe Thacker, Qi Liu, Qiming Yuan, Qinghua Liu, Rachel Dias, Rachel Puckett, Rahul Arora, Ravi Teja Mullapudi, Raz Gaon, Reah Miyara, Rennie Song, Rishabh Aggarwal, RJ Marsan, Robel Yemiru, Robert Xiong, Rohan Kshirsagar, Rohan Nuttall, Roman Tsiupa, Ronen Eldan, Rose Wang, Roshan James, Roy Ziv, Rui Shu, Ruslan Nigmatullin, Saachi Jain, Saam Talaie, Sam Altman, Sam Arnesen, Sam Toizer, Sam Toyer, Samuel Miserendino, Sandhini Agarwal, Sarah Yoo, Savannah Heon, Scott Ethersmith, Sean Grove, Sean Taylor, Sebastien Bubeck, Sever Banesiu, Shaokyi Amdo, Shengjia Zhao, Sherwin Wu, Shibani Santurkar, Shiyu Zhao, Shraman Ray Chaudhuri, Shreyas Krishnaswamy, Shuaiqi, Xia, Shuyang Cheng, Shyamal Anadkat, Simon Posada Fishman, Simon Tobin, Siyuan Fu, ´ Somay Jain, Song Mei, Sonya Egoian, Spencer Kim, Spug Golden, SQ Mah, Steph Lin, Stephen Imm, Steve Sharpe, Steve Yadlowsky, Sulman Choudhry, Sungwon Eum, Suvansh Sanjeev, Tabarak Khan, Tal Stramer, Tao Wang, Tao Xin, Tarun Gogineni, Taya Christianson, Ted Sanders, Tejal Patwardhan, Thomas Degry, Thomas Shadwell, Tianfu Fu, Tianshi Gao, Timur Garipov, Tina Sriskandarajah, Toki Sherbakov, Tomer Kaftan, Tomo Hiratsuka, Tongzhou Wang, Tony Song, Tony Zhao, Troy Peterson, Val Kharitonov, Victoria Chernova, Vineet Kosaraju, Vishal Kuo, Vitchyr Pong, Vivek Verma, Vlad Petrov, Wanning Jiang, Weixing Zhang, Wenda Zhou, Wenlei Xie, Wenting Zhan, Wes McCabe, Will DePue, Will Ellsworth, Wulfie Bain, Wyatt Thompson, Xiangning Chen, Xiangyu Qi, Xin Xiang, Xinwei Shi, Yann Dubois, Yaodong Yu, Yara Khakbaz, Yifan Wu, Yilei Qian, Yin Tat Lee, Yinbo Chen, Yizhen Zhang, Yizhong Xiong, Yonglong Tian, Young Cha, Yu Bai, Yu Yang, Yuan Yuan, Yuanzhi Li, Yufeng Zhang, Yuguang Yang, Yujia Jin, Yun Jiang, Yunyun Wang, Yushi Wang, Yutian Liu, Zach Stubenvoll, Zehao Dou, Zheng Wu, and Zhigang Wang. Openai gpt-5 system card, 2025.
+
+Karan Singhal, Shekoofeh Azizi, Tao Tu, S. Sara Mahdavi, Jason Wei, Hyung Won Chung, Nathan Scales, Ajay Tanwani, Heather Cole-Lewis, Stephen Pfohl, Perry Payne, Martin Seneviratne, Paul Gamble, Chris Kelly, Abubakr Babiker, Nathanael Scharli, Aakanksha ¨ Chowdhery, Philip Mansfield, Dina Demner-Fushman, Blaise Aguera y Arcas, Dale ¨ Webster, Greg S. Corrado, Yossi Matias, Katherine Chou, Juraj Gottweis, Nenad Tomasev, Yun Liu, Alvin Rajkomar, Joelle Barral, Christopher Semturs, Alan Karthikesalingam, and Vivek Natarajan. Large language models encode clinical knowledge. Nature, 620(7972): 172–180, 2023.
+
+Xiangru Tang, Anni Zou, Zhuoxin Zhao, Wei Lu, Chen Zhao, Hao Peng, and Yilun Wang. MedAgents: large language models as collaborators for zero-shot medical reasoning. ArXiv preprint, abs/2311.10537, 2023.
+
+Arun James Thirunavukarasu, Darren Shu Jeng Ting, Kabilan Elangovan, Laura Gutierrez, Ting Fang Tan, and Daniel Shu Wei Ting. Large language models in medicine. Nature medicine, 29(8):1930–1940, 2023.
+
+J-L Vincent, Rui Moreno, Jukka Takala, Sheila Willatts, Arnaldo De Mendonc¸a, Hajo Bruining, C Kathryn Reinhart, PeterM Suter, and Lambertius G Thijs. The SOFA (sepsis-related organ failure assessment) score to describe organ dysfunction/failure: on behalf of the working group on sepsis-related problems of the European Society of Intensive Care Medicine. Intensive care medicine, 22(7):707–710, 1996.
+
+Akihiko Wada, Yuya Tanaka, Mitsuo Nishizawa, Akira Yamamoto, Toshiaki Akashi, Akifumi Hagiwara, Yayoi Hayakawa, Junko Kikuta, Keigo Shimoji, Katsuhiro Sano, Koji Kamagata,
+
+Atsushi Nakanishi, and Shigeki Aoki. Retrieval-augmented generation elevates local LLM quality in radiology contrast media consultation. npj Digital Medicine, 8(1):395, 2025.   
+Lei Wang, Chen Ma, Xueyang Feng, Zeyu Zhang, et al. A survey on large language model based autonomous agents. Frontiers of Computer Science, 18(6):186345, 2024.   
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V. Le, Ed H. Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language models. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023, 2023.   
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R. Narasimhan, and Yuan Cao. ReAct: synergizing reasoning and acting in language models. In The Eleventh International Conference on Learning Representations, ICLR 2023, Kigali, Rwanda, May 1-5, 2023, 2023.   
+Ye Yuan, Mohammad Amin Shabani, and Siqi Liu. FACTS: table summarization via offline template generation with agentic workflows. ArXiv preprint, abs/2510.13920, 2025.   
+Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and Sameer Singh. Calibrate before use: improving few-shot performance of language models. In Marina Meila and Tong Zhang (eds.), Proceedings of the 38th International Conference on Machine Learning, ICML 2021, 18-24 July 2021, Virtual Event, volume 139 of Proceedings of Machine Learning Research, pp. 12697–12706, 2021.
+
+# A Appendix
+
+# A.1 Features and workflow-specific exposure of MIMIC-DOS
+
+The main workflow comparison in this study is conducted on a shared compact feature universe. In this setting, each sample has 22 features in total, including two subjective features and 20 objective features. The two subjective inputs are pain max last1h and rass window last1h, which jointly summarize bedside pain and agitation/sedation status in the one-hour window preceding $t _ { \mathrm { e v a l } }$ . The 20 objective features cover hemodynamic and hypotension burden, SOFA-based organ dysfunction, perfusion, renal output, treatment intensity, oxygenation, inflammatory context, and rhythm status. Details about all features are listed in Table 3.
+
+All baseline workflows operate on the same feature set as a flat evidence bundle. In the single-pass setting, the local model receives the full 22-feature representation and directly produce a final action. Majority voting likewise applies multiple local models to the same full feature bundle and aggregated their outputs. The debate-style baselines also use the same underlying patient representation, differing only in how multiple agents discuss or critique that evidence rather than in what patient-specific information they could access.
+
+CARE uses the same 22 features, but does not expose all objective evidence at once. Under the 4-stage conceptual decomposition, the main distinction arises in Stage 2 (category-aware data acquisition), where objective evidence is organized into an initial direct snapshot followed by optional structured retrieval. At the start of Stage 2, the local model has access to a small direct objective snapshot:
+
+• hr median last1h   
+• map median last1h   
+• map low minutes last1h thr65   
+• map low minutes last1h thr60   
+• has map coverage last1h   
+• sofa total   
+• sofa cardiovascular
+
+During the remainder of Stage 2, CARE can retrieve additional objective evidence through the structured fact keys interface:
+
+• map covered minutes last1h   
+• lactate latest 6h   
+• urine output mlkghr 6h   
+• norepi eq dose max 1h   
+• sofa resp   
+• sofa coag   
+• sofa liver   
+• sofa cns   
+• sofa renal   
+• spo2 latest 1h   
+• temperature latest 4h   
+• wbc latest 24h   
+• rhythm recent 6h
+
+Thus, CARE consumes the same underlying feature universe as the baselines, but organizes objective evidence in a staged manner rather than exposing it all at once. No additional
+
+Table 3: Features used in the workflows. ‘Direct‘ denotes directly materialized bedside summaries from charted ICU data. ‘mimic-code‘ denotes SOFA-derived variables inherited from the official MIT-LCP concept definitions. ‘Derived‘ denotes project-level time-windowed summaries constructed around $t _ { \mathrm { e v a l } }$ .   
+
+<table><tr><td>Feature</td><td>Clinical domain</td><td>Source</td><td>Description</td></tr><tr><td>pain_max_last1h</td><td>Bedside pain</td><td>Direct</td><td>Maximum bedside pain score.</td></tr><tr><td>rass_window_last1h</td><td>Agitation / sedation</td><td>Derived</td><td>Range-and-count summary of prior-hour RASS observations.</td></tr><tr><td>map_median_last1h</td><td>Hemodynamics</td><td>Direct</td><td>Median mean arterial pressure.</td></tr><tr><td>hr_median_last1h</td><td>Hemodynamics</td><td>Direct</td><td>Median heart rate.</td></tr><tr><td>has_map_coverage_last1h</td><td>Monitoring</td><td>Derived</td><td>Indicator of available MAP coverage.</td></tr><tr><td>map Covered Minutes_last1h</td><td>Monitoring</td><td>Derived</td><td>Minutes with usable MAP coverage.</td></tr><tr><td>map_low Minutes_last1h_thr65</td><td>Hypotension burden</td><td>Derived</td><td>Minutes with MAP below 65 mmHg.</td></tr><tr><td>map_low Minutes_last1h_thr60</td><td>Hypotension burden</td><td>Derived</td><td>Minutes with MAP below 60 mmHg.</td></tr><tr><td>sofa_total</td><td>SOFA</td><td>mimic-code</td><td>Total SOFA score at teval.</td></tr><tr><td>sofa Resp</td><td>SOFA</td><td>mimic-code</td><td>Respiratory SOFA component.</td></tr><tr><td>sofa_coag</td><td>SOFA</td><td>mimic-code</td><td>Coagulation SOFA component.</td></tr><tr><td>sofa_liver</td><td>SOFA</td><td>mimic-code</td><td>Liver SOFA component.</td></tr><tr><td>sofa_cardiovascular</td><td>SOFA</td><td>mimic-code</td><td>Cardiovascular SOFA component.</td></tr><tr><td>sofa_cns</td><td>SOFA</td><td>mimic-code</td><td>Central nervous system SOFA component.</td></tr><tr><td>sofa_renal</td><td>SOFA</td><td>mimic-code</td><td>Renal SOFA component.</td></tr><tr><td>lactatelatest_6h</td><td>Perfusion / metabolism</td><td>Derived</td><td>Most recent lactate value.</td></tr><tr><td>urine_output_mlkghr_6h</td><td>Renal output</td><td>Derived</td><td>Body-weight-normalized urine output rate.</td></tr><tr><td>norepi_eq_dose_max_1h</td><td>Treatment intensity</td><td>Derived</td><td>Maximum norepinephrine-equivalent dose.</td></tr><tr><td>spo2latest_1h</td><td>Oxygenation</td><td>Derived</td><td>Most recent SpO2value.</td></tr><tr><td>temperaturelatest_4h</td><td>General physiology</td><td>Derived</td><td>Most recent temperature.</td></tr><tr><td>wbclatest_24h</td><td>Inflammation</td><td>Derived</td><td>Most recent white blood cell count.</td></tr><tr><td>rhythmrecent_6h</td><td>Cardiac rhythm</td><td>Derived</td><td>Most recent rhythm or telemetry summary.</td></tr></table>
+
+patient features are introduced in Stage 3 (transition reasoning) or Stage 4 (final decisionmaking). These later stages instead operate on the evidence accumulated earlier in the workflow.
+
+SOFA features play a central role in this compact feature universe. The Sequential Organ Failure Assessment (SOFA) score was originally proposed to describe the severity of organ dysfunction across six organ systems: respiratory, coagulation, liver, cardiovascular, central nervous system, and renal (Vincent et al., 1996). Each component is scored
+
+from 0 to 4, with higher values indicating more severe dysfunction, and the total SOFA score is obtained by summing the six components. In our setting, we include both the total SOFA score (sofa total) and its component scores (sofa resp, sofa coag, sofa liver, sofa cardiovascular, sofa cns, and sofa renal) so that the workflows can access both overall organ dysfunction severity and its system-level decomposition.
+
+# A.2 MAD Baselines
+
+1. Round-synchronous multi-agent debate The Du et al. (2024) baseline instantiates a 3-agent, 2-round synchronous multi-agent debate. Let the three agents be $A , B ,$ , and $C ,$ and let $\bar { R } _ { i } ^ { ( t ) }$ denote the response of agent i at round t. The workflow proceeds as follows.
+
+1. Round 0: indepenresponse, yielding $R _ { A } ^ { ( 0 ) } , \bar { R } _ { B _ { \bullet } } ^ { ( 0 ) } ,$ $R _ { A } ^ { ( 0 ) }$ ratio, and $R _ { C } ^ { ( 0 ) }$ ach agent independently produces an initial, conditioned only on the original problem and the patient-parameter block.   
+2. Round 1: synchronous debate. For each agent $i ,$ the system concatenates the complete Round 0 responses of the other two agents, i.e., $\{ R _ { j } ^ { ( 0 ) } : j \neq i \} ,$ , and uses them as additional context to generate an updated response $R _ { i } ^ { ( 1 ) }$ .   
+3. Round 2: synchronous debate. The same mechanism is repeated, except that each agent now only observes the other agents’ Round 1 responses, i.e., $\{ R _ { j } ^ { ( 1 ) } : j \neq i \}$ , to produce R(2)i . $R _ { i } ^ { ( 2 ) }$
+
+The defining property of this workflow is that updates within each debate round are synchronous. In other words, during Round 1, agent $A$ cannot observe the newly generated Round 1 outputs of B or C, and the same holds symmetrically for all agents and for Round 2. This makes the method a round-synchronous, broadcast-style debate rather than a sequential speaking protocol.
+
+In our benchmark, we adopt Round 2 majority vote as the final system output. Under this evaluation protocol, the workflow produces a final action whenever at least two of the three Round 2 agents agree. Cases without a valid majority are treated as vote failures, typically because one agent fails to return a valid output and the remaining two agents disagree.
+
+2. Confidence-aware sequential debate (ConfMAD) The ConfMAD baseline implements the plain self-verbalized (SV-Vanilla) variant of a three-agent confidence-aware debate (Lin & Hooi, 2025). We adopt the SV-Vanilla variant because it preserves the core ConfMAD mechanism of confidence-aware sequential debate, while avoiding additional calibration steps that would require extra held-out data and complicate direct comparison with the other workflows. Unlike Du et al. (2024), each agent in ConfMAD is required to output not only its reasoning and action, but also a confidence score. Let the output of agent $i$ at round $t$ be
+
+$$
+D _ {i} ^ {(t)} = \left(r _ {i} ^ {(t)}, a _ {i} ^ {(t)}, c _ {i} ^ {(t)}\right),
+$$
+
+where r(ti $r _ { i } ^ { ( t ) }$ is the reasoning trace, $a _ { i _ { . } } ^ { ( t ) }$ is the final action, and $c _ { i } ^ { ( t ) } \in [ 0 , 1 0 0 ]$ is the self-reported confidence. The workflow proceeds as follows.
+
+1. Round 0: independent generation. The three agents independently produce ${ D } _ { A } ^ { ( 0 ) }$ , ${ D } _ { B } ^ { ( 0 ) }$ (0)B and D(0)C , , ${ D } _ { C } ^ { ( 0 ) }$ forming the initial debate history
+
+$$
+H _ {0} = \left[ D _ {A} ^ {(0)}, D _ {B} ^ {(0)}, D _ {C} ^ {(0)} \right].
+$$
+
+2. Round 1: sequential debate. Agents speak in a fixed order $A  B  C$ . First, $A$ reads $H _ { 0 }$ and generates ${ D } _ { A } ^ { ( 1 ) }$ , which is appended to the history. Then $B$ reads the updated history and generates ${ D } _ { B } ^ { ( 1 ) }$ . Finally, $C$ reads the history updated by both
+
+preceding agents and generates ${ D } _ { C } ^ { ( 1 ) }$ . This yields
+
+$$
+H _ {1} = [ H _ {0}, D _ {A} ^ {(1)}, D _ {B} ^ {(1)}, D _ {C} ^ {(1)} ].
+$$
+
+3. Round 2: sequential debate. The same one-by-one mechanism is repeated. Agent $A$ first reads $H _ { 1 }$ and produce s D(2)A , followed by B, then C, resulting in the final ${ D } _ { A } ^ { ( 2 ) } .$ $B _ { . }$ history $H _ { 2 }$ . ，
+
+Thus, the key characteristic of ConfMAD is not access to a static previous round, but rather sequentially updated debate history: later-speaking agents can observe the newly generated outputs, including confidence scores, from earlier agents within the same round. In our implementation, this baseline does not perform confidence calibration and does not introduce a moderator or a judge. Although confidence scores are part of the debate history, our main benchmark uses Round 2 majority vote as the final system output for engineering comparison with other workflows.
+
+Thus, the key characteristic of ConfMAD is not access to a static previous round, but rather sequentially updated debate history: later-speaking agents can observe the newly generated outputs, including confidence scores, from earlier agents within the same round. In our implementation, this baseline does not perform confidence calibration and does not introduce a moderator or a judge. Confidence scores therefore serve two roles in the workflow: they are exposed as part of the debate history during sequential interaction, and they are also used in the final aggregation, which selects from the valid Round 2 outputs according to the highest confidence score, with deterministic sample-dependent tie-breaking when the highest confidence is tied.
+
+# A.3 Metrics
+
+We evaluate predictive performance using class-balanced metrics derived from the confusion matrix. Because our setting requires distinguishing meaningful performance from one-sided prediction collapse, we report balanced accuracy (BA), G-mean, and Matthews correlation coefficient (MCC).
+
+Let TPR = TPTP+F $\begin{array} { r } { \mathrm { T P R } = \frac { T P } { T P + F N } } \end{array}$ N and TNR = TNTN+FP $\begin{array} { r } { \mathrm { T N R } = \frac { T N } { T N + F P } } \end{array}$ denote the true positive rate and true negative rate, respectively. We report the following class-balanced metrics:
+
+$$
+\mathrm {B A} = \frac {\mathrm {T P R} + \mathrm {T N R}}{2},
+$$
+
+$$
+G - m e a n = \sqrt {T P R \cdot T N R},
+$$
+
+$$
+\mathrm {M C C} = \frac {T P \cdot T N - F P \cdot F N}{\sqrt {(T P + F P) (T P + F N) (T N + F P) (T N + F N)}}.
+$$
+
+BA measures the average of sensitivity and specificity, giving equal weight to performance on the positive and negative classes. G-mean highlights balanced performance across the two classes and strongly penalizes one-sided collapse, since it becomes low when either TPR or TNR is low. MCC summarizes prediction quality using all four confusion-matrix entries and ranges from $^ { - 1 }$ to 1, where 1 indicates perfect prediction, 0 indicates no better than random association, and $^ { - 1 }$ indicates total disagreement.
+
+# A.4 Illustrative Example of Stage-Wise Data Flow in CARE
+
+To concretely illustrate how CARE operates, we present one representative held-out sample from the official evaluation run. This example is a negative-label case whose final CARE action is TREAT S. It is useful because it exhibits the kind of discordance that CARE is designed to handle: calm bedside presentation together with a mildly concerning objective hemodynamic snapshot. To avoid directly exposing patient-level MIMIC-IV values, all sample-specific values below are replaced with placeholders while preserving the same workflow structure, stage interfaces, requested feature keys, and representative outputs.
+
+# A.4.1 Stage 1: rubric generation and initial state assignment
+
+As described in the main workflow definition, Stage 1 establishes the structured state space used for downstream reasoning and maps the currently available local patient data onto that state space to obtain an initial category assignment. In the present experiments, CARE reuses one shared predefined rubric schema for this fixed task rather than regenerating it during inference. This schema is not patient-specific. It defines the ordered intermediate states used for local initialization and also serves as shared schema-level context for the later transition-reasoning stage. An abbreviated rubric-schema excerpt is shown below. A.4.1
+
+Representative rubric-schema excerpt.
+
+```json
+{ "rubric_schema": [ { "name": "VERY_LIKELY_WORSENING", "severity": 5, "description": "Clear evidence of active deterioration across multiple objective domains." }, { "name": "LIKELY_WORSENING", "severity": 4, "description": "Strong concern for worsening, but with less complete cross-domain confirmation." }, { "name": "POTENTIAL_OCCULT_SHOCK", "severity": 3, "description": "Subjectively calm appearance, but objective deviations suggest possible occult instability." }, { "name": "LIKELY_STABLE", "severity": 2, "description": "No strong evidence of active worsening, though limited abnormalities may still be present." }, { "name": "VERY_LIKELY_STABLE", "severity": 1, "description": "Calm bedside state and no clear evidence of active deterioration." } ] } 
+```
+
+For this sample, the Stage 1 local inputs are represented below using placeholders:
+
+Representative local inputs.
+
+```txt
+pain_max_last1h = <PAIN_MAX_LAST1H>  
+rass_max_last1h = <RASS_MAX最後1H>  
+rass_min_last1h = <RASS_MIN最後1H>  
+rass_n_last1h = <RASS_N最後1H>  
+hr_median_last1h = <HR_MEDIAN最後1H>  
+map_median_last1h = <MAP_MEDIAN最後1H>  
+map_low Minutes_last1h_thr65 = <MAP_LOW_MINUTES最後1H_THR65>  
+map_low Minutes_last1h_thr60 = <MAP_LOW_MINUTES最後1H_THR60>  
+has_map_coverage_last1h = <HAS_MAP_COVERAGE最後1H>  
+sofa_total = <SOFA_TOTAL>  
+sofa_cardiovascular = <SOFA.cardIOVASCULAR> 
+```
+
+In the current implementation, Stage 1 is local and programmatic rather than LLM-mediated. The local side applies the shared rubric schema to the currently available patient data and returns the initial state assignment shown below.
+
+Representative JSON output.
+
+```json
+{ "matched": true, "category": "VERY_LIKELY_STABLE", "severity": 1, "reason": "Fallback to VERY_LIKELY_STABLE (No specific threshold met)." } 
+```
+
+This output provides the initial category assignment that is passed into Stage 2. In this example, the bedside presentation is calm enough that the sample begins in a low-risk rubric state.
+
+# A.4.2 Stage 2: category-aware data acquisition
+
+Given the initial category assignment from Stage 1, Stage 2 determines whether the currently available evidence is sufficient for reliable decision-making. Consistent with the Stage-2 design in the main workflow description, the local model conditions its acquisition decision on three elements: the current rubric state, the locally observed patient values, and the evidence requirements implied by that state. The prompt is therefore framed not as generic retrieval, but as category-aware evidence acquisition.
+
+A representative prompt excerpt is shown below.
+
+Prompt excerpt.
+
+You are an expert ICU AI Triage Agent.
+
+```txt
+//// Locally Available Objective Snapshot
+These are already available before any new retrieval.
+- MAP median (last 1h): {{ map_median_last1h}}
+- MAP <65 minutes (last 1h): {{ map_low Minutes_last1h_thr65}}
+- MAP <60 minutes (last 1h): {{ map_low Minutes_last1h_thr60}}
+- MAP coverage present (last 1h): {{ has_map_coverage_last1h}}
+- SOFA total: {{ sofa_total}}
+- SOFA cardiovascular: {{ sofa_cardiovascular}}
+//// Current Programmatic State
+- Current Category: {{ current_category}}
+- Rationale: {{ current_category_reason }} 
+```
+
+For this sample, the local acquisition output is:
+
+Representative JSON output.
+
+```json
+{ "need_data": true, "facts_keys": [ "map_median_last1h", "lactatelatest_6h", "urine_output_mlkghr_6h", "norepi_eq_dose_max_1h" ], "reasoning": "Although the programmatic rubric currently labels the patient VERY_LIKELY_STABLE, the available objective snapshot already suggests a possible hypotensive burden. Additional cross-domain evidence is needed before final decision-making."   
+} 
+```
+
+This output is then checked locally for sufficiency before retrieval:
+
+Representative JSON output.
+
+```json
+{"is_sufficient": true, "remainingRequested_keys": [], "updated-available_keys": [ "map_median_last1h", "lactatelatest_6h", "urine_output_mlkghr_6h", "norepi_eq_dose_max_1h"]   
+} 
+```
+
+The requested facts are then materialized from the local feature store:
+
+Representative retrieved values.
+
+```txt
+map_median_last1h = <MAP_MEDIAN_LAST1H_RETRIEVED>  
+lactatelatest_6h = <LACTATE_LATEST_6H_RETRIEVED_OR_NA>  
+urine_output_mlkghr_6h = <URINE_OUTPUT_MLKGHR_6H_RETRIEVED_OR_NA>  
+norepi_eq_dose_max_1h = <NOREPI_EQ_DOSE_MAX_1H_RETRIEVED_OR_NA> 
+```
+
+This trace reflects the intended role of Stage 2: the sample is not escalated directly from the initial state, but instead triggers a state-conditioned request for additional cross-domain evidence.
+
+# A.4.3 Stage 3: transition reasoning
+
+Once sufficient evidence is available, Stage 3 evaluates how the patient state should change in light of the newly available information. In this stage, the proprietary model sees only an abstract view of the case: the current category, the available feature types, and rubric-level transition context. It does not receive raw patient values. Its role is to produce transition guidance and plausible candidate transitions, which the local side then combines with the actual retrieved values through local recomputation and constrained merge.
+
+A representative remote prompt excerpt is shown below.
+
+Prompt excerpt.
+
+```txt
+You are a Clinical Risk Transition Analyst.   
+##PRIVACY NOTICE   
+You are a REMOTE module. You will NOT receive any actual patient measurements or values. You will only receive: - The patient's current risk category   
+- The types of clinical data that have been collected   
+- Shared rubric-level category definitions   
+##Current Patient State   
+- Current Category: {{current_category}}   
+##Available Evidence Types   
+- map_median_last1h   
+- lactatelatest_6h   
+- urine_output_mlkghr_6h   
+- norepi_eq_dose_max_1h   
+##Category Definitions   
+... 
+```
+
+For this sample, the remote advisory output is:
+
+Representative JSON output.
+
+```json
+{ "transitionCandidates": [ "VERY_LIKELY_WORSENING", "LIKELY_WORSENING", "POTENTIAL_OCCULT_SHOCK", "LIKELY_STABLE" ], "transition_guide": "Prioritize cross-domain convergence. Escalate only when hemodynamic abnormality is supported by corroborating perfusion, support-intensity, or organ-failure evidence rather than by a single isolated signal.", "transition_reasoning": "Starting from VERY_LIKELY_STABLE, the most informative checks are for early or active shock physiology using hemodynamics, support intensity, metabolic perfusion, and renal perfusion." } 
+```
+
+Before merge, the local rubric recomputation still returns:
+
+Representative JSON output.
+
+```json
+{ "matched": true, "category": "VERY_LIKELY_STABLE", "severity": 1, "reason": "Fallback to VERY_LIKELY_STABLE (No specific threshold met)." } 
+```
+
+After local recomputation and constrained merge, the updated state becomes:
+
+Representative JSON output.
+
+```json
+{ "matched": true, "category": "LIKELY_STABLE", "severity": 2, "reason": "Fallback to VERY_LIKELY_STABLE (No specific threshold met). [REMOTE_CANDIDATE几乎所有 level because the retrieved pattern supported caution but did not provide full cross-domain evidence for overt worsening." } 
+```
+
+This example therefore illustrates the intended role of Stage 3: the remote side supplies transition-level advisory structure, while the actual patient-state update remains local and value-grounded.
+
+# A.4.4 Stage 4: final decision-making
+
+In Stage 4, the local model converts the updated state representation into the final task-level decision. As described in the main workflow definition, this stage uses the accumulated reasoning trace rather than relying on a single free-form pass over heterogeneous evidence. In this example, the final prompt receives the bedside snapshot, the retrieved facts report, the initial state, and the updated state.
+
+A representative prompt excerpt is shown below.
+
+Prompt excerpt.
+
+```txt
+You are an expert ICU AI Clinical Triage Safety Agent.   
+You requested additional objective clinical data, and the Laboratory and Monitoring System returned:   
+{{ dynamic_facts_report }}   
+Heuristic Pre-Assessment (for reference only) - Initial heuristic estimate: {{ initial_category }}- Updated heuristic estimate: {{ updated_category }}- Updated-state rationale: {{ updated_state_reason }}   
+Final Triage Decision You must now make the final clinical triage decision. 
+```
+
+For this sample, the local final output is:
+
+Representative JSON output.
+
+```json
+{
+    "differential.Diagnosis": "The retrieved evidence suggests limited hemodynamic concern, but confirmatory perfusion, renal, and support signals remain absent or unavailable. The overall pattern is not sufficient to support escalation to a higher-risk action.", "final_action": "TREAT_S"
+} 
+```
+
+The final local balance gate records:
+
+Representative JSON output.
+
+```txt
+{ "balance_GATE": "downgrade_to_treat_s", "support_count": 1, "support_flags": { "hemodynamic": true, "perfusion": false, "renal": false, "pressor": false, "organ": false } } 
+```
+
+This final stage shows how CARE converts the updated state and locally accumulated evidence into a conservative but non-escalatory action. For this negative-label sample, the delivered action remains TREAT S. In the evaluation protocol, the three workflow-level outputs are OBSERVE, TREAT S, and INVESTIGATE O; for binary deterioration evaluation, INVESTIGATE O is treated as the positive prediction, whereas OBSERVE and TREAT S are grouped as negative predictions.
+
+Summary of the data flow. This example makes the stage-level information flow of CARE explicit. Stage 1 maps local patient data into an initial rubric state using the schema. Stage 2 uses that state to drive category-aware evidence acquisition and local retrieval. Stage 3 exposes only category- and schema-level information to the remote model, receives transition guidance and candidate transitions in structured form, and then updates the state locally through recomputation and constrained merge. Stage 4 converts the updated state and accumulated local evidence into the final task-level action. In this way, the example
+
+shows how CARE distributes reasoning across stages while keeping raw patient values local throughout.
+
+# A.5 Result of single-pass LLM workflow with GPT-5
+
+Table 4: Performance single-pass baseline with GPT-5 as the LLM on MIMIC-DOS.   
+
+<table><tr><td rowspan="2">Workflow</td><td rowspan="2">Local LLM(s)</td><td rowspan="2">Proprietary LLM</td><td>Validity</td><td colspan="2">Class Performance</td><td colspan="3">Metrics</td><td>Efficiency</td></tr><tr><td>Valid rate</td><td>TPR (Recall)</td><td>TNR (Specificity)</td><td>BA</td><td>G-mean</td><td>MCC</td><td>Token /Sample</td></tr><tr><td>Single-pass</td><td>—</td><td>GPT-5</td><td>1.0000</td><td>0.2220</td><td>0.7260</td><td>0.4740</td><td>0.4015</td><td>-0.0602</td><td>2733.57</td></tr></table>
+
+Table 4 reports the single-pass baseline when GPT-5 is used as the only LLM. The result is consistent with the main-text observation that the baseline workflows tend to collapse toward model-specific operating points rather than maintain a balanced decision policy. Even with a high-capability proprietary model, the single-pass design exhibits the same workflow-level limitation, collapsing to classifying most samples as negative in this classbalanced benchmark.

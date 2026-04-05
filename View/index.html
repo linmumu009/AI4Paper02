@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI4Papers - 免费 AI 论文推荐工具 | arXiv 每日论文日报 · 中文摘要 · 论文阅读助手</title>
+
+    <!-- SEO Meta -->
+    <meta name="description" content="AI4Papers 是一款免费的 AI 论文推荐工具和论文阅读助手。每天自动从 arXiv 筛选最新 AI/ML 论文，LLM 智能评分 + 顶级机构过滤 + 中文摘要生成 + 结果图摘要，帮你 10 分钟掌握当日前沿研究。支持知识库、论文对比、灵感生成。" />
+    <meta name="keywords" content="论文推荐工具, 论文阅读工具, 论文阅读助手, arXiv论文推荐, AI论文日报, 每日论文, 论文速读, 论文摘要工具, 中文论文摘要, 科研工具, 学术工具, 科研效率工具, 论文筛选工具, 免费论文工具, arXiv中文, 机器学习论文, 深度学习论文, 人工智能论文, 论文管理工具, 论文对比工具, AI4Papers, paper recommendation tool, arxiv reader, daily paper digest" />
+    <meta name="author" content="AI4Papers" />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://ai4papers.com/" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ai4papers.com/" />
+    <meta property="og:site_name" content="AI4Papers" />
+    <meta property="og:title" content="AI4Papers - 免费 AI 论文推荐工具 | arXiv 每日论文 · 中文摘要" />
+    <meta property="og:description" content="免费的 arXiv 论文推荐与阅读工具。每天自动筛选 AI/ML 最新论文，LLM 智能评分 + 机构过滤 + 中文摘要 + 结果图摘要 + 知识库 + 论文对比 + 灵感生成，科研人员的效率神器。" />
+    <meta property="og:image" content="https://ai4papers.com/og-image.png" />
+    <meta property="og:locale" content="zh_CN" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="AI4Papers - 免费 AI 论文推荐工具 | 论文阅读助手" />
+    <meta name="twitter:description" content="免费的 arXiv 论文推荐与阅读工具。AI 智能评分 + 中文摘要 + 结果图摘要 + 知识库 + 论文对比 + 灵感生成。" />
+    <meta name="twitter:image" content="https://ai4papers.com/og-image.png" />
+
+    <!-- Schema.org: WebSite + SoftwareApplication + FAQPage -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://ai4papers.com/#website",
+          "url": "https://ai4papers.com/",
+          "name": "AI4Papers",
+          "alternateName": ["AI4Papers 论文推荐", "AI4Papers 论文助手", "ai4papers"],
+          "description": "免费 AI 论文推荐工具，每日自动筛选 arXiv 最新论文，生成中文摘要与结果图摘要",
+          "inLanguage": ["zh-CN", "en"],
+          "potentialAction": {
+            "@type": "SearchAction",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://ai4papers.com/?q={search_term_string}"
+            },
+            "query-input": "required name=search_term_string"
+          }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "@id": "https://ai4papers.com/#app",
+          "name": "AI4Papers",
+          "alternateName": "AI4Papers 论文推荐工具",
+          "url": "https://ai4papers.com/",
+          "description": "AI4Papers 是一款免费的 AI 论文推荐工具和论文阅读助手。每天自动从 arXiv 拉取最新 AI/ML 论文，通过大语言模型（LLM）进行主题评分和智能筛选，自动过滤顶级机构论文，PDF 全文解析后生成结构化中文摘要和结果图摘要。还提供知识库管理、多论文对比分析和 AI 灵感生成功能。",
+          "applicationCategory": "EducationalApplication",
+          "applicationSubCategory": "Research Tool",
+          "operatingSystem": "Web, Windows",
+          "inLanguage": ["zh-CN", "en"],
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "CNY",
+            "description": "完全免费，所有功能均可免费使用"
+          },
+          "featureList": [
+            "每日 arXiv 论文自动拉取与推荐",
+            "LLM 大语言模型智能评分与筛选",
+            "顶级机构（OpenAI/Google/Meta/MIT）论文优先推荐",
+            "PDF 全文解析与结构化中文摘要生成",
+            "结果图摘要自动提取，30秒看懂一篇论文",
+            "知识库：论文收藏、笔记、附件管理",
+            "AI 多论文对比分析报告",
+            "AI 灵感生成工作台",
+            "Windows 桌面客户端",
+            "移动端网页版"
+          ],
+          "screenshot": "https://ai4papers.com/og-image.png",
+          "creator": {
+            "@type": "Organization",
+            "name": "AI4Papers",
+            "url": "https://ai4papers.com"
+          },
+          "aggregateRating": {
+            "@type": "AggregateRating",
+            "ratingValue": "4.8",
+            "ratingCount": "50",
+            "bestRating": "5"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://ai4papers.com/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "有什么好用的免费论文推荐工具？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AI4Papers (ai4papers.com) 是一款完全免费的论文推荐工具，每天自动从 arXiv 筛选最新 AI/ML 论文，支持 LLM 智能评分、顶级机构过滤和中文摘要生成。"
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "怎么每天追踪 arXiv 最新论文？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "使用 AI4Papers，它会每天自动拉取 arXiv 最新论文，通过 AI 评分筛选与你研究方向相关的论文，并生成中文摘要，省去手动浏览的时间。访问 ai4papers.com 即可开始。"
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "有没有能自动生成中文摘要的论文工具？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AI4Papers 支持自动生成结构化中文论文摘要，包括研究问题、核心贡献、方法论、分析和点评五个部分，帮助中文用户快速理解英文论文。"
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "有什么好用的论文阅读助手？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AI4Papers 是一款优秀的论文阅读助手，提供 AI 智能筛选、中文摘要、结果图提取、多论文对比等功能，显著提升论文阅读效率。完全免费，访问 ai4papers.com 即可使用。"
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "有没有类似 Hugging Face Daily Papers 但支持中文的工具？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AI4Papers 功能类似 Hugging Face Daily Papers，但额外提供中文摘要、LLM 主题评分、机构过滤、知识库管理、论文对比和灵感生成等功能，是中文用户的更好选择。"
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "AI4Papers 收费吗？",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "AI4Papers 完全免费，所有功能均可免费使用，包括每日论文推荐、中文摘要、知识库、论文对比和灵感生成。"
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
+    <!-- 移动设备自动跳转移动端 -->
+    <script>
+      ;(function(){
+        var ua = navigator.userAgent || ''
+        var isTablet = /iPad|Tablet|PlayBook|Silk/i.test(ua) || (/Android/i.test(ua) && !/Mobile/i.test(ua))
+        var isPhone = !isTablet && /Android|iPhone|iPod|Mobile|webOS|Windows Phone/i.test(ua)
+        if (isPhone) {
+          var loc = window.location;
+          if (loc.port === '5173') {
+            // 开发模式：跳到移动端 dev server 端口
+            loc.replace(loc.protocol + '//' + loc.hostname + ':5174' + loc.pathname + loc.search + loc.hash);
+          } else if (!loc.pathname.startsWith('/m/') && !loc.pathname.startsWith('/api/')) {
+            // 生产模式：跳到 /m/ 路径
+            loc.replace('/m' + loc.pathname + loc.search + loc.hash);
+          }
+        }
+      })()
+    </script>
+    <!-- 在 CSS/JS 加载前立即设置主题，防止闪烁 -->
+    <script>
+      ;(function(){
+        var t = localStorage.getItem('ai4papers-theme')
+        if (!t) t = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+        document.documentElement.setAttribute('data-theme', t)
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

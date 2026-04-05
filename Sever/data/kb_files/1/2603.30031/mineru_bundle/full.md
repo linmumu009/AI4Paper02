@@ -1,0 +1,353 @@
+# The Triadic Cognitive Architecture: Bounding Autonomous Action via Spatio-Temporal and Epistemic Friction
+
+Davide Di Gioia
+
+ucesigi@ucl.ac.uk
+
+# Abstract
+
+Current autonomous AI agents, driven primarily by Large Language Models (LLMs), operate in a state of cognitive weightlessness: they process information without an intrinsic sense of network topology, temporal pacing, or epistemic limits. Consequently, heuristic agentic loops (e.g., ReAct) can exhibit failure modes in interactive environments, including excessive tool use under congestion, prolonged deliberation under time decay, and brittle behavior under ambiguous evidence. In this paper, we propose the Triadic Cognitive Architecture (TCA), a unified mathematical framework that grounds machine reasoning in continuous-time physics. By synthesizing nonlinear filtering theory, Riemannian routing geometry, and optimal control, we formally define the concept of Cognitive Friction. We map the agent’s deliberation process to a coupled stochastic control problem where information acquisition is path-dependent and physically constrained. Rather than relying on arbitrary heuristic stop-tokens, the TCA uses an HJB-motivated stopping boundary and instantiates a rollout-based approximation of belief-dependent value-of-information with a net-utility halting condition. Through empirical validation in a simulated Emergency Medical Diagnostic Grid (EMDG), we demonstrate that while greedy baselines over-deliberate under latency and congestion costs, the triadic policy reduces time-to-action while improving patient viability without degrading diagnostic accuracy in this environment.
+
+# 1 Introduction
+
+The pursuit of autonomous machine intelligence has largely converged on iterative, prompt-driven reasoning loops wrapped around autoregressive language models. Frameworks such as ReAct, Tree-of-Thoughts, and AutoGPT have successfully demonstrated that LLMs can emulate sequential planning [17, 18, 1]. However, these systems remain fundamentally disembodied from the physics of realworld execution. They operate under the implicit, catastrophic assumption of a frictionless cognitive environment, where gathering information is presumed to be instantaneous, structurally free, and uniformly reliable.
+
+When deployed outside of static text-generation benchmarks and into dynamic, physical, or highly networked environments, this assumption mathematically can lead to systematic failure modes. Without intrinsic bounds on spatial topology, temporal pacing, or epistemic resolution, unconstrained agents exhibit three critical failure modes:
+
+1. Topological Saturation (Space): Indiscriminate API querying cascades into network congestion and rising per-query load costs, as agents fail to price the structural cost of routing information through a multi-agent swarm or distributed database.   
+2. Infinite Deliberation (Time): Lacking a continuous-time pacing mechanism, agents get trapped in recursive thought loops, failing to recognize that the utility of an optimal decision decays exponentially as time elapses.
+
+3. Epistemic Collapse (Truth): When faced with unresolvable, contradictory evidence, agents lack a rigorous mathematical framework for doubt. Instead of exposing the ambiguity, they average conflicting claims and confidently hallucinate a hybrid synthesis.
+
+In this work, we argue that true autonomous control cannot emerge from unstructured promptreflection; it requires a formal, decision-theoretic optimization layer. We introduce the Triadic Cognitive Architecture (TCA), which fundamentally redefines machine deliberation not as text generation, but as a bounded physical trajectory through Cognitive Spacetime.
+
+Building on related ideas in congestion-aware routing, interval-aware decision-making, and entropic claim resolution [3, 4, 5], we formally couple the belief state of an agent to the physical friction of its environment. We present a continuous-time formulation for generality (nonlinear filtering and HJB-motivated stopping); in our EMDG implementation we instantiate beliefs on a finite hypothesis set and approximate value-of-information by Monte Carlo rollouts (Section 3.4).
+
+Novelty and contributions. Unlike existing LLM-based agent frameworks that typically treat deliberation as cost-free and rely on heuristic stopping rules, the Triadic Cognitive Architecture (TCA) formalizes bounded reasoning by explicitly pricing spatio-temporal friction alongside epistemic maintenance. We contribute: (i) an idealized continuous-time stochastic control formulation in which optimal halting is characterized by an HJB free boundary, and (ii) a computable discrete instantiation that estimates belief-dependent value-of-information (VOI) via Monte Carlo rollouts and applies a net-utility stopping rule. Empirically, in EMDG, TCA exhibits earlier halting and improved viability under latency and congestion costs while maintaining diagnostic accuracy, illustrating a practical pathway from principled stopping to implementable agent controllers.
+
+Why this is new. Unlike prior VOI-based or bounded-rationality approaches that typically treat tool costs as static or external, TCA jointly models (i) topology- and congestion-dependent information access costs (Space), (ii) time-dependent opportunity costs under delay (Time), and (iii) beliefdependent value-of-information (Truth), within a single stopping framework motivated by optimal stopping. The key contribution is coupling these three terms in a unified decision rule and providing a computable rollout-based approximation to the resulting stopping boundary.
+
+The remainder of this paper is structured as follows. Section 2 reviews related work, anchoring TCA within classical bounded rationality and modern agentic AI. Section 3 formalizes the physics of Cognitive Friction and derives the triadic stochastic control objective. Section 4 empirically validates the framework via the Emergency Medical Diagnostic Grid (EMDG). Finally, Section 5 discusses the implications of TCA as a foundational framework for safe, scalable autonomy.
+
+# 2 Related Work
+
+The Triadic Cognitive Architecture bridges classical theories of bounded computation with modern LLM-based agentic reasoning. We briefly contextualize our contributions within these intersecting domains.
+
+# 2.1 LLM-Based Autonomous Agents
+
+The rapid proliferation of large language models has led to a paradigm shift toward “agentic” architectures. Frameworks such as ReAct [17], Tree-of-Thoughts [18], and Reflexion [13] have demonstrated that interleaving chain-of-thought prompting with environmental observations significantly improves task success rates. However, these frameworks rely heavily on discrete heuristic hypothesis sets and arbitrary stopping constraints (e.g., token limits or maximum step counts) [16]. Evaluation benchmarks such as AgentBench [9] effectively quantify agent failure modes in interactive settings, but they still implicitly treat deliberation computation as a free resource. TCA argues that safe autonomy demands that computation itself be optimized as a structural cost.
+
+# 2.2 Bounded Rationality and Meta-Reasoning
+
+The necessity of pricing deliberation traces back to Simon’s foundational concept of bounded rationality [15], which posits that agents must make decisions under the strict limits of available information, cognitive capacity, and time. This was formally extended into meta-reasoning and bounded optimality by Russell and Wefald [11], who argued that an agent should compute only until the cost of computation outweighs the expected increase in decision utility. In deep learning, Adaptive Computation Time (ACT) [7] introduced halting mechanisms for recurrent networks based on internal confidence. TCA resurrects these classical concepts for the LLM era, formalizing prompt-driven tool use as a continuous-time physical process subject to topological load and exponential decay.
+
+# 2.3 Active Inference and Stochastic Control
+
+Our framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both theories propose that intelligent agents interact with their environment to minimize surprise (or expected free energy) via a predictive world model. While foundational, exact Bayesian active inference remains largely computationally intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering.
+
+# 3 Formalizing Cognitive Friction: The Coupled Stochastic Control Objective
+
+Problem setup. We consider an agent that acquires information via costly tool queries and must decide both which query to perform next and when to stop deliberating and execute a terminal decision. The agent maintains a belief state over hypotheses and a routing state capturing topologyand congestion-dependent access costs.
+
+Intuition (for ML practitioners). At inference time, a tool-using agent faces two coupled questions: which tool should I query next? and when should I stop querying and act? Most agent loops answer both with heuristics (fixed budgets, step limits, or ad hoc confidence thresholds). TCA instead prices deliberation explicitly: each prospective query has (i) a belief-dependent expected benefit (valueof-information (VOI): expected entropy reduction) and (ii) an environment-dependent cost (latency and congestion). The controller chooses the action maximizing net utility and halts when even the best available query has non-positive net value. The continuous-time HJB formulation provides the principled stopping boundary; EMDG instantiates a computable discrete approximation via rollout-based VOI and a myopic stopping rule.
+
+We define the active cognitive state at time $t$ as $s _ { t } = \langle p _ { t } , \gamma _ { t } \rangle$ , where $p _ { t } ( \theta )$ is the belief measure over a fixed hypothesis manifold $\Theta$ , and $\gamma _ { t }$ is the routing state on the Riemannian manifold $( \mathcal { M } , g _ { \mu \nu } )$ The evolution of the routing state is explicitly governed by a control process $u _ { t } \in \mathcal { U }$ , such that
+
+$$
+\dot {\gamma} _ {t} = f \left(\gamma_ {t}, u _ {t}\right). \tag {1}
+$$
+
+# 3.1 The coupled observation model
+
+Crucially, information acquisition is path-dependent. The observation process $Y _ { t }$ follows an Itô diffusion strictly coupled to the agent’s spatial routing state:
+
+$$
+d Y _ {t} = h \left(\theta , \gamma_ {t}\right) d t + \sigma \left(\gamma_ {t}\right) d W _ {t}, \tag {2}
+$$
+
+where $h ( \theta , \gamma _ { t } )$ is the expected evidence under hypothesis $\theta$ at network location $\gamma _ { t }$ . The belief state $p _ { t }$ evolves via the Kushner–Stratonovich equation, driven by the innovation process $d \nu _ { t } = d Y _ { t } - h ( \gamma _ { t } ) d t$ .
+
+# 3.2 The triadic value function
+
+The agent seeks to maximize expected information gain while minimizing spatio-temporal cognitive friction. We define the instantaneous spatial routing cost canonically as
+
+$$
+L _ {\text {r o u t i n g}} \left(\gamma_ {t}, u _ {t}, t\right) := c g _ {\mu \nu} \left(\gamma_ {t}, t\right) u _ {t} ^ {\mu} u _ {t} ^ {\nu}. \tag {3}
+$$
+
+The value function is defined as the supremum over stopping times $T \geq t$
+
+$$
+V (p, \gamma , t) = \sup  _ {T \geq t} \mathbb {E} \left[ \int_ {t} ^ {T} \left(\frac {1}{2} \mathbb {E} _ {p _ {s}} \left[ \operatorname {T r} \left(I (\theta , \gamma_ {s}) \Sigma_ {s}\right) \right] - L _ {\text {r o u t i n g}} \left(\gamma_ {s}, u _ {s}, s\right) - \beta (s)\right) d s \mid p _ {t} = p, \gamma_ {t} = \gamma \right]. \tag {4}
+$$
+
+For readability, we sometimes write $V ( p , t )$ when $\gamma$ is understood from context.
+
+# 3.3 The HJB variational inequality and optimal stopping
+
+Let $\mathcal { L } ^ { u }$ denote the (controlled) infinitesimal generator of the Markov state $( p _ { t } , \gamma _ { t } )$ under control $u _ { t }$ (including the filtering dynamics in $p _ { t }$ and the routing dynamics $\dot { \gamma } _ { t } ~ = ~ f ( \gamma _ { t } , u _ { t } ) ,$ . We use $\mathcal { L } ^ { u }$ as shorthand for the corresponding functional Itô operator; see [8, 2]. By dynamic programming, the system satisfies the Hamilton–Jacobi–Bellman (HJB) variational inequality:
+
+$$
+0 = \max  \left\{\partial_ {t} V (p, \gamma , t) + \sup  _ {u \in \mathcal {U}} \left(\mathcal {L} ^ {u} V (p, \gamma , t) + \frac {1}{2} \mathbb {E} _ {p} \left[ \operatorname {T r} \left(I (\theta , \gamma) \Sigma\right) \right] - L _ {\text {r o u t i n g}} (\gamma , u, t) - \beta (t)\right), - V (p, \gamma , t) \right\}. \tag {5}
+$$
+
+In the discrete EMDG instantiation, the running temporal penalty is approximated by an actiondependent one-step cost proportional to latency $\tau ( a )$ (Section 3.4).
+
+# 3.4 Discrete-time instantiation used in EMDG (rollout VOI + myopic stopping)
+
+While the preceding subsections present an idealized continuous-time formulation (filtering and HJBmotivated stopping), the EMDG experiments instantiate a discrete approximation aligned with toolusing agents.
+
+Notation. We use $\alpha$ for cost-to-utility scaling, $\beta$ for temporal decay/latency penalty, and $\lambda _ { S }$ for the spatial/topological cost weight; $\Omega ( a )$ and $\tau ( a )$ denote action load and latency. Value-of-information (VOI) is defined as belief-dependent expected entropy reduction, i.e., $\widehat { \Delta H } ( a \mid b _ { t } ) = \mathbb { E } [ H ( b _ { t } ) - H ( b _ { t + 1 } ) \ |$ $a ]$ , estimated by rollouts in EMDG.
+
+We estimate the VOI term $\widehat { \Delta H } ( a \mid b _ { t } )$ via rollouts. The belief state is a categorical distribution $b _ { t } \in \Delta ^ { | \Theta | - 1 }$ over a finite hypothesis set. Given an action $a$ (a tool query) and an observation sample, we update $b _ { t }$ via Bayes’ rule and compute categorical entropy $\begin{array} { r } { H ( b ) = - \sum _ { i } b ( i ) \log \big ( b ( i ) + \varepsilon \big ) } \end{array}$ .
+
+To estimate belief-dependent value-of-information, we use Monte Carlo rollouts on cloned states:
+
+$$
+\widehat {\Delta H} (a \mid b _ {t}) = \frac {1}{K} \sum_ {k = 1} ^ {K} \left(H \left(b _ {t}\right) - H \left(b _ {t + 1} ^ {(k)} (a)\right)\right). \tag {6}
+$$
+
+We then score actions by a net-utility objective that prices congestion and latency:
+
+$$
+U (a; b _ {t}, t, C _ {t}) = \widehat {\Delta H} (a \mid b _ {t}) - \alpha \left(\lambda_ {S} \left(C _ {t} + \Omega (a)\right) + \beta (t + \tau (a))\right), \tag {7}
+$$
+
+and stop when the best continuation utility is non-positive:
+
+$$
+\text {S T O P} \iff \max  _ {a \in \mathcal {A}} U (a; b _ {t}, t, C _ {t}) \leq 0. \tag {8}
+$$
+
+This myopic stopping rule omits continuation value (equivalently, setting a one-step lookahead weight $\eta = 0$ in a one-step lookahead formulation); we leave explicit continuation-value approximation as future work. Here, $\gamma _ { t }$ denotes the routing state introduced above, while $\eta$ is a separate scalar lookahead weight (set to zero in our experiments).
+
+On the discretization gap. The idealized HJB variational inequality optimizes a continuation value over future information paths. Our EMDG controller uses a myopic rule $\eta ~ = ~ 0$ ), i.e., it compares immediate VOI against immediate spatio-temporal cost and halts when the best net utility is non-positive. This choice is deliberate: it yields a simple, inference-time controller that is robust and computationally inexpensive. In principle, continuation value can be approximated by multi-step rollouts or learned value functions; we leave systematic evaluation of $\eta > 0$ and deeper lookahead to future work.
+
+Theory–implementation bridge. The idealized HJB variational inequality characterizes an optimal stopping boundary for continued information acquisition. Our discrete controller can be interpreted as a first-order, computationally tractable approximation to this boundary under zero continuation value ( $\eta \ : = \ : 0$ ): instead of solving for the full value function $V$ , we estimate immediate belief-dependent VOI (expected entropy reduction) and stop when even the best available action has non-positive net continuation utility. Thus, the implementation approximates the stopping boundary, not the full HJB solution, while preserving the core tradeoff between epistemic gain and spatiotemporal cost.
+
+Theorem 1 (Optimal stopping in the idealized TCA model). Assume (i) $h ( \theta , \cdot )$ and $\sigma ( \cdot )$ are Lipschitz with linear growth and (ii) $\sigma \sigma ^ { \top }$ is uniformly non-degenerate. Then the idealized continuoustime triadic control problem admits an optimal stopping time. Moreover, letting $D = \{ ( p , \gamma , t ) \ :$ $V ( p , \gamma , t ) = 0 \}$ denote the stopping region, the minimal optimal stopping time is the first hitting time
+
+$$
+T ^ {*} = \inf  \{s \geq t: (p _ {s}, \gamma_ {s}, s) \in D \}.
+$$
+
+Remark (theory vs. instantiation). Theorem 1 concerns the idealized continuous-time formulation. Our EMDG experiments implement a discrete approximation (Section 3.4) using rollout-based VOI estimation and a myopic stopping rule (continuation term disabled).
+
+# 4 Empirical Validation: The Emergency Medical Diagnostic Grid (EMDG)
+
+To demonstrate the necessity of constrained spatio-temporal and epistemic bounds, we simulate a safety-critical autonomous reasoning environment: the Emergency Medical Diagnostic Grid (EMDG). In this simulation, an autonomous diagnostic agent is tasked with identifying a critical pathology and prescribing an intervention.
+
+The environment imposes strict physical realities:
+
+• Epistemic ambiguity. The agent begins with a uniform hypothesis prior over five highly fatal pathologies ( $B _ { 0 }$ ).   
+• Spatial topology. The agent retrieves evidence by routing queries to distributed hospital subsystems (e.g., Hematology Lab, MRI network, Patient History). Each sub-system has a distinct structural load cost ( $\Omega$ ).
+
+• Temporal decay. Patient survivability decays exponentially with elapsed time. Some queries (e.g., rapid blood tests) cost 5 time-steps; others (e.g., MRI) cost 45 time-steps.
+
+![](images/a09b7d75cd87fc7a975606f1aaaacce71750dc47ed45e45f5d2e9eb064a811ec.jpg)  
+EMDG Monte Carlo (N=50): mean trajectories
+
+![](images/0eb37f35e50e6f3479bd89f5cc6f8e08f7eddba57e6918e50ffcf721db651e6b.jpg)  
+Figure 1: EMDG Monte Carlo (N=50): mean entropy and patient viability trajectories over a fixed horizon. Step corresponds to discrete tool-query iterations; trajectories are padded after stopping by carrying forward the terminal state, ensuring step-wise consistency (e.g., time cannot decrease).
+
+We evaluate a standard state-of-the-art agentic LLM (utilizing a ReAct-style Thought → Act → Observe loop [17]) against the Triadic Cognitive Architecture (TCA).
+
+Evaluation integrity. To prevent estimator/trajectory coupling, we decouple randomness by using a per-environment RNG for the realized transition and observation draws, and a separate independent RNG stream for value-of-information (VOI) rollouts on cloned states. While HJB theory motivates the stopping boundary, our EMDG controller instantiates a rollout-based approximation of beliefdependent VOI with a net-utility halting condition.
+
+# 4.1 The failure of the unconstrained agent (ReAct)
+
+Operating without cognitive friction, the baseline ReAct agent greedily maximizes estimated information gain and does not price congestion or latency into action selection. At step 0 it initiates a query to the MRI network.
+
+Spatial failure. Because it ignores the load and congestion penalties associated with routing, it is willing to select high-load tools whenever their immediate estimated gain is maximal.
+
+Temporal failure. Because MRI incurs a 45 time-step latency, viability decays exponentially with elapsed time before a low-latency intervention would be taken.
+
+Epistemic failure. The baseline lacks a stopping rule that compares marginal information gain to time-sensitive viability loss; as a result, it continues to query even when entropy is already low and additional information is not worth the delay.
+
+# 4.2 The success of the triadic agent (TCA)
+
+The TCA dynamically evaluates the unified objective function at $t = 0$ . It calculates that while the MRI offers high expected epistemic gain (e.g., Expected Entropy Reduction), its combined temporal friction ( $\Phi$ ) and spatial friction (Ω) yields a severely negative net cognitive utility.
+
+Action mix. At step 0, greedy ReAct selects MRI_Network in $1 0 0 \%$ of seeds, whereas the triadic controller selects Hematology_Lab in $1 0 0 \%$ of seeds, reflecting a consistent preference for low-latency evidence acquisition under cognitive friction.
+
+Instead, TCA routes a lightweight query to the Hematology Lab ( $\tau = 5$ , low $\Omega$ ). Over a small number of low-latency queries, it reaches a regime where the marginal expected information gain is eclipsed by spatio-temporal cost, and the policy halts.
+
+Concretely, we estimate belief-dependent value-of-information by Monte Carlo rollouts:
+
+$$
+\widehat {\Delta H} (a \mid b _ {t}) = \frac {1}{K} \sum_ {k = 1} ^ {K} \left(H \left(b _ {t}\right) - H \left(b _ {t + 1} ^ {(k)} (a)\right)\right), \tag {9}
+$$
+
+and score actions by net utility:
+
+$$
+U (a; b _ {t}, t, C _ {t}) = \widehat {\Delta H} (a \mid b _ {t}) - \alpha \left(\lambda_ {S} \left(C _ {t} + \Omega (a)\right) + \beta (t + \tau (a))\right), \tag {10}
+$$
+
+selecting $a _ { t } = \arg \operatorname* { m a x } _ { a \in \mathcal { A } } U ( a ; b _ { t } , t , C _ { t } )$ and stopping when
+
+$$
+\text {S T O P} \iff \max  _ {a \in \mathcal {A}} U (a; b _ {t}, t, C _ {t}) \leq 0. \tag {11}
+$$
+
+The TCA terminates deliberation once the best continuation utility is non-positive, and executes action earlier.
+
+We report mean ± 95% confidence intervals computed as $1 . 9 6 \hat { \sigma } / \sqrt { N }$ over $N = 5 0$ seeds, using terminal-per-seed values (last logged row per seed).
+
+Table 1: EMDG results (N=50). Terminal values are taken from the last logged row per seed. Total information gain is the per-episode sum of info_gain; in this setup it equals entropy reduction $H ( b _ { 0 } ) - H ( b _ { T } )$ (a telescoping sum). At step 0, ReAct selects MRI_Network in $1 0 0 \%$ of seeds while TCA selects Hematology_Lab in $1 0 0 \%$ of seeds.   
+
+<table><tr><td>Agent</td><td>Time</td><td>Viability</td><td>Entropy</td><td>Accuracy</td><td>ptrue</td><td>Total info gain</td></tr><tr><td>ReAct (Greedy)</td><td>112.5 ± 6.3</td><td>57.34 ± 1.80</td><td>0.0406 ± 0.0081</td><td>1.00 ± 0.00</td><td>0.9938 ± 0.0014</td><td>1.5688 ± 0.0081</td></tr><tr><td>Triadic Control</td><td>14.4 ± 0.8</td><td>93.06 ± 0.36</td><td>0.1645 ± 0.0202</td><td>1.00 ± 0.00</td><td>0.9664 ± 0.0055</td><td>1.4450 ± 0.0202</td></tr></table>
+
+Note. In EMDG, info_gain is logged per step as $H ( b _ { t } ) - H ( b _ { t + 1 } )$ , so per-episode total information gain telescopes to $H ( b _ { 0 } ) - H ( b _ { T } )$ . Because $b _ { 0 }$ is fixed by the uniform prior, the dispersion (and thus CI width) of total information gain matches that of terminal entropy.
+
+Scalability considerations. The EMDG environment is intentionally small to isolate boundeddeliberation effects under congestion and latency. In larger tool ecosystems, naive Monte Carlo VOI rollouts can be costly. However, VOI estimation can be amortized via (i) learned surrogates for expected entropy reduction, (ii) caching/reuse of rollouts for similar belief states, (iii) restricting candidate tools via cheap screening heuristics, or (iv) using analytic approximations (e.g., Fisherinformation or local linearization) when available. These approximations align with the TCA view: the controller requires priced estimates of marginal information value, not necessarily exact computation.
+
+Generalization to heterogeneous tool ecosystems. A key direction for future work is evaluating TCA in multi-domain agent settings with heterogeneous tool suites (e.g., web navigation, code execution, and multi-hop QA), where tools exhibit diverse latency and congestion profiles. In such environments, a central question is whether a single set of spatio-temporal cost parameters can yield consistent utility trade-offs without per-domain retuning. Demonstrating that TCA maintains efficient stopping behavior and cost-aware tool selection across domains would provide strong evidence that cognitive friction constitutes a general principle for bounded agent reasoning, rather than an artifact of a specific environment such as EMDG.
+
+# 4.3 Hyperparameters and reproducibility
+
+In EMDG, the cost-to-utility scaling $\alpha$ , temporal decay $\beta$ , and spatial cost weight $\lambda _ { S }$ are fixed across all seeds to reflect a time-sensitive diagnosis regime under congestion. In our current implementation these correspond to cost_scale ( $\mathit { \Delta } \alpha \ = \ 0 . 0 1$ ), beta $\beta = 0 . 5$ ), and lambda_s ( $\lambda _ { S } ~ = ~ 0 . 8$ ), respectively (see emdg_sim.py). We leave a systematic sensitivity sweep over these parameters (and explicit continuation-value approximation with $\eta > 0$ ) to future work.
+
+Sensitivity (planned). Because $\alpha , \beta , \lambda _ { S }$ govern the tradeoff between information gain and spatiotemporal cost, we plan to include a sensitivity sweep over these parameters (e.g., $\pm 2 5 \%$ ranges) to quantify robustness and calibrate recommended defaults.
+
+# 4.4 Ablation study
+
+To isolate the contribution of each component of the triadic controller, we run a controlled ablation sweep over $N = 5 0$ Monte Carlo seeds. We ablate (i) the HJB stopping rule by disallowing STOP (No-Stop), (ii) the spatial/topological term by setting the spatial friction weight to zero (No-Space), (iii) the temporal term by setting the temporal friction weight to zero (No-Time), and (iv) the congestion feedback term by ignoring the live congestion state in the spatial friction calculation (No-Congestion). Figure 2 reports terminal patient viability and terminal deliberation time (means $\pm 1 \sigma$ ).
+
+![](images/5e0d55231a9d4fe0cef5516b324e037968250488aa75c42843ef443a19579946.jpg)  
+EMDG ablations (N=50): terminal means $\pm 1 \sigma$
+
+![](images/578156a07f8f592b5e4af0621ed07c97bf1e850e61ff7c649c0751b357e70c99.jpg)  
+Figure 2: EMDG ablations (N=50): terminal patient viability and terminal deliberation time across controller variants. Bars show means and error bars denote $\pm 1 \sigma$ over seeds. The full triadic controller achieves the highest viability while minimizing deliberation time, illustrating the necessity of jointly pricing space, time, and enforcing an explicit stopping boundary.
+
+# 5 Implications: TCA as a Foundational Framework for Bounded Agent Reasoning
+
+The Triadic Cognitive Architecture (TCA) provides a blueprint for transitioning from disembodied pattern matchers to grounded, autonomous agents. By formalizing cognitive friction, TCA introduces a mathematically rigorous safety mechanism against the runaway resource consumption inherent in unconstrained LLM reasoning loops.
+
+# 5.1 Coupling Space, Time, and Epistemic Truth
+
+Within the TCA framework, an agent’s reasoning is strictly bounded by three interacting modules (see Figure 3):
+
+• Space (Topological Grounding): The environment is not treated as a flat list of callable APIs, but as a Riemannian manifold. The metric tensor $g _ { \mu \nu }$ dynamically updates based on latency and network congestion, forcing the agent to route queries along structural geodesics. This prevents API spamming and protects fragile sub-agents from cascade failures.   
+• Time (Temporal Consistency): Infinite context lengths do not circumvent the reality that the physical world evolves while the agent deliberates. The exponential decay factor $\beta ( t )$ ensures that the agent respects the temporal opportunity cost of computation, intrinsically preventing infinite deliberation loops.   
+• Truth (Epistemic Maintenance): By defining belief revision via the Kushner-Stratonovich equation, the agent maintains a calibrated probability measure over hypotheses. It explicitly models the Fisher Information of incoming data, naturally avoiding the trap of averaging contradictory evidence and subsequently hallucinating.
+
+Taken together, these three forms of friction (spatial, temporal, and epistemic) define a bounded control envelope for autonomous reasoning. Rather than optimizing accuracy in isolation, TCA determines when to act, what to query, and how long to deliberate by explicitly trading off information gain against physical and temporal cost. This triadic coupling provides a principled mechanism for preventing over-deliberation, network saturation, and epistemic overconfidence in autonomous agents.
+
+![](images/9f216a2616e8104eecc9d895b7602a6c444b007a8ce4ac6ad1da3438f1bb4678.jpg)  
+Figure 3: Triadic Cognitive Architecture (TCA): a coupled loop between Space (state), Time (dynamics), and Epistemic Truth (belief revision).
+
+# 5.2 The Inference-Time Controller
+
+The core of TCA is an inference-time controller motivated by HJB optimal stopping. It continuously aggregates the spatial routing cost and temporal decay, dynamically weighing them against
+
+the expected epistemic gain. This controller acts as an autonomic nervous system for the AI: just as biological organisms intuitively halt exploration when caloric costs exceed potential rewards, the TCA agent halts API queries and triggers execution once the marginal value of additional evidence is eclipsed by spatio-temporal cost.
+
+# 5.3 Positioning Relative to Cognitive Theories
+
+Extensive work has been done in prompt-driven multi-step reasoning, notably ReAct [17], Tree-of-Thoughts [18], and Reflexion [13]. However, these frameworks rely on heuristic, discrete hypothesis sets, ignore network-dependent physical costs, and lack principled mathematical criteria for optimal stopping [9, 16].
+
+The TCA framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both propose that intelligent agents seek to minimize surprise in a predictive world model. However, Active Inference relies on variational bounds that remain largely intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering.
+
+# 5.4 Conclusion
+
+The Triadic Cognitive Architecture offers a unifying perspective: robust autonomy requires explicit coupling of structured space, temporal dynamics, and epistemic truth maintenance. By casting deliberation as a constrained physical trajectory, TCA provides a principled framework for bounded reasoning in tool-using agents. While we evaluate a discrete rollout-based instantiation in EMDG, the underlying formulation generalizes naturally to heterogeneous environments where information acquisition incurs real spatio-temporal cost.
+
+# 5.5 Broader Impact & Significance
+
+The Triadic Cognitive Architecture (TCA) reframes safe and scalable autonomy in AI by explicitly coupling epistemic certainty, temporal dynamics, and spatial/topological constraints. In doing so, TCA addresses a critical gap in modern agentic AI: current LLM-driven reasoning systems operate in a “cognitive vacuum,” ignoring the real-world costs of information acquisition and deliberation. By formalizing Cognitive Friction and enforcing a principled stopping boundary (motivated by HJB optimal stopping and instantiated via computable rollout-based VOI in our experiments), TCA transforms computation from an unlimited abstraction into a measurable, optimizable resource. This has implications across multiple domains: in healthcare, it can help autonomous diagnostic agents make timely, reliable decisions without over-deliberation; in robotics, it supports safer task execution under physical and temporal constraints; and in AI research, it provides a replicable, closed-loop model bridging stochastic control theory with LLM-driven cognition. Beyond these immediate applications, TCA offers a foundation for next-generation proto-AGI-style systems, illustrating how intelligent systems can reason, act, and halt autonomously while reducing the risk of epistemic collapse, temporal overrun, and systemic overloading.
+
+# References
+
+[1] AutoGPT (2023).Open-source project.   
+[2] Bain, A. and Crisan, D. (2009).Fundamentals of Stochastic Filtering.Springer Science & Business Media.   
+[3] Di Gioia, D. (2026).Cascade-Aware Multi-Agent Routing.Unpublished manuscript / under review.   
+[4] Di Gioia, D. (2026). Interval-Aware Reinforcement Learning. Unpublished manuscript / under review.   
+[5] Di Gioia, D. (2026).Entropic Claim Resolution.Unpublished manuscript / under review.   
+[6] Friston, K. (2010).The free-energy principle: a unified brain theory?Nature Reviews Neuroscience, 11(2), 127–138.   
+[7] Graves, A. (2016). Adaptive Computation Time for Recurrent Neural Networks. arXiv preprint arXiv:1603.08983.   
+[8] Kushner, H. J. (1964).On the differential equations satisfied by conditional probability densities of Markov processes. Journal of the Society for Industrial and Applied Mathematics, Series A: Control, 2(1), 106–119.   
+[9] Liu, X., et al. (2023).AgentBench: Evaluating LLMs as Agents.arXiv preprint arXiv:2308.03688. (Published in ICLR 2024.)   
+[10] Øksendal, B. (2003). Stochastic Differential Equations: An Introduction with Applications. Springer.   
+[11] Russell, S. J. and Wefald, E. (1991). Do the Right Thing: Studies in Limited Rationality. MIT Press.   
+[12] Shannon, C. E. (1948).A Mathematical Theory of Communication.Bell System Technical Journal.   
+[13] Shinn, N., et al. (2023).Reflexion: Language agents with verbal reinforcement learning.NeurIPS.   
+[14] Peskir, G. and Shiryaev, A. N. (2006). Optimal Stopping and Free-Boundary Problems. Lectures in Mathematics ETH Zürich.DOI: 10.1007/978-3-7643-7390-0.   
+[15] Simon, H. A. (1955).A behavioral model of rational choice.The Quarterly Journal of Economics, 69(1), 99–118.   
+[16] Xi, Z., et al. (2023). The Rise and Potential of Large Language Model Based Agents: A Survey. arXiv preprint arXiv:2309.07864.   
+[17] Yao, S., et al. (2023).ReAct: Synergizing Reasoning and Acting in Language Models.ICLR.   
+[18] Yao, S., et al. (2023).Tree of Thoughts: Deliberate Problem Solving with Large Language Models. NeurIPS.
+
+# A Proof sketch for Theorem 1 (idealized continuous-time model)
+
+This appendix provides a proof sketch for the idealized continuous-time formulation in Section 3 (Kushner–Stratonovich filtering and HJB-motivated optimal stopping). It does not apply directly to the discrete EMDG controller, which uses rollout-based VOI estimation and a myopic net-utility stopping rule (Section 3.4).
+
+We restate the core claim for the idealized model: under standard regularity conditions, the triadic cognitive control problem admits an optimal stopping time characterized by an HJB free boundary.
+
+Step 1: Regularity of the filtering dynamics and Markov state. Let the observation process be governed by
+
+$$
+d Y _ {t} = h (\theta , \gamma_ {t}) d t + \sigma (\gamma_ {t}) d W _ {t}.
+$$
+
+Assume $h ( \theta , \cdot )$ and $\sigma ( \cdot )$ satisfy uniform Lipschitz continuity and linear growth bounds. Assume uniform non-degeneracy: there exists $\epsilon > 0$ such that
+
+$$
+\xi^ {\top} (\sigma \sigma^ {\top}) \xi \geq \epsilon \| \xi \| ^ {2} \quad \forall \xi \in \mathbb {R} ^ {d}.
+$$
+
+Under these assumptions, the innovation process $d \nu _ { t } = d Y _ { t } - h ( \gamma _ { t } ) d t$ is a Brownian motion with respect to the observation filtration $\mathcal { F } _ { t } ^ { Y }$ , and the associated nonlinear filter (Kushner–Stratonovich; schematic form) is well-posed; see, e.g., [8, 2]. In particular, the controlled state $( p _ { t } , \gamma _ { t } )$ is Markov with respect to $\mathcal { F } _ { t } ^ { Y }$ .
+
+Define $\begin{array} { r } { h ( \gamma _ { t } ) = \int _ { \Theta } h ( \theta , \gamma _ { t } ) p _ { t } ( \theta ) d \theta } \end{array}$ and the innovation
+
+$$
+d \nu_ {t} = d Y _ {t} - \bar {h} (\gamma_ {t}) d t.
+$$
+
+A schematic form of the Kushner–Stratonovich update is
+
+$$
+d p _ {t} (\theta) = p _ {t} (\theta) \left(h (\theta , \gamma_ {t}) - \bar {h} (\gamma_ {t})\right) ^ {\top} (\sigma \sigma^ {\top}) ^ {- 1} d \nu_ {t} \quad \text {(o m i t t i n g d r i f t / n o r m a l i z a t i o n t e r m s ; s e e [ 8 , 2 ])}.
+$$
+
+Step 2: Value function and dynamic programming. The agent seeks to maximize expected epistemic gain minus cognitive friction. For a stopping time $\tau \geq t$ , write
+
+$$
+J (\tau) = \mathbb {E} \left[ \int_ {t} ^ {\tau} f (p _ {s}, \gamma_ {s}, s) d s \right],
+$$
+
+where $f ( p , \gamma , t )$ denotes the instantaneous net reward (information surrogate minus routing cost and temporal penalty), consistent with Section 3. Let
+
+$$
+V(p,\gamma ,t) = \sup_{\tau \geq t}J(\tau)
+$$
+
+denote the value function. Assuming sufficient regularity of $V$ (or working in the viscosity-solution framework), standard dynamic programming arguments for controlled Markov processes yield a variational inequality characterization [14, 10].
+
+Step 3: HJB variational inequality and the free boundary. By optimal stopping theory, the value function satisfies a variational inequality of the form
+
+$$
+\max \left\{\partial_ {t} V (p, \gamma , t) + \sup _ {u \in \mathcal {U}} \left[ (\mathcal {L} ^ {u}) V (p, \gamma , t) + f (p, \gamma , t; u) \right], - V (p, \gamma , t) \right\} = 0,
+$$
+
+in an appropriate classical or viscosity sense [14, 10], where $\mathcal { L } ^ { u }$ is the controlled infinitesimal generator for the Markov state $( p _ { t } , \gamma _ { t } )$ as in Section 3. Because $f$ is continuous and bounded under the assumed
+
+cost structure, $V$ is continuous under standard assumptions. Define the stopping region as the closed set
+
+$$
+D = \{(p, \gamma , t): V (p, \gamma , t) = 0 \},
+$$
+
+and the continuation region as the open set
+
+$$
+C = \{(p, \gamma , t): V (p, \gamma , t) > 0 \}.
+$$
+
+Then the first hitting time of the stopping region,
+
+$$
+T ^ {*} = \inf  \{s \geq t: (p _ {s}, \gamma_ {s}, s) \in D \},
+$$
+
+is an optimal stopping time; moreover, it is the smallest (minimal) optimal stopping time in the usual sense for such problems [14]. This completes the proof sketch.

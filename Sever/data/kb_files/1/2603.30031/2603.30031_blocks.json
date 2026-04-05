@@ -1,0 +1,1019 @@
+[
+  {
+    "block_id": "p0_b0",
+    "page_idx": 0,
+    "order": 0,
+    "type": "title",
+    "translatable": true,
+    "source_text": "The Triadic Cognitive Architecture: Bounding Autonomous Action via Spatio-Temporal and Epistemic Friction",
+    "zh_text": "# 三元认知架构：通过时空与认知摩擦约束自主行为"
+  },
+  {
+    "block_id": "p0_b1",
+    "page_idx": 0,
+    "order": 1,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Davide Di Gioia ucesigi@ucl.ac.uk",
+    "zh_text": "达维德·迪焦亚（Davide Di Gioia） ucesigi@ucl.ac.uk"
+  },
+  {
+    "block_id": "p0_b3",
+    "page_idx": 0,
+    "order": 3,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Abstract",
+    "zh_text": "# 摘要"
+  },
+  {
+    "block_id": "p0_b4",
+    "page_idx": 0,
+    "order": 4,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Current autonomous AI agents, driven primarily by Large Language Models (LLMs), operate in a state of cognitive weightlessness: they process information without an intrinsic sense of network topology, temporal pacing, or epistemic limits. Consequently, heuristic agentic loops (e.g., ReAct) can exhibit failure modes in interactive environments, including excessive tool use under congestion, prolonged deliberation under time decay, and brittle behavior under ambiguous evidence. In this paper, we propose the Triadic Cognitive Architecture (TCA), a unified mathematical framework that grounds machine reasoning in continuous-time physics. By synthesizing nonlinear filtering theory, Riemannian routing geometry, and optimal control, we formally define the concept of Cognitive Friction. We map the agent’s deliberation process to a coupled stochastic control problem where information acquisition is path-dependent and physically constrained. Rather than relying on arbitrary heuristic stop-tokens, the TCA uses an HJB-motivated stopping boundary and instantiates a rollout-based approximation of belief-dependent value-of-information with a net-utility halting condition. Through empirical validation in a simulated Emergency Medical Diagnostic Grid (EMDG), we demonstrate that while greedy baselines over-deliberate under latency and congestion costs, the triadic policy reduces time-to-action while improving patient viability without degrading diagnostic accuracy in this environment.",
+    "zh_text": "当前以大语言模型（LLMs）为主要驱动力的自主人工智能代理，运行于一种“认知失重”状态：它们处理信息时缺乏对网络拓扑结构、时间节奏以及认知边界的内在感知。因此，启发式代理循环（例如 ReAct）在交互式环境中易出现若干失效模式，包括在网络拥塞下过度调用工具、在时间衰减压力下陷入冗长审思，以及在证据模糊时表现出脆弱行为。本文提出三元认知架构（Triadic Cognitive Architecture, TCA），一种统一的数学框架，将机器推理锚定于连续时间物理系统之中。该框架融合非线性滤波理论、黎曼路由几何学与最优控制理论，形式化地定义了“认知摩擦”（Cognitive Friction）这一概念。我们将代理的审思过程建模为一个耦合的随机控制问题，其中信息获取具有路径依赖性且受物理约束。TCA 并不依赖任意设定的启发式终止标记（stop-token），而是采用基于 Hamilton-Jacobi-Bellman（HJB）方程推导的终止边界，并通过基于 rollout 的近似方法实现信念依赖型信息价值（value-of-information）的计算，辅以净效用（net-utility）驱动的终止条件。我们在模拟的紧急医疗诊断网格（Emergency Medical Diagnostic Grid, EMDG）中开展实证验证：结果表明，在延迟与网络拥塞成本约束下，贪心基线策略倾向于过度审思；而三元策略则显著缩短行动响应时间，同时提升患者存活率，且未损害该环境下的诊断准确性。"
+  },
+  {
+    "block_id": "p0_b5",
+    "page_idx": 0,
+    "order": 5,
+    "type": "title",
+    "translatable": true,
+    "source_text": "1 Introduction",
+    "zh_text": "# 1 引言"
+  },
+  {
+    "block_id": "p0_b6",
+    "page_idx": 0,
+    "order": 6,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The pursuit of autonomous machine intelligence has largely converged on iterative, prompt-driven reasoning loops wrapped around autoregressive language models. Frameworks such as ReAct, Tree-of-Thoughts, and AutoGPT have successfully demonstrated that LLMs can emulate sequential planning [17, 18, 1]. However, these systems remain fundamentally disembodied from the physics of realworld execution. They operate under the implicit, catastrophic assumption of a frictionless cognitive environment, where gathering information is presumed to be instantaneous, structurally free, and uniformly reliable.",
+    "zh_text": "自主机器智能的研究路径已高度集中于围绕自回归语言模型构建的迭代式、提示驱动型推理循环。ReAct、思维链（Tree-of-Thoughts）及 AutoGPT 等框架已成功证明，LLMs 可有效模拟序列化规划能力 [17, 18, 1]。然而，这些系统本质上仍与真实世界执行所依托的物理规律相脱离。其运行隐含着一个灾难性的假设——即认知环境是无摩擦的：信息获取被预设为瞬时完成、结构自由且可靠性恒定。"
+  },
+  {
+    "block_id": "p0_b7",
+    "page_idx": 0,
+    "order": 7,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "When deployed outside of static text-generation benchmarks and into dynamic, physical, or highly networked environments, this assumption mathematically can lead to systematic failure modes. Without intrinsic bounds on spatial topology, temporal pacing, or epistemic resolution, unconstrained agents exhibit three critical failure modes:",
+    "zh_text": "当此类系统脱离静态文本生成基准任务，部署至动态、具身或高度网络化的现实环境中时，该假设在数学上将导致系统性失效。若缺乏对空间拓扑、时间节奏与认知分辨力的内生约束，无约束代理将呈现以下三类关键失效模式："
+  },
+  {
+    "block_id": "p0_b8",
+    "page_idx": 0,
+    "order": 8,
+    "type": "list",
+    "translatable": true,
+    "source_text": "1. Topological Saturation (Space): Indiscriminate API querying cascades into network congestion and rising per-query load costs, as agents fail to price the structural cost of routing information through a multi-agent swarm or distributed database.\n2. Infinite Deliberation (Time): Lacking a continuous-time pacing mechanism, agents get trapped in recursive thought loops, failing to recognize that the utility of an optimal decision decays exponentially as time elapses.",
+    "zh_text": "- 1. 拓扑饱和（空间维度）：无差别 API 查询引发级联式网络拥塞，单次查询负载成本持续攀升；代理未能对信息经由多智能体集群或分布式数据库进行路由所引致的结构性代价进行合理估价。  \n- 2. 无限审思（时间维度）：由于缺乏连续时间尺度下的节奏调控机制，代理易陷入递归式思维循环，无法识别“最优决策效用随时间推移呈指数衰减”这一基本事实。"
+  },
+  {
+    "block_id": "p1_b11",
+    "page_idx": 1,
+    "order": 11,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "3. Epistemic Collapse (Truth): When faced with unresolvable, contradictory evidence, agents lack a rigorous mathematical framework for doubt. Instead of exposing the ambiguity, they average conflicting claims and confidently hallucinate a hybrid synthesis.",
+    "zh_text": "3. 认知崩塌（真值维度）：面对不可消解的矛盾证据，代理缺乏严谨的数学框架来表征怀疑。其非但未能揭示证据的模糊性，反而对相互冲突的主张进行平均化处理，并以高度自信的姿态幻构出一种混合式合成结论。"
+  },
+  {
+    "block_id": "p1_b12",
+    "page_idx": 1,
+    "order": 12,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this work, we argue that true autonomous control cannot emerge from unstructured promptreflection; it requires a formal, decision-theoretic optimization layer. We introduce the Triadic Cognitive Architecture (TCA), which fundamentally redefines machine deliberation not as text generation, but as a bounded physical trajectory through Cognitive Spacetime.",
+    "zh_text": "本文主张：真正的自主控制无法源于非结构化的提示—反思（prompt-reflection）范式；它必须建立在形式化、基于决策理论的优化层之上。我们由此提出三元认知架构（TCA），从根本上将机器审思重新定义为——并非文本生成，而是穿越“认知时空”（Cognitive Spacetime）的一条有界物理轨迹。"
+  },
+  {
+    "block_id": "p1_b13",
+    "page_idx": 1,
+    "order": 13,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Building on related ideas in congestion-aware routing, interval-aware decision-making, and entropic claim resolution [3, 4, 5], we formally couple the belief state of an agent to the physical friction of its environment. We present a continuous-time formulation for generality (nonlinear filtering and HJB-motivated stopping); in our EMDG implementation we instantiate beliefs on a finite hypothesis set and approximate value-of-information by Monte Carlo rollouts (Section 3.4).",
+    "zh_text": "本工作借鉴了拥塞感知路由、区间感知决策以及熵驱动主张解析等相关思想 [3, 4, 5]，首次将代理的信念状态与其所处环境的物理摩擦正式耦合。我们采用连续时间建模以确保理论普适性（涵盖非线性滤波与 HJB 驱动的终止机制）；而在 EMDG 实现中，我们将信念限定于有限假设集，并通过蒙特卡洛 rollout 近似计算信息价值（详见第 3.4 节）。"
+  },
+  {
+    "block_id": "p1_b14",
+    "page_idx": 1,
+    "order": 14,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Novelty and contributions. Unlike existing LLM-based agent frameworks that typically treat deliberation as cost-free and rely on heuristic stopping rules, the Triadic Cognitive Architecture (TCA) formalizes bounded reasoning by explicitly pricing spatio-temporal friction alongside epistemic maintenance. We contribute: (i) an idealized continuous-time stochastic control formulation in which optimal halting is characterized by an HJB free boundary, and (ii) a computable discrete instantiation that estimates belief-dependent value-of-information (VOI) via Monte Carlo rollouts and applies a net-utility stopping rule. Empirically, in EMDG, TCA exhibits earlier halting and improved viability under latency and congestion costs while maintaining diagnostic accuracy, illustrating a practical pathway from principled stopping to implementable agent controllers.",
+    "zh_text": "创新性与贡献。不同于现有基于 LLM 的代理框架——后者通常将审思视为零成本过程，并依赖启发式终止规则——三元认知架构（TCA）通过显式量化时空摩擦与认知维护成本，实现了对受限推理的形式化建模。本文主要贡献包括：（i）一种理想化的连续时间随机控制建模，其中最优终止由 HJB 自由边界（free boundary）刻画；（ii）一种可计算的离散化实现方案，通过蒙特卡洛 rollout 估计信念依赖型信息价值（VOI），并施加净效用驱动的终止准则。在 EMDG 场景下的实证结果表明，TCA 在延迟与拥塞成本约束下更早终止审思、提升患者存活率，同时保持诊断准确性不变，从而为从原理性终止机制迈向可部署代理控制器提供了切实可行的技术路径。"
+  },
+  {
+    "block_id": "p1_b15",
+    "page_idx": 1,
+    "order": 15,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Why this is new. Unlike prior VOI-based or bounded-rationality approaches that typically treat tool costs as static or external, TCA jointly models (i) topology- and congestion-dependent information access costs (Space), (ii) time-dependent opportunity costs under delay (Time), and (iii) beliefdependent value-of-information (Truth), within a single stopping framework motivated by optimal stopping. The key contribution is coupling these three terms in a unified decision rule and providing a computable rollout-based approximation to the resulting stopping boundary.",
+    "zh_text": "本工作的新颖之处在于：不同于以往基于 VOI 或有限理性（bounded rationality）的方法——这些方法通常将工具使用成本视为静态或外部给定——TCA 在单一、受最优停止理论启发的终止框架内，联合建模了以下三类动态成本：（i）依赖于拓扑结构与网络拥塞的信息获取成本（空间维度）；（ii）随延迟增长而上升的机会成本（时间维度）；（iii）依赖于当前信念状态的信息价值（真值维度）。核心贡献在于：将上述三项要素整合进统一的决策规则，并提供一种基于 rollout 的、可计算的终止边界近似方法。"
+  },
+  {
+    "block_id": "p1_b16",
+    "page_idx": 1,
+    "order": 16,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The remainder of this paper is structured as follows. Section 2 reviews related work, anchoring TCA within classical bounded rationality and modern agentic AI. Section 3 formalizes the physics of Cognitive Friction and derives the triadic stochastic control objective. Section 4 empirically validates the framework via the Emergency Medical Diagnostic Grid (EMDG). Finally, Section 5 discusses the implications of TCA as a foundational framework for safe, scalable autonomy.",
+    "zh_text": "本文其余部分结构如下：第2节回顾相关工作，将TCA置于经典有限理性理论与现代具身智能体AI的交叉语境中；第3节形式化“认知摩擦”的物理机制，并推导出三元随机控制目标；第4节通过“紧急医疗诊断网格”（EMDG）对本框架进行实证验证；最后，第5节探讨TCA作为安全、可扩展自主性之基础性框架所蕴含的理论与实践意义。"
+  },
+  {
+    "block_id": "p1_b17",
+    "page_idx": 1,
+    "order": 17,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2 Related Work",
+    "zh_text": "# 2 相关工作"
+  },
+  {
+    "block_id": "p1_b18",
+    "page_idx": 1,
+    "order": 18,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The Triadic Cognitive Architecture bridges classical theories of bounded computation with modern LLM-based agentic reasoning. We briefly contextualize our contributions within these intersecting domains.",
+    "zh_text": "三元认知架构（Triadic Cognitive Architecture, TCA）弥合了经典有限计算理论与基于大语言模型（LLM）的具身推理之间的鸿沟。我们简要地将本文贡献置于这两个交叉领域之中加以定位。"
+  },
+  {
+    "block_id": "p1_b19",
+    "page_idx": 1,
+    "order": 19,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.1 LLM-Based Autonomous Agents",
+    "zh_text": "# 2.1 基于大语言模型的自主智能体"
+  },
+  {
+    "block_id": "p1_b20",
+    "page_idx": 1,
+    "order": 20,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The rapid proliferation of large language models has led to a paradigm shift toward “agentic” architectures. Frameworks such as ReAct [17], Tree-of-Thoughts [18], and Reflexion [13] have demonstrated that interleaving chain-of-thought prompting with environmental observations significantly improves task success rates. However, these frameworks rely heavily on discrete heuristic hypothesis sets and arbitrary stopping constraints (e.g., token limits or maximum step counts) [16]. Evaluation benchmarks such as AgentBench [9] effectively quantify agent failure modes in interactive settings, but they still implicitly treat deliberation computation as a free resource. TCA argues that safe autonomy demands that computation itself be optimized as a structural cost.",
+    "zh_text": "大语言模型的迅猛发展推动了向“具身型”（agentic）架构的范式转变。ReAct [17]、思维树（Tree-of-Thoughts）[18] 以及 Reflexion [13] 等框架已表明：将链式推理提示（chain-of-thought prompting）与环境观测进行交替整合，可显著提升任务成功率。然而，这些框架高度依赖离散的启发式假设集合及任意设定的终止约束（例如 token 数量上限或最大步数限制）[16]。AgentBench [9] 等评测基准虽能有效量化智能体在交互场景下的失效模式，但仍隐含地将审思计算（deliberation computation）视作一种无成本资源。TCA则主张：实现安全的自主性，必须将计算本身作为一项结构性成本予以优化。"
+  },
+  {
+    "block_id": "p2_b22",
+    "page_idx": 2,
+    "order": 22,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.2 Bounded Rationality and Meta-Reasoning",
+    "zh_text": "# 2.2 有限理性与元推理"
+  },
+  {
+    "block_id": "p2_b23",
+    "page_idx": 2,
+    "order": 23,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The necessity of pricing deliberation traces back to Simon’s foundational concept of bounded rationality [15], which posits that agents must make decisions under the strict limits of available information, cognitive capacity, and time. This was formally extended into meta-reasoning and bounded optimality by Russell and Wefald [11], who argued that an agent should compute only until the cost of computation outweighs the expected increase in decision utility. In deep learning, Adaptive Computation Time (ACT) [7] introduced halting mechanisms for recurrent networks based on internal confidence. TCA resurrects these classical concepts for the LLM era, formalizing prompt-driven tool use as a continuous-time physical process subject to topological load and exponential decay.",
+    "zh_text": "为审思过程赋予显式代价这一思想，可追溯至西蒙（Herbert Simon）提出的“有限理性”（bounded rationality）奠基性概念 [15]——该理论指出，智能体必须在信息、认知能力与时间等严格约束下作出决策。罗素（Stuart Russell）与韦法尔德（Eric Wefald）[11] 将其形式化拓展为“元推理”（meta-reasoning）与“有限最优性”（bounded optimality），主张智能体仅应在计算成本低于其预期带来的决策效用增益时才继续计算。在深度学习领域，自适应计算时间（Adaptive Computation Time, ACT）[7] 首次为循环神经网络引入了基于内部置信度的停机机制。TCA 在大语言模型时代重拾这些经典思想，并将提示驱动的工具调用建模为一个受拓扑负载与指数衰减支配的连续时间物理过程。"
+  },
+  {
+    "block_id": "p2_b24",
+    "page_idx": 2,
+    "order": 24,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.3 Active Inference and Stochastic Control",
+    "zh_text": "# 2.3 主动推理与随机控制"
+  },
+  {
+    "block_id": "p2_b25",
+    "page_idx": 2,
+    "order": 25,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Our framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both theories propose that intelligent agents interact with their environment to minimize surprise (or expected free energy) via a predictive world model. While foundational, exact Bayesian active inference remains largely computationally intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering.",
+    "zh_text": "本框架在哲学内核上与卡尔·弗里斯顿（Karl Friston）提出的自由能原理（Free Energy Principle）与主动推理（Active Inference）[6]，以及杨立昆（Yann LeCun）提出的联合嵌入预测架构（Joint Embedding Predictive Architecture, JEPA）一脉相承。上述理论均主张：智能体通过构建预测性世界模型，与环境互动以最小化“意外”（surprise）或“预期自由能”。尽管具有深刻的理论根基，但精确贝叶斯主动推理对于离散、自回归式语言模型而言，在计算上仍基本不可行。TCA 为此类概念模型提供了一种原则性替代方案：它构建了一个可计算、闭环式的随机控制包络（stochastic control envelope）。通过融合非线性滤波 [8, 2]、拥塞感知路由（congestion-aware routing）以及Hamilton–Jacobi–Bellman（HJB）最优停机理论 [14, 10]，TCA 在理论认知神经科学与实用机器学习系统工程之间架起桥梁。"
+  },
+  {
+    "block_id": "p2_b26",
+    "page_idx": 2,
+    "order": 26,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3 Formalizing Cognitive Friction: The Coupled Stochastic Control Objective",
+    "zh_text": "# 3 认知摩擦的形式化：耦合随机控制目标"
+  },
+  {
+    "block_id": "p2_b27",
+    "page_idx": 2,
+    "order": 27,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Problem setup. We consider an agent that acquires information via costly tool queries and must decide both which query to perform next and when to stop deliberating and execute a terminal decision. The agent maintains a belief state over hypotheses and a routing state capturing topologyand congestion-dependent access costs.",
+    "zh_text": "问题设定：我们考虑一类通过代价高昂的工具查询获取信息的智能体，其需同时决定下一步执行哪项查询，以及何时终止审思并执行最终决策。该智能体维护两类状态：一是关于假设空间的概率信念状态（belief state），二是刻画拓扑结构与拥塞程度所决定的访问代价的路由状态（routing state）。"
+  },
+  {
+    "block_id": "p2_b28",
+    "page_idx": 2,
+    "order": 28,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Intuition (for ML practitioners). At inference time, a tool-using agent faces two coupled questions: which tool should I query next? and when should I stop querying and act? Most agent loops answer both with heuristics (fixed budgets, step limits, or ad hoc confidence thresholds). TCA instead prices deliberation explicitly: each prospective query has (i) a belief-dependent expected benefit (valueof-information (VOI): expected entropy reduction) and (ii) an environment-dependent cost (latency and congestion). The controller chooses the action maximizing net utility and halts when even the best available query has non-positive net value. The continuous-time HJB formulation provides the principled stopping boundary; EMDG instantiates a computable discrete approximation via rollout-based VOI and a myopic stopping rule.",
+    "zh_text": "直觉阐释（面向机器学习实践者）：在推理阶段，一个使用工具的智能体面临两个耦合问题：我接下来应调用哪个工具？我应在何时停止查询并采取行动？当前大多数智能体循环（agent loop）均采用启发式策略回答二者（如固定预算、步数上限或临时设定的置信阈值）。TCA 则对审思过程进行显式定价：每一潜在查询均具备两项属性：（i）依赖于当前信念的期望收益（即信息价值 VOI：预期熵减）；（ii）依赖于环境的代价（延迟与拥塞）。控制器选择使净效用最大化的动作，并在即使最优可用查询亦无法带来正向净效用时终止。连续时间下的 HJB 公式为此提供了原则性的停机边界；EMDG 则通过基于 rollout 的 VOI 估计与短视型（myopic）停机规则，实例化了一个可计算的离散近似。"
+  },
+  {
+    "block_id": "p2_b29",
+    "page_idx": 2,
+    "order": 29,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We define the active cognitive state at time $t$as $s _ { t } = \\langle p _ { t } , \\gamma _ { t } \\rangle$, where $p _ { t } ( \\theta )$is the belief measure over a fixed hypothesis manifold $\\Theta$, and $\\gamma _ { t }$is the routing state on the Riemannian manifold $( \\mathcal { M } , g _ { \\mu \\nu } )$The evolution of the routing state is explicitly governed by a control process $u _ { t } \\in \\mathcal { U }$, such that",
+    "zh_text": "我们将时刻 $t$ 的活跃认知状态定义为 $s _ { t } = \\langle p _ { t } , \\gamma _ { t } \\rangle$，其中 $p _ { t } ( \\theta )$ 表示在固定假设流形 $\\Theta$ 上的概率信念测度，而 $\\gamma _ { t }$ 是黎曼流形 $( \\mathcal { M } , g _ { \\mu \\nu } )$ 上的路由状态。路由状态的演化由控制过程 $u _ { t } \\in \\mathcal { U }$ 显式支配，满足如下关系："
+  },
+  {
+    "block_id": "p2_b31",
+    "page_idx": 2,
+    "order": 31,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.1 The coupled observation model",
+    "zh_text": "# 3.1 耦合观测模型"
+  },
+  {
+    "block_id": "p2_b32",
+    "page_idx": 2,
+    "order": 32,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Crucially, information acquisition is path-dependent. The observation process $Y _ { t }$follows an Itô diffusion strictly coupled to the agent’s spatial routing state: where $h ( \\theta , \\gamma _ { t } )$is the expected evidence under hypothesis $\\theta$at network location $\\gamma _ { t }$. The belief state $p _ { t }$evolves via the Kushner–Stratonovich equation, driven by the innovation process $d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t$.",
+    "zh_text": "关键在于，信息获取具有路径依赖性。观测过程 $Y _ { t }$ 遵循伊藤扩散（Itô diffusion），且严格耦合于智能体的空间路由状态：其中 $h ( \\theta , \\gamma _ { t } )$ 表示在假设 $\\theta$ 下、于网络位置 $\\gamma _ { t }$ 处的期望证据。信念状态 $p _ { t }$ 由 Kushner–Stratonovich 方程演化，其驱动力为创新过程 $d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t$。"
+  },
+  {
+    "block_id": "p3_b36",
+    "page_idx": 3,
+    "order": 36,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2 The triadic value function",
+    "zh_text": "# 3.2 三元价值函数"
+  },
+  {
+    "block_id": "p3_b37",
+    "page_idx": 3,
+    "order": 37,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The agent seeks to maximize expected information gain while minimizing spatio-temporal cognitive friction. We define the instantaneous spatial routing cost canonically as",
+    "zh_text": "智能体旨在最大化期望信息增益，同时最小化时空维度上的认知摩擦。我们规范地将瞬时空间路由代价定义为："
+  },
+  {
+    "block_id": "p3_b39",
+    "page_idx": 3,
+    "order": 39,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The value function is defined as the supremum over stopping times $T \\geq t$",
+    "zh_text": "价值函数定义为所有满足 $T \\geq t$ 的停时 $T$ 上的上确界："
+  },
+  {
+    "block_id": "p3_b41",
+    "page_idx": 3,
+    "order": 41,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "For readability, we sometimes write $V ( p , t )$when $\\gamma$is understood from context.",
+    "zh_text": "为便于阅读，当上下文已明确 $\\gamma$ 时，我们有时简记为 $V ( p , t )$。"
+  },
+  {
+    "block_id": "p3_b42",
+    "page_idx": 3,
+    "order": 42,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.3 The HJB variational inequality and optimal stopping",
+    "zh_text": "# 3.3 HJB 变分不等式与最优停机"
+  },
+  {
+    "block_id": "p3_b43",
+    "page_idx": 3,
+    "order": 43,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Let $\\mathcal { L } ^ { u }$denote the (controlled) infinitesimal generator of the Markov state $( p _ { t } , \\gamma _ { t } )$under control $u _ { t }$(including the filtering dynamics in $p _ { t }$and the routing dynamics $\\dot { \\gamma } _ { t } ~ = ~ f ( \\gamma _ { t } , u _ { t } ) ,$. We use $\\mathcal { L } ^ { u }$as shorthand for the corresponding functional Itô operator; see [8, 2]. By dynamic programming, the system satisfies the Hamilton–Jacobi–Bellman (HJB) variational inequality:",
+    "zh_text": "令 $\\mathcal{L}^u$ 表示在控制策略 $u_t$ 下马尔可夫状态 $(p_t, \\gamma_t)$ 的（受控）无穷小生成元（包括 $p_t$ 中的滤波动力学与路由动力学 $\\dot{\\gamma}_t = f(\\gamma_t, u_t)$）。我们用 $\\mathcal{L}^u$ 作为相应泛函 Itô 算子的简写；参见文献 [8, 2]。根据动态规划原理，该系统满足 Hamilton–Jacobi–Bellman（HJB）变分不等式："
+  },
+  {
+    "block_id": "p3_b45",
+    "page_idx": 3,
+    "order": 45,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In the discrete EMDG instantiation, the running temporal penalty is approximated by an actiondependent one-step cost proportional to latency $\\tau ( a )$(Section 3.4).",
+    "zh_text": "在离散型 EMDG 实例化中，运行时的时间惩罚被近似为一个依赖于动作的单步代价，其大小正比于延迟 $\\tau(a)$（见第 3.4 节）。"
+  },
+  {
+    "block_id": "p3_b46",
+    "page_idx": 3,
+    "order": 46,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.4 Discrete-time instantiation used in EMDG (rollout VOI + myopic stopping)",
+    "zh_text": "# 3.4 EMDG 中采用的离散时间实例化（基于 rollout 的信息价值 + 短视型终止）"
+  },
+  {
+    "block_id": "p3_b47",
+    "page_idx": 3,
+    "order": 47,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "While the preceding subsections present an idealized continuous-time formulation (filtering and HJBmotivated stopping), the EMDG experiments instantiate a discrete approximation aligned with toolusing agents.",
+    "zh_text": "尽管前述小节提出了理想化的连续时间建模框架（含滤波过程与基于 HJB 的终止机制），EMDG 实验则采用了一种与工具使用型智能体相适配的离散近似方案。"
+  },
+  {
+    "block_id": "p3_b48",
+    "page_idx": 3,
+    "order": 48,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Notation. We use $\\alpha$for cost-to-utility scaling, $\\beta$for temporal decay/latency penalty, and $\\lambda _ { S }$for the spatial/topological cost weight; $\\Omega ( a )$and $\\tau ( a )$denote action load and latency. Value-of-information (VOI) is defined as belief-dependent expected entropy reduction, i.e., $\\widehat { \\Delta H } ( a \\mid b _ { t } ) = \\mathbb { E } [ H ( b _ { t } ) - H ( b _ { t + 1 } ) \\ |$$a ]$, estimated by rollouts in EMDG.",
+    "zh_text": "符号说明：我们用 $\\alpha$ 表示成本-效用缩放系数，$\\beta$ 表示时间衰减/延迟惩罚系数，$\\lambda_S$ 表示空间/拓扑结构成本权重；$\\Omega(a)$ 和 $\\tau(a)$ 分别表示动作负载与延迟。信息价值（Value-of-Information, VOI）定义为依赖于信念状态的期望熵减少量，即 $\\widehat{\\Delta H}(a \\mid b_t) = \\mathbb{E}[H(b_t) - H(b_{t+1}) \\mid a]$，在 EMDG 中通过 rollout 方法进行估计。"
+  },
+  {
+    "block_id": "p3_b49",
+    "page_idx": 3,
+    "order": 49,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We estimate the VOI term $\\widehat { \\Delta H } ( a \\mid b _ { t } )$via rollouts. The belief state is a categorical distribution $b _ { t } \\in \\Delta ^ { | \\Theta | - 1 }$over a finite hypothesis set. Given an action $a$(a tool query) and an observation sample, we update $b _ { t }$via Bayes’ rule and compute categorical entropy $\\begin{array} { r } { H ( b ) = - \\sum _ { i } b ( i ) \\log \\big ( b ( i ) + \\varepsilon \\big ) } \\end{array}$.",
+    "zh_text": "我们通过 rollout 方法估计 VOI 项 $\\widehat{\\Delta H}(a \\mid b_t)$。信念状态 $b_t$ 是定义在有限假设集 $\\Theta$ 上的类别分布，即 $b_t \\in \\Delta^{|\\Theta| - 1}$。给定一个动作 $a$（即一次工具查询）及一次观测样本，我们依据贝叶斯规则更新 $b_t$，并计算其类别熵：  \n$$\nH(b) = -\\sum_i b(i) \\log\\big(b(i) + \\varepsilon\\big)\n$$"
+  },
+  {
+    "block_id": "p3_b50",
+    "page_idx": 3,
+    "order": 50,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To estimate belief-dependent value-of-information, we use Monte Carlo rollouts on cloned states:",
+    "zh_text": "为估计依赖于信念的信息价值，我们在克隆的状态上执行蒙特卡洛 rollout："
+  },
+  {
+    "block_id": "p3_b52",
+    "page_idx": 3,
+    "order": 52,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We then score actions by a net-utility objective that prices congestion and latency: and stop when the best continuation utility is non-positive:",
+    "zh_text": "随后，我们依据一项净效用目标函数对动作进行打分，该函数对拥塞与延迟进行量化定价；并在最优延续效用非正时终止推理："
+  },
+  {
+    "block_id": "p4_b57",
+    "page_idx": 4,
+    "order": 57,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This myopic stopping rule omits continuation value (equivalently, setting a one-step lookahead weight $\\eta = 0$in a one-step lookahead formulation); we leave explicit continuation-value approximation as future work. Here, $\\gamma _ { t }$denotes the routing state introduced above, while $\\eta$is a separate scalar lookahead weight (set to zero in our experiments).",
+    "zh_text": "该短视型终止规则忽略延续价值（等价于在一阶前向展望（one-step lookahead）公式中设前向展望权重 $\\eta = 0$）；我们将显式的延续价值近似留作未来工作。此处，$\\gamma_t$ 表示前述引入的路由状态，而 $\\eta$ 是一个独立的标量前向展望权重（在我们的实验中设为零）。"
+  },
+  {
+    "block_id": "p4_b58",
+    "page_idx": 4,
+    "order": 58,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "On the discretization gap. The idealized HJB variational inequality optimizes a continuation value over future information paths. Our EMDG controller uses a myopic rule $\\eta ~ = ~ 0$), i.e., it compares immediate VOI against immediate spatio-temporal cost and halts when the best net utility is non-positive. This choice is deliberate: it yields a simple, inference-time controller that is robust and computationally inexpensive. In principle, continuation value can be approximated by multi-step rollouts or learned value functions; we leave systematic evaluation of $\\eta > 0$and deeper lookahead to future work.",
+    "zh_text": "关于离散化误差：理想化的 HJB 变分不等式旨在对未来信息路径上的延续价值进行优化。而我们的 EMDG 控制器采用短视规则（$\\eta = 0$），即仅比较即时 VOI 与即时时空成本，并在最优净效用非正时立即终止。这一选择是刻意为之：它产生了一个简单、鲁棒且计算开销低廉的推理时控制器。原则上，延续价值可通过多步 rollout 或学习得到的价值函数加以近似；我们将系统性评估 $\\eta > 0$ 及更深层前向展望的工作留待后续研究。"
+  },
+  {
+    "block_id": "p4_b59",
+    "page_idx": 4,
+    "order": 59,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Theory–implementation bridge. The idealized HJB variational inequality characterizes an optimal stopping boundary for continued information acquisition. Our discrete controller can be interpreted as a first-order, computationally tractable approximation to this boundary under zero continuation value ( $\\eta \\ : = \\ : 0$): instead of solving for the full value function $V$, we estimate immediate belief-dependent VOI (expected entropy reduction) and stop when even the best available action has non-positive net continuation utility. Thus, the implementation approximates the stopping boundary, not the full HJB solution, while preserving the core tradeoff between epistemic gain and spatiotemporal cost.",
+    "zh_text": "理论–实现桥梁：理想化的 HJB 变分不等式刻画了持续信息获取的最优停止边界。我们的离散控制器可被解释为在延续价值为零（即 $\\eta := 0$）条件下对该边界的首阶、计算可行近似：我们并不求解完整值函数 $V$，而是估计即时、依赖于信念的 VOI（即期望熵减少量），并在即使最优可用动作也产生非正净延续效用时停止。因此，该实现近似的是停止边界本身，而非完整的 HJB 解，同时保留了认知增益与时空成本之间的核心权衡关系。"
+  },
+  {
+    "block_id": "p4_b60",
+    "page_idx": 4,
+    "order": 60,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Theorem 1 (Optimal stopping in the idealized TCA model). Assume (i) $h ( \\theta , \\cdot )$and $\\sigma ( \\cdot )$are Lipschitz with linear growth and (ii) $\\sigma \\sigma ^ { \\top }$is uniformly non-degenerate. Then the idealized continuoustime triadic control problem admits an optimal stopping time. Moreover, letting $D = \\{ ( p , \\gamma , t ) \\ :$$V ( p , \\gamma , t ) = 0 \\}$denote the stopping region, the minimal optimal stopping time is the first hitting time",
+    "zh_text": "**定理 1（理想化 TCA 模型中的最优停止）**：假设（i）$h(\\theta, \\cdot)$ 与 $\\sigma(\\cdot)$ 满足 Lipschitz 条件且具有线性增长性，（ii）$\\sigma \\sigma^\\top$ 一致非退化。则理想化的连续时间三元控制问题存在最优停止时刻。进一步，令 $D = \\{(p, \\gamma, t) : V(p, \\gamma, t) = 0\\}$ 表示停止区域，则最小最优停止时刻即为首次击中时间："
+  },
+  {
+    "block_id": "p4_b62",
+    "page_idx": 4,
+    "order": 62,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Remark (theory vs. instantiation). Theorem 1 concerns the idealized continuous-time formulation. Our EMDG experiments implement a discrete approximation (Section 3.4) using rollout-based VOI estimation and a myopic stopping rule (continuation term disabled).",
+    "zh_text": "**注（理论 vs. 实例化）**：定理 1 针对理想化的连续时间建模框架。我们的 EMDG 实验则实现了第 3.4 节所述的离散近似方案，采用基于 rollout 的 VOI 估计与短视型停止规则（即禁用延续项）。"
+  },
+  {
+    "block_id": "p4_b63",
+    "page_idx": 4,
+    "order": 63,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4 Empirical Validation: The Emergency Medical Diagnostic Grid (EMDG)",
+    "zh_text": "# 4 经验证实：紧急医疗诊断网格（EMDG）"
+  },
+  {
+    "block_id": "p4_b64",
+    "page_idx": 4,
+    "order": 64,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To demonstrate the necessity of constrained spatio-temporal and epistemic bounds, we simulate a safety-critical autonomous reasoning environment: the Emergency Medical Diagnostic Grid (EMDG). In this simulation, an autonomous diagnostic agent is tasked with identifying a critical pathology and prescribing an intervention.",
+    "zh_text": "为阐明施加受限时空约束与认知约束的必要性，我们模拟了一个安全关键型自主推理环境：紧急医疗诊断网格（Emergency Medical Diagnostic Grid, EMDG）。在此仿真中，一个自主诊断智能体需识别一种危及生命的病理并开具干预方案。"
+  },
+  {
+    "block_id": "p4_b65",
+    "page_idx": 4,
+    "order": 65,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The environment imposes strict physical realities:",
+    "zh_text": "该环境施加了严格的物理现实约束："
+  },
+  {
+    "block_id": "p4_b66",
+    "page_idx": 4,
+    "order": 66,
+    "type": "list",
+    "translatable": true,
+    "source_text": "• Epistemic ambiguity. The agent begins with a uniform hypothesis prior over five highly fatal pathologies ( $B _ { 0 }$).\n• Spatial topology. The agent retrieves evidence by routing queries to distributed hospital subsystems (e.g., Hematology Lab, MRI network, Patient History). Each sub-system has a distinct structural load cost ( $\\Omega$).",
+    "zh_text": "- • 认知模糊性：智能体初始对五种高致死率病理持有均匀先验假设（$B_0$）；  \n- • 空间拓扑结构：智能体通过向分布式医院子系统（如血液科实验室、MRI 网络、患者病史系统）发送查询来获取证据。每个子系统具有不同的结构性负载成本（$\\Omega$）。"
+  },
+  {
+    "block_id": "p5_b68",
+    "page_idx": 5,
+    "order": 68,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "• Temporal decay. Patient survivability decays exponentially with elapsed time. Some queries (e.g., rapid blood tests) cost 5 time-steps; others (e.g., MRI) cost 45 time-steps.",
+    "zh_text": "• 时间衰减：患者存活率随已耗时间呈指数衰减。部分查询（如快速血液检测）耗时 5 个时间步；另一些（如 MRI）则耗时 45 个时间步。"
+  },
+  {
+    "block_id": "p5_b69",
+    "page_idx": 5,
+    "order": 69,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p5_b69_cap",
+    "page_idx": 5,
+    "order": 69,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "EMDG Monte Carlo (N=50): mean trajectories",
+    "zh_text": "EMDG 蒙特卡洛实验（$N=50$）：平均轨迹图"
+  },
+  {
+    "block_id": "p5_b70",
+    "page_idx": 5,
+    "order": 70,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p5_b70_cap",
+    "page_idx": 5,
+    "order": 70,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Figure 1: EMDG Monte Carlo (N=50): mean entropy and patient viability trajectories over a fixed horizon. Step corresponds to discrete tool-query iterations; trajectories are padded after stopping by carrying forward the terminal state, ensuring step-wise consistency (e.g., time cannot decrease).",
+    "zh_text": "图 1：EMDG 蒙特卡洛实验（$N=50$）：固定时间范围内的平均熵与患者存活性轨迹。横轴“步数”对应离散化的工具查询迭代次数；所有轨迹在终止后均以终端状态向前填充，以确保逐步一致性（例如，时间不可倒流）。"
+  },
+  {
+    "block_id": "p5_b71",
+    "page_idx": 5,
+    "order": 71,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We evaluate a standard state-of-the-art agentic LLM (utilizing a ReAct-style Thought → Act → Observe loop [17]) against the Triadic Cognitive Architecture (TCA).",
+    "zh_text": "我们对比评估了一种标准的前沿代理式大语言模型（采用 ReAct 风格的“思考 → 行动 → 观察”循环 [17]）与三元认知架构（Triadic Cognitive Architecture, TCA）。"
+  },
+  {
+    "block_id": "p5_b72",
+    "page_idx": 5,
+    "order": 72,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Evaluation integrity. To prevent estimator/trajectory coupling, we decouple randomness by using a per-environment RNG for the realized transition and observation draws, and a separate independent RNG stream for value-of-information (VOI) rollouts on cloned states. While HJB theory motivates the stopping boundary, our EMDG controller instantiates a rollout-based approximation of beliefdependent VOI with a net-utility halting condition.",
+    "zh_text": "评估完整性。为防止估计器与轨迹之间的耦合，我们通过为每个环境分别使用独立的随机数生成器（RNG）来解耦随机性：一个 RNG 用于实际转移与观测采样，另一个独立的 RNG 流则专用于在克隆状态上进行信息价值（Value-of-Information, VOI）的 rollout 计算。尽管 HJB 理论为停止边界提供了理论依据，但我们的 EMDG 控制器实现了一种基于 rollout 的、依赖信念的状态信息价值近似，并采用净效用（net utility）为判据的终止条件。"
+  },
+  {
+    "block_id": "p5_b73",
+    "page_idx": 5,
+    "order": 73,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4.1 The failure of the unconstrained agent (ReAct)",
+    "zh_text": "# 4.1 无约束智能体（ReAct）的失效"
+  },
+  {
+    "block_id": "p5_b74",
+    "page_idx": 5,
+    "order": 74,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Operating without cognitive friction, the baseline ReAct agent greedily maximizes estimated information gain and does not price congestion or latency into action selection. At step 0 it initiates a query to the MRI network.",
+    "zh_text": "在缺乏认知摩擦的情况下，基线 ReAct 智能体以贪心方式最大化其估计的信息增益，且在动作选择中未对拥塞或延迟进行代价建模。在第 0 步，它即向 MRI 网络发起查询。"
+  },
+  {
+    "block_id": "p6_b76",
+    "page_idx": 6,
+    "order": 76,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Spatial failure. Because it ignores the load and congestion penalties associated with routing, it is willing to select high-load tools whenever their immediate estimated gain is maximal.",
+    "zh_text": "空间性失效。由于其忽略与路由相关的负载与拥塞惩罚，该智能体倾向于在任何时刻只要某工具的即时估计增益最大，便选择高负载工具。"
+  },
+  {
+    "block_id": "p6_b77",
+    "page_idx": 6,
+    "order": 77,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Temporal failure. Because MRI incurs a 45 time-step latency, viability decays exponentially with elapsed time before a low-latency intervention would be taken.",
+    "zh_text": "时间性失效。由于 MRI 查询引入 45 个时间步的延迟，可行性（viability）随等待时间呈指数衰减；换言之，在低延迟干预本可及时实施之前，其有效性已大幅下降。"
+  },
+  {
+    "block_id": "p6_b78",
+    "page_idx": 6,
+    "order": 78,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Epistemic failure. The baseline lacks a stopping rule that compares marginal information gain to time-sensitive viability loss; as a result, it continues to query even when entropy is already low and additional information is not worth the delay.",
+    "zh_text": "认知性失效。该基线智能体缺乏一种停止规则，无法将边际信息增益与时间敏感的可行性损失进行比较；因此，即使当前信念熵已很低，继续获取额外信息所带来的收益亦不足以弥补延迟成本，它仍持续发起查询。"
+  },
+  {
+    "block_id": "p6_b79",
+    "page_idx": 6,
+    "order": 79,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4.2 The success of the triadic agent (TCA)",
+    "zh_text": "# 4.2 三元智能体（TCA）的成功"
+  },
+  {
+    "block_id": "p6_b80",
+    "page_idx": 6,
+    "order": 80,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The TCA dynamically evaluates the unified objective function at $t = 0$. It calculates that while the MRI offers high expected epistemic gain (e.g., Expected Entropy Reduction), its combined temporal friction ( $\\Phi$) and spatial friction (Ω) yields a severely negative net cognitive utility.",
+    "zh_text": "TCA 在 $t = 0$ 时刻动态评估统一目标函数。它计算得出：尽管 MRI 提供较高的预期认知增益（例如，期望熵减少量），但其综合的时间摩擦（$\\Phi$）与空间摩擦（Ω）导致净认知效用严重为负。"
+  },
+  {
+    "block_id": "p6_b81",
+    "page_idx": 6,
+    "order": 81,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Action mix. At step 0, greedy ReAct selects MRI_Network in $1 0 0 \\%$of seeds, whereas the triadic controller selects Hematology_Lab in $1 0 0 \\%$of seeds, reflecting a consistent preference for low-latency evidence acquisition under cognitive friction.",
+    "zh_text": "动作组合。在第 0 步，贪心式 ReAct 在全部 $100\\%$ 的随机种子中均选择 MRI_Network；而三元控制器则在全部 $100\\%$ 的随机种子中均选择 Hematology_Lab，反映出在认知摩擦约束下对低延迟证据获取的一致偏好。"
+  },
+  {
+    "block_id": "p6_b82",
+    "page_idx": 6,
+    "order": 82,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Instead, TCA routes a lightweight query to the Hematology Lab ( $\\tau = 5$, low $\\Omega$). Over a small number of low-latency queries, it reaches a regime where the marginal expected information gain is eclipsed by spatio-temporal cost, and the policy halts.",
+    "zh_text": "相反，TCA 向血液学实验室（Hematology Lab）发送一条轻量级查询（$\\tau = 5$，Ω 较低）。经过若干次低延迟查询后，系统进入一种状态：此时边际期望信息增益已被时空成本所超越，策略随即终止。"
+  },
+  {
+    "block_id": "p6_b83",
+    "page_idx": 6,
+    "order": 83,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Concretely, we estimate belief-dependent value-of-information by Monte Carlo rollouts: and score actions by net utility: selecting $a _ { t } = \\arg \\operatorname* { m a x } _ { a \\in \\mathcal { A } } U ( a ; b _ { t } , t , C _ { t } )$and stopping when",
+    "zh_text": "具体而言，我们通过蒙特卡洛 rollout 估计依赖信念的信息价值，并依据净效用对动作进行评分：选择 $a _ { t } = \\arg \\operatorname* { \\max } _ { a \\in \\mathcal { A } } U ( a ; b _ { t } , t , C _ { t } )$，并在满足以下条件时停止："
+  },
+  {
+    "block_id": "p6_b89",
+    "page_idx": 6,
+    "order": 89,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The TCA terminates deliberation once the best continuation utility is non-positive, and executes action earlier.",
+    "zh_text": "TCA 在最优后续效用（best continuation utility）非正时即终止推理过程，并提前执行动作。"
+  },
+  {
+    "block_id": "p6_b90",
+    "page_idx": 6,
+    "order": 90,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We report mean ± 95% confidence intervals computed as $1 . 9 6 \\hat { \\sigma } / \\sqrt { N }$over $N = 5 0$seeds, using terminal-per-seed values (last logged row per seed).",
+    "zh_text": "我们报告均值 ± 95% 置信区间，其计算公式为 $1.96 \\hat{\\sigma} / \\sqrt{N}$，其中 $N = 50$ 为随机种子数，所用数据为每颗种子对应的终端值（即每颗种子日志中的最后一行）。"
+  },
+  {
+    "block_id": "p6_b91",
+    "page_idx": 6,
+    "order": 91,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p6_b91_cap",
+    "page_idx": 6,
+    "order": 91,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 1: EMDG results (N=50). Terminal values are taken from the last logged row per seed. Total information gain is the per-episode sum of info_gain; in this setup it equals entropy reduction $H ( b _ { 0 } ) - H ( b _ { T } )$(a telescoping sum). At step 0, ReAct selects MRI_Network in $1 0 0 \\%$of seeds while TCA selects Hematology_Lab in $1 0 0 \\%$of seeds.",
+    "zh_text": "表 1：EMDG 实验结果（$N=50$）。终端值取自每颗种子日志中的最后一行。总信息增益为每轮 episode 中 info_gain 的累加和；在此设定下，其等于熵减少量 $H ( b _ { 0 } ) - H ( b _ { T } )$（一个望远镜求和式）。在第 0 步，ReAct 在 $100\\%$ 的随机种子中选择 MRI_Network，而 TCA 则在 $100\\%$ 的随机种子中选择 Hematology_Lab。"
+  },
+  {
+    "block_id": "p6_b92",
+    "page_idx": 6,
+    "order": 92,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Note. In EMDG, info_gain is logged per step as $H ( b _ { t } ) - H ( b _ { t + 1 } )$, so per-episode total information gain telescopes to $H ( b _ { 0 } ) - H ( b _ { T } )$. Because $b _ { 0 }$is fixed by the uniform prior, the dispersion (and thus CI width) of total information gain matches that of terminal entropy.",
+    "zh_text": "注：在 EMDG 中，info_gain 按步记录为 $H ( b _ { t } ) - H ( b _ { t + 1 } )$，因此每轮 episode 的总信息增益望远镜求和为 $H ( b _ { 0 } ) - H ( b _ { T } )$。由于初始信念 $b _ { 0 }$ 由均匀先验固定，总信息增益的离散程度（从而置信区间宽度）与终端熵的离散程度一致。"
+  },
+  {
+    "block_id": "p7_b94",
+    "page_idx": 7,
+    "order": 94,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Scalability considerations. The EMDG environment is intentionally small to isolate boundeddeliberation effects under congestion and latency. In larger tool ecosystems, naive Monte Carlo VOI rollouts can be costly. However, VOI estimation can be amortized via (i) learned surrogates for expected entropy reduction, (ii) caching/reuse of rollouts for similar belief states, (iii) restricting candidate tools via cheap screening heuristics, or (iv) using analytic approximations (e.g., Fisherinformation or local linearization) when available. These approximations align with the TCA view: the controller requires priced estimates of marginal information value, not necessarily exact computation.",
+    "zh_text": "可扩展性考量。EMDG 环境被有意设计为小规模，以在拥塞与延迟条件下隔离有限推理（bounded deliberation）效应。在更大规模的工具生态系统中，朴素的蒙特卡洛 VOI rollout 可能带来高昂计算开销。然而，VOI 估计可通过以下方式分摊成本：(i) 学习期望熵减少量的代理模型；(ii) 对相似信念状态缓存并复用 rollout 结果；(iii) 利用低成本筛选启发式方法限制候选工具集合；或 (iv) 在适用时采用解析近似（如 Fisher 信息或局部线性化）。这些近似方法与 TCA 的理念一致：控制器所需的是经代价标定的边际信息价值估计，而非必须精确计算。"
+  },
+  {
+    "block_id": "p7_b95",
+    "page_idx": 7,
+    "order": 95,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Generalization to heterogeneous tool ecosystems. A key direction for future work is evaluating TCA in multi-domain agent settings with heterogeneous tool suites (e.g., web navigation, code execution, and multi-hop QA), where tools exhibit diverse latency and congestion profiles. In such environments, a central question is whether a single set of spatio-temporal cost parameters can yield consistent utility trade-offs without per-domain retuning. Demonstrating that TCA maintains efficient stopping behavior and cost-aware tool selection across domains would provide strong evidence that cognitive friction constitutes a general principle for bounded agent reasoning, rather than an artifact of a specific environment such as EMDG.",
+    "zh_text": "向异构工具生态系统的泛化。未来工作的一个关键方向是，在具备异构工具套件（例如网页导航、代码执行与多跳问答）的多领域智能体设置中评估 TCA 性能，其中各类工具展现出差异化的延迟与拥塞特征。在此类环境中，一个核心问题是：是否存在一组通用的时空代价参数，可在无需针对各领域单独调参的前提下，持续产生一致的效用权衡？若能证明 TCA 在跨领域场景中仍能维持高效的停止行为与代价感知的工具选择能力，则将有力表明：认知摩擦是适用于受限智能体推理的一般性原理，而非 EMDG 这一特定环境下的偶然产物。"
+  },
+  {
+    "block_id": "p7_b96",
+    "page_idx": 7,
+    "order": 96,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4.3 Hyperparameters and reproducibility",
+    "zh_text": "# 4.3 超参数与可复现性"
+  },
+  {
+    "block_id": "p7_b97",
+    "page_idx": 7,
+    "order": 97,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In EMDG, the cost-to-utility scaling $\\alpha$, temporal decay $\\beta$, and spatial cost weight $\\lambda _ { S }$are fixed across all seeds to reflect a time-sensitive diagnosis regime under congestion. In our current implementation these correspond to cost_scale ( $\\mathit { \\Delta } \\alpha \\ = \\ 0 . 0 1$), beta $\\beta = 0 . 5$), and lambda_s ( $\\lambda _ { S } ~ = ~ 0 . 8$), respectively (see emdg_sim.py). We leave a systematic sensitivity sweep over these parameters (and explicit continuation-value approximation with $\\eta > 0$) to future work.",
+    "zh_text": "在 EMDG 中，代价–效用缩放系数 $\\alpha$、时间衰减因子 $\\beta$ 以及空间代价权重 $\\lambda _ { S }$ 在全部随机种子上保持固定，以反映拥塞条件下的时间敏感型诊断范式。在当前实现中，它们分别对应于 `cost_scale`（$\\Delta \\alpha = 0.01$）、`beta`（$\\beta = 0.5$）与 `lambda_s`（$\\lambda _ { S } \\approx 0.8$）（参见 `emdg_sim.py`）。我们将对这些参数（以及显式延续值近似中 $\\eta > 0$ 的设定）开展系统性敏感性扫描，留待后续工作完成。"
+  },
+  {
+    "block_id": "p7_b98",
+    "page_idx": 7,
+    "order": 98,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Sensitivity (planned). Because $\\alpha , \\beta , \\lambda _ { S }$govern the tradeoff between information gain and spatiotemporal cost, we plan to include a sensitivity sweep over these parameters (e.g., $\\pm 2 5 \\%$ranges) to quantify robustness and calibrate recommended defaults.",
+    "zh_text": "敏感性分析（计划中）。由于 $\\alpha$、$\\beta$、$\\lambda _ { S }$ 共同调控信息增益与时空代价之间的权衡关系，我们计划对这些参数开展敏感性扫描（例如，在 $\\pm 25\\%$ 范围内变动），以量化模型鲁棒性并校准推荐默认值。"
+  },
+  {
+    "block_id": "p7_b99",
+    "page_idx": 7,
+    "order": 99,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4.4 Ablation study",
+    "zh_text": "# 4.4 消融实验"
+  },
+  {
+    "block_id": "p7_b100",
+    "page_idx": 7,
+    "order": 100,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To isolate the contribution of each component of the triadic controller, we run a controlled ablation sweep over $N = 5 0$Monte Carlo seeds. We ablate (i) the HJB stopping rule by disallowing STOP (No-Stop), (ii) the spatial/topological term by setting the spatial friction weight to zero (No-Space), (iii) the temporal term by setting the temporal friction weight to zero (No-Time), and (iv) the congestion feedback term by ignoring the live congestion state in the spatial friction calculation (No-Congestion). Figure 2 reports terminal patient viability and terminal deliberation time (means $\\pm 1 \\sigma$).",
+    "zh_text": "为分离三元控制器中各组件的独立贡献，我们在 $N = 50$ 个蒙特卡洛随机种子上开展受控的消融实验。具体消融设置如下：(i) 移除HJB停机准则（即禁止执行 STOP 动作，记为 No-Stop）；(ii) 移除空间/拓扑项（即将空间摩擦权重设为零，记为 No-Space）；(iii) 移除时间项（即将时间摩擦权重设为零，记为 No-Time）；(iv) 移除拥堵反馈项（即在空间摩擦计算中忽略实时拥堵状态，记为 No-Congestion）。图2展示了终末患者存活性（terminal patient viability）与终末决策耗时（terminal deliberation time）的均值及其标准差（$\\pm 1 \\sigma$）。"
+  },
+  {
+    "block_id": "p8_b102",
+    "page_idx": 8,
+    "order": 102,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p8_b102_cap",
+    "page_idx": 8,
+    "order": 102,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "EMDG ablations (N=50): terminal means $\\pm 1 \\sigma$",
+    "zh_text": "EMDG 消融实验结果（$N=50$）：终末指标均值 $\\pm 1 \\sigma$"
+  },
+  {
+    "block_id": "p8_b103",
+    "page_idx": 8,
+    "order": 103,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p8_b103_cap",
+    "page_idx": 8,
+    "order": 103,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Figure 2: EMDG ablations (N=50): terminal patient viability and terminal deliberation time across controller variants. Bars show means and error bars denote $\\pm 1 \\sigma$over seeds. The full triadic controller achieves the highest viability while minimizing deliberation time, illustrating the necessity of jointly pricing space, time, and enforcing an explicit stopping boundary.",
+    "zh_text": "图2：EMDG 消融实验（$N=50$）：不同控制器变体下的终末患者存活性与终末决策耗时。柱状图表示均值，误差线表示跨随机种子的 $\\pm 1 \\sigma$。\n\n完整三元控制器在实现最高患者存活性的同时最小化了决策耗时，表明联合对空间、时间和显式停机边界进行代价建模具有必要性。"
+  },
+  {
+    "block_id": "p9_b105",
+    "page_idx": 9,
+    "order": 105,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5 Implications: TCA as a Foundational Framework for Bounded Agent Reasoning",
+    "zh_text": "# 5 启示：TCA 作为有界智能体推理的基础性框架"
+  },
+  {
+    "block_id": "p9_b106",
+    "page_idx": 9,
+    "order": 106,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The Triadic Cognitive Architecture (TCA) provides a blueprint for transitioning from disembodied pattern matchers to grounded, autonomous agents. By formalizing cognitive friction, TCA introduces a mathematically rigorous safety mechanism against the runaway resource consumption inherent in unconstrained LLM reasoning loops.",
+    "zh_text": "三元认知架构（Triadic Cognitive Architecture, TCA）为从脱离具身的模式匹配器向具身化、自主化智能体的演进提供了蓝图。通过形式化“认知摩擦”（cognitive friction），TCA 引入了一种数学上严格的安全机制，以防范大语言模型（LLM）在无约束推理循环中固有的资源失控消耗问题。"
+  },
+  {
+    "block_id": "p9_b107",
+    "page_idx": 9,
+    "order": 107,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.1 Coupling Space, Time, and Epistemic Truth",
+    "zh_text": "# 5.1 空间、时间与认识论真值的耦合"
+  },
+  {
+    "block_id": "p9_b108",
+    "page_idx": 9,
+    "order": 108,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Within the TCA framework, an agent’s reasoning is strictly bounded by three interacting modules (see Figure 3):",
+    "zh_text": "在 TCA 框架下，智能体的推理过程被严格限定于三个相互作用的模块之内（参见图3）："
+  },
+  {
+    "block_id": "p9_b109",
+    "page_idx": 9,
+    "order": 109,
+    "type": "list",
+    "translatable": true,
+    "source_text": "• Space (Topological Grounding): The environment is not treated as a flat list of callable APIs, but as a Riemannian manifold. The metric tensor $g _ { \\mu \\nu }$dynamically updates based on latency and network congestion, forcing the agent to route queries along structural geodesics. This prevents API spamming and protects fragile sub-agents from cascade failures.\n• Time (Temporal Consistency): Infinite context lengths do not circumvent the reality that the physical world evolves while the agent deliberates. The exponential decay factor $\\beta ( t )$ensures that the agent respects the temporal opportunity cost of computation, intrinsically preventing infinite deliberation loops.\n• Truth (Epistemic Maintenance): By defining belief revision via the Kushner-Stratonovich equation, the agent maintains a calibrated probability measure over hypotheses. It explicitly models the Fisher Information of incoming data, naturally avoiding the trap of averaging contradictory evidence and subsequently hallucinating.",
+    "zh_text": "- • 空间（拓扑具身性）：环境并非被视作一组扁平化的可调用 API 列表，而是被建模为一个黎曼流形（Riemannian manifold）。度规张量 $g_{\\mu\\nu}$ 根据网络延迟与实时拥堵状态动态更新，迫使智能体沿结构化的测地线（geodesics）路由查询请求。此举可防止 API 过载式调用，并保护脆弱的子智能体免于级联失效。  \n- • 时间（时间一致性）：无限上下文长度并不能规避一个基本事实——物理世界在智能体进行推理的过程中持续演化。指数衰减因子 $\\beta(t)$ 确保智能体尊重计算所付出的时间机会成本，从而内在地阻止无限推理循环的发生。  \n- • 真值（认识论维护）：通过将信念修正建模为 Kushner-Stratonovich 方程，智能体维持着对各类假设的校准化概率测度。它显式建模输入数据的费舍尔信息量（Fisher Information），从而自然规避对矛盾证据进行简单平均所导致的幻觉（hallucination）陷阱。"
+  },
+  {
+    "block_id": "p9_b110",
+    "page_idx": 9,
+    "order": 110,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Taken together, these three forms of friction (spatial, temporal, and epistemic) define a bounded control envelope for autonomous reasoning. Rather than optimizing accuracy in isolation, TCA determines when to act, what to query, and how long to deliberate by explicitly trading off information gain against physical and temporal cost. This triadic coupling provides a principled mechanism for preventing over-deliberation, network saturation, and epistemic overconfidence in autonomous agents.",
+    "zh_text": "综上所述，这三种摩擦形式（空间摩擦、时间摩擦与认识论摩擦）共同定义了一个自主推理的有界控制包络（bounded control envelope）。TCA 并非孤立地优化推理准确性，而是通过显式权衡信息增益与物理及时间成本，来决定何时行动、查询何类信息、以及决策应持续多久。这种三元耦合机制为防止过度推理、网络饱和以及认识论层面的过度自信，提供了原理性的解决方案。"
+  },
+  {
+    "block_id": "p9_b111",
+    "page_idx": 9,
+    "order": 111,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b111_cap",
+    "page_idx": 9,
+    "order": 111,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Figure 3: Triadic Cognitive Architecture (TCA): a coupled loop between Space (state), Time (dynamics), and Epistemic Truth (belief revision).",
+    "zh_text": "图3：三元认知架构（TCA）：空间（状态）、时间（动力学）与认识论真值（信念修正）之间的耦合闭环。"
+  },
+  {
+    "block_id": "p9_b112",
+    "page_idx": 9,
+    "order": 112,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.2 The Inference-Time Controller",
+    "zh_text": "# 5.2 推理时控制器（Inference-Time Controller）"
+  },
+  {
+    "block_id": "p9_b113",
+    "page_idx": 9,
+    "order": 113,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The core of TCA is an inference-time controller motivated by HJB optimal stopping. It continuously aggregates the spatial routing cost and temporal decay, dynamically weighing them against the expected epistemic gain. This controller acts as an autonomic nervous system for the AI: just as biological organisms intuitively halt exploration when caloric costs exceed potential rewards, the TCA agent halts API queries and triggers execution once the marginal value of additional evidence is eclipsed by spatio-temporal cost.",
+    "zh_text": "TCA 的核心是一个受 HJB 最优停机理论启发的推理时控制器。该控制器持续聚合空间路由成本与时间衰减效应，并将其动态加权后与预期的认识论增益进行比较。该控制器充当 AI 的自主神经系统：正如生物有机体在能量消耗超过潜在收益时会直觉性地中止探索，TCA 智能体亦在新增证据的边际价值被时空成本所超越时，自动中止 API 查询并触发执行动作。"
+  },
+  {
+    "block_id": "p10_b116",
+    "page_idx": 10,
+    "order": 116,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.3 Positioning Relative to Cognitive Theories",
+    "zh_text": "# 5.3 相对于既有认知理论的定位"
+  },
+  {
+    "block_id": "p10_b117",
+    "page_idx": 10,
+    "order": 117,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Extensive work has been done in prompt-driven multi-step reasoning, notably ReAct [17], Tree-of-Thoughts [18], and Reflexion [13]. However, these frameworks rely on heuristic, discrete hypothesis sets, ignore network-dependent physical costs, and lack principled mathematical criteria for optimal stopping [9, 16].",
+    "zh_text": "在提示驱动的多步推理领域已有大量研究工作，代表性方法包括 ReAct [17]、思维树（Tree-of-Thoughts）[18] 与 Reflexion [13]。然而，这些框架依赖于启发式、离散化的假设集合，忽视了网络依赖型的物理成本，且缺乏用于最优停机的原理性数学判据 [9, 16]。"
+  },
+  {
+    "block_id": "p10_b118",
+    "page_idx": 10,
+    "order": 118,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The TCA framework shares philosophical DNA with Karl Friston’s Free Energy Principle and Active Inference [6], as well as Yann LeCun’s Joint Embedding Predictive Architecture (JEPA). Both propose that intelligent agents seek to minimize surprise in a predictive world model. However, Active Inference relies on variational bounds that remain largely intractable for discrete, autoregressive language models. TCA offers a principled alternative to these conceptual models by providing a computable, closed-loop stochastic control envelope. By synthesizing non-linear filtering [8, 2] with congestion-aware routing and HJB optimal stopping [14, 10], TCA bridges theoretical cognitive neuroscience with practical ML systems engineering.",
+    "zh_text": "TCA 框架在哲学渊源上与 Karl Friston 的自由能原理（Free Energy Principle）与主动推理（Active Inference）[6]，以及 Yann LeCun 提出的联合嵌入预测架构（Joint Embedding Predictive Architecture, JEPA）存在共通之处。上述理论均主张：智能体致力于在其预测性世界模型中最小化“意外”（surprise）。然而，主动推理依赖的变分界（variational bounds）对于离散型、自回归式语言模型而言仍普遍难以处理。TCA 为此类概念模型提供了一种原理性替代方案：它构建了一个可计算、闭环式的随机控制包络。通过将非线性滤波 [8, 2]、拥塞感知路由与 HJB 最优停机理论 [14, 10] 有机融合，TCA 在理论认知神经科学与实用机器学习系统工程之间架起了一座桥梁。"
+  },
+  {
+    "block_id": "p10_b119",
+    "page_idx": 10,
+    "order": 119,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.4 Conclusion",
+    "zh_text": "# 5.4 结论"
+  },
+  {
+    "block_id": "p10_b120",
+    "page_idx": 10,
+    "order": 120,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The Triadic Cognitive Architecture offers a unifying perspective: robust autonomy requires explicit coupling of structured space, temporal dynamics, and epistemic truth maintenance. By casting deliberation as a constrained physical trajectory, TCA provides a principled framework for bounded reasoning in tool-using agents. While we evaluate a discrete rollout-based instantiation in EMDG, the underlying formulation generalizes naturally to heterogeneous environments where information acquisition incurs real spatio-temporal cost.",
+    "zh_text": "三元认知架构提供了一种统合性视角：稳健的自主性要求对结构化空间、时间动力学与认识论真值维护进行显式耦合。通过将推理过程建模为一条受约束的物理轨迹，TCA 为工具使用型智能体的有界推理提供了原理性框架。尽管本文在 EMDG 中评估的是基于离散 rollout 的实例化方案，但其底层建模形式可自然推广至异构环境——在该类环境中，信息获取本身即伴随着真实的时空成本。"
+  },
+  {
+    "block_id": "p10_b121",
+    "page_idx": 10,
+    "order": 121,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.5 Broader Impact & Significance",
+    "zh_text": "# 5.5 更广泛影响与意义"
+  },
+  {
+    "block_id": "p10_b122",
+    "page_idx": 10,
+    "order": 122,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The Triadic Cognitive Architecture (TCA) reframes safe and scalable autonomy in AI by explicitly coupling epistemic certainty, temporal dynamics, and spatial/topological constraints. In doing so, TCA addresses a critical gap in modern agentic AI: current LLM-driven reasoning systems operate in a “cognitive vacuum,” ignoring the real-world costs of information acquisition and deliberation. By formalizing Cognitive Friction and enforcing a principled stopping boundary (motivated by HJB optimal stopping and instantiated via computable rollout-based VOI in our experiments), TCA transforms computation from an unlimited abstraction into a measurable, optimizable resource. This has implications across multiple domains: in healthcare, it can help autonomous diagnostic agents make timely, reliable decisions without over-deliberation; in robotics, it supports safer task execution under physical and temporal constraints; and in AI research, it provides a replicable, closed-loop model bridging stochastic control theory with LLM-driven cognition. Beyond these immediate applications, TCA offers a foundation for next-generation proto-AGI-style systems, illustrating how intelligent systems can reason, act, and halt autonomously while reducing the risk of epistemic collapse, temporal overrun, and systemic overloading.",
+    "zh_text": "三元认知架构（Triadic Cognitive Architecture, TCA）通过显式耦合**认知确定性**（epistemic certainty）、**时间动力学**（temporal dynamics）与**空间/拓扑约束**（spatial/topological constraints），重新定义了人工智能中安全且可扩展的自主性。借此，TCA 弥合了当前具身智能体（agentic AI）领域的一项关键空白：现有基于大语言模型（LLM）的推理系统运行于一种“认知真空”之中，忽视了信息获取与审慎推理在现实世界中所产生成本。通过形式化定义“认知摩擦”（Cognitive Friction），并施加一个具有理论依据的停机边界（该边界受 Hamilton–Jacobi–Bellman（HJB）最优停机理论启发，并在我们的实验中通过可计算的、基于 rollout 的信息价值（Value of Information, VOI）加以实现），TCA 将计算从一种无限抽象转变为一种**可度量、可优化的资源**。这一转变在多个领域具有深远意义：在医疗健康领域，它可助力自主诊断智能体在避免过度审慎的前提下，及时、可靠地作出决策；在机器人学领域，它支持智能体在物理与时间双重约束下更安全地执行任务；在人工智能基础研究领域，它提供了一个可复现、闭环的建模框架，成功弥合了随机控制理论与 LLM 驱动的认知建模之间的鸿沟。除上述直接应用外，TCA 更为下一代类原初通用人工智能（proto-AGI）系统奠定了理论基础，阐明了智能系统如何在自主推理、自主行动与自主终止之间达成平衡，从而降低认知崩溃（epistemic collapse）、时间超限（temporal overrun）与系统过载（systemic overloading）的风险。"
+  },
+  {
+    "block_id": "p11_b124",
+    "page_idx": 11,
+    "order": 124,
+    "type": "title",
+    "translatable": true,
+    "source_text": "References",
+    "zh_text": "# 参考文献"
+  },
+  {
+    "block_id": "p11_b125",
+    "page_idx": 11,
+    "order": 125,
+    "type": "list",
+    "translatable": true,
+    "source_text": "[1] AutoGPT (2023).Open-source project.\n[2] Bain, A. and Crisan, D. (2009).Fundamentals of Stochastic Filtering.Springer Science & Business Media.\n[3] Di Gioia, D. (2026).Cascade-Aware Multi-Agent Routing.Unpublished manuscript / under review.\n[4] Di Gioia, D. (2026). Interval-Aware Reinforcement Learning. Unpublished manuscript / under review.\n[5] Di Gioia, D. (2026).Entropic Claim Resolution.Unpublished manuscript / under review.\n[6] Friston, K. (2010).The free-energy principle: a unified brain theory?Nature Reviews Neuroscience, 11(2), 127–138.\n[7] Graves, A. (2016). Adaptive Computation Time for Recurrent Neural Networks. arXiv preprint arXiv:1603.08983.\n[8] Kushner, H. J. (1964).On the differential equations satisfied by conditional probability densities of Markov processes. Journal of the Society for Industrial and Applied Mathematics, Series A: Control, 2(1), 106–119.\n[9] Liu, X., et al. (2023).AgentBench: Evaluating LLMs as Agents.arXiv preprint arXiv:2308.03688. (Published in ICLR 2024.)\n[10] Øksendal, B. (2003). Stochastic Differential Equations: An Introduction with Applications. Springer.\n[11] Russell, S. J. and Wefald, E. (1991). Do the Right Thing: Studies in Limited Rationality. MIT Press.\n[12] Shannon, C. E. (1948).A Mathematical Theory of Communication.Bell System Technical Journal.\n[13] Shinn, N., et al. (2023).Reflexion: Language agents with verbal reinforcement learning.NeurIPS.\n[14] Peskir, G. and Shiryaev, A. N. (2006). Optimal Stopping and Free-Boundary Problems. Lectures in Mathematics ETH Zürich.DOI: 10.1007/978-3-7643-7390-0.\n[15] Simon, H. A. (1955).A behavioral model of rational choice.The Quarterly Journal of Economics, 69(1), 99–118.\n[16] Xi, Z., et al. (2023). The Rise and Potential of Large Language Model Based Agents: A Survey. arXiv preprint arXiv:2309.07864.\n[17] Yao, S., et al. (2023).ReAct: Synergizing Reasoning and Acting in Language Models.ICLR.\n[18] Yao, S., et al. (2023).Tree of Thoughts: Deliberate Problem Solving with Large Language Models. NeurIPS.",
+    "zh_text": "- [1] AutoGPT（2023）。开源项目。  \n- [2] Bain, A. 和 Crisan, D.（2009）。《随机滤波基础》（Fundamentals of Stochastic Filtering）。Springer Science & Business Media。  \n- [3] Di Gioia, D.（2026）。《级联感知的多智能体路由》（Cascade-Aware Multi-Agent Routing）。未发表手稿 / 审稿中。  \n- [4] Di Gioia, D.（2026）。《区间感知的强化学习》（Interval-Aware Reinforcement Learning）。未发表手稿 / 审稿中。  \n- [5] Di Gioia, D.（2026）。《熵驱动的主张裁决》（Entropic Claim Resolution）。未发表手稿 / 审稿中。  \n- [6] Friston, K.（2010）。《自由能原理：一种统一的大脑理论？》（The free-energy principle: a unified brain theory?）。《自然·神经科学综述》（Nature Reviews Neuroscience），11(2)，127–138。  \n- [7] Graves, A.（2016）。《循环神经网络的自适应计算时间》（Adaptive Computation Time for Recurrent Neural Networks）。arXiv 预印本 arXiv:1603.08983。  \n- [8] Kushner, H. J.（1964）。《马尔可夫过程条件概率密度所满足的微分方程》（On the differential equations satisfied by conditional probability densities of Markov processes）。《工业与应用数学学会期刊·A辑：控制》（Journal of the Society for Industrial and Applied Mathematics, Series A: Control），2(1)，106–119。  \n- [9] Liu, X. 等（2023）。《AgentBench：将大语言模型作为智能体进行评估》（AgentBench: Evaluating LLMs as Agents）。arXiv 预印本 arXiv:2308.03688。（已录用至 ICLR 2024。）  \n- [10] Øksendal, B.（2003）。《随机微分方程：带应用的导论》（Stochastic Differential Equations: An Introduction with Applications）。Springer。  \n- [11] Russell, S. J. 与 Wefald, E.（1991）。《做正确的事：有限理性研究》（Do the Right Thing: Studies in Limited Rationality）。MIT Press。  \n- [12] Shannon, C. E.（1948）。《通信的数学理论》（A Mathematical Theory of Communication）。《贝尔系统技术期刊》（Bell System Technical Journal）。  \n- [13] Shinn, N. 等（2023）。《反思机制：采用言语式强化学习的语言智能体》（Reflexion: Language agents with verbal reinforcement learning）。NeurIPS。  \n- [14] Peskir, G. 与 Shiryaev, A. N.（2006）。《最优停时与自由边界问题》（Optimal Stopping and Free-Boundary Problems）。《苏黎世联邦理工学院数学讲义》（Lectures in Mathematics ETH Zürich）。DOI: 10.1007/978-3-7643-7390-0。  \n- [15] Simon, H. A.（1955）。《理性选择的行为模型》（A behavioral model of rational choice）。《经济学季刊》（The Quarterly Journal of Economics），69(1)，99–118。  \n- [16] Xi, Z. 等（2023）。《基于大语言模型的智能体的兴起与潜力：一项综述》（The Rise and Potential of Large Language Model Based Agents: A Survey）。arXiv 预印本 arXiv:2309.07864。  \n- [17] Yao, S. 等（2023）。《ReAct：语言模型中推理与行动的协同》（ReAct: Synergizing Reasoning and Acting in Language Models）。ICLR。  \n- [18] Yao, S. 等（2023）。《思维之树：利用大语言模型进行审慎的问题求解》（Tree of Thoughts: Deliberate Problem Solving with Large Language Models）。NeurIPS。"
+  },
+  {
+    "block_id": "p12_b127",
+    "page_idx": 12,
+    "order": 127,
+    "type": "title",
+    "translatable": true,
+    "source_text": "A Proof sketch for Theorem 1 (idealized continuous-time model)",
+    "zh_text": "# 定理 1（理想化连续时间模型）的证明概要"
+  },
+  {
+    "block_id": "p12_b128",
+    "page_idx": 12,
+    "order": 128,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This appendix provides a proof sketch for the idealized continuous-time formulation in Section 3 (Kushner–Stratonovich filtering and HJB-motivated optimal stopping). It does not apply directly to the discrete EMDG controller, which uses rollout-based VOI estimation and a myopic net-utility stopping rule (Section 3.4).",
+    "zh_text": "本附录为第 3 节中提出的理想化连续时间模型（基于 Kushner–Stratonovich 滤波与受 HJB 理论启发的最优停机）提供一个证明概要。该概要**不直接适用于**离散型 EMDG 控制器——后者采用基于 rollout 的 VOI 估计方法，并遵循一种短视的净效用停机准则（见第 3.4 节）。"
+  },
+  {
+    "block_id": "p12_b129",
+    "page_idx": 12,
+    "order": 129,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We restate the core claim for the idealized model: under standard regularity conditions, the triadic cognitive control problem admits an optimal stopping time characterized by an HJB free boundary.",
+    "zh_text": "我们重申理想化模型的核心结论：在标准正则性条件下，三元认知控制问题存在一个由 HJB 自由边界所刻画的最优停时。"
+  },
+  {
+    "block_id": "p12_b130",
+    "page_idx": 12,
+    "order": 130,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Step 1: Regularity of the filtering dynamics and Markov state. Let the observation process be governed by",
+    "zh_text": "步骤 1：滤波动力学与马尔可夫状态的正则性。设观测过程由下式支配："
+  },
+  {
+    "block_id": "p12_b132",
+    "page_idx": 12,
+    "order": 132,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Assume $h ( \\theta , \\cdot )$and $\\sigma ( \\cdot )$satisfy uniform Lipschitz continuity and linear growth bounds. Assume uniform non-degeneracy: there exists $\\epsilon > 0$such that",
+    "zh_text": "假设函数 $h ( \\theta , \\cdot )$ 与 $\\sigma ( \\cdot )$ 满足一致 Lipschitz 连续性及线性增长界；并假设一致非退化性：存在 $\\epsilon > 0$，使得"
+  },
+  {
+    "block_id": "p12_b134",
+    "page_idx": 12,
+    "order": 134,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Under these assumptions, the innovation process $d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t$is a Brownian motion with respect to the observation filtration $\\mathcal { F } _ { t } ^ { Y }$, and the associated nonlinear filter (Kushner–Stratonovich; schematic form) is well-posed; see, e.g., [8, 2]. In particular, the controlled state $( p _ { t } , \\gamma _ { t } )$is Markov with respect to $\\mathcal { F } _ { t } ^ { Y }$.",
+    "zh_text": "在上述假设下，创新过程 $d \\nu _ { t } = d Y _ { t } - h ( \\gamma _ { t } ) d t$ 关于观测滤波 $\\mathcal { F } _ { t } ^ { Y }$ 是一个布朗运动，且相应的非线性滤波器（即 Kushner–Stratonovich 滤波器；示意形式）是适定的；参见例如文献 [8, 2]。特别地，受控状态 $( p _ { t } , \\gamma _ { t } )$ 关于 $\\mathcal { F } _ { t } ^ { Y }$ 构成一个马尔可夫过程。"
+  },
+  {
+    "block_id": "p12_b135",
+    "page_idx": 12,
+    "order": 135,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Define $\\begin{array} { r } { h ( \\gamma _ { t } ) = \\int _ { \\Theta } h ( \\theta , \\gamma _ { t } ) p _ { t } ( \\theta ) d \\theta } \\end{array}$and the innovation",
+    "zh_text": "定义 $\\begin{array} { r } { h ( \\gamma _ { t } ) = \\int _ { \\Theta } h ( \\theta , \\gamma _ { t } ) p _ { t } ( \\theta ) d \\theta } \\end{array}$ 及创新项"
+  },
+  {
+    "block_id": "p12_b137",
+    "page_idx": 12,
+    "order": 137,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "A schematic form of the Kushner–Stratonovich update is",
+    "zh_text": "Kushner–Stratonovich 更新的示意形式为"
+  },
+  {
+    "block_id": "p12_b139",
+    "page_idx": 12,
+    "order": 139,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Step 2: Value function and dynamic programming. The agent seeks to maximize expected epistemic gain minus cognitive friction. For a stopping time $\\tau \\geq t$, write where $f ( p , \\gamma , t )$denotes the instantaneous net reward (information surrogate minus routing cost and temporal penalty), consistent with Section 3. Let denote the value function. Assuming sufficient regularity of $V$(or working in the viscosity-solution framework), standard dynamic programming arguments for controlled Markov processes yield a variational inequality characterization [14, 10].",
+    "zh_text": "步骤 2：值函数与动态规划。智能体旨在最大化期望认知增益减去认知摩擦。对任意停时 $\\tau \\geq t$，记其中 $f ( p , \\gamma , t )$ 表示瞬时净奖励（即信息代理项减去路由成本与时间惩罚），与第 3 节一致。令表示值函数。若 $V$ 具备足够正则性（或在粘性解框架下开展分析），则针对受控马尔可夫过程的标准动态规划论证可导出一个变分不等式刻画 [14, 10]。"
+  },
+  {
+    "block_id": "p12_b144",
+    "page_idx": 12,
+    "order": 144,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Step 3: HJB variational inequality and the free boundary. By optimal stopping theory, the value function satisfies a variational inequality of the form in an appropriate classical or viscosity sense [14, 10], where $\\mathcal { L } ^ { u }$is the controlled infinitesimal generator for the Markov state $( p _ { t } , \\gamma _ { t } )$as in Section 3. Because $f$is continuous and bounded under the assumed cost structure, $V$is continuous under standard assumptions. Define the stopping region as the closed set and the continuation region as the open set",
+    "zh_text": "步骤 3：Hamilton–Jacobi–Bellman（HJB）变分不等式与自由边界。根据最优停时理论，值函数在适当的经典意义或粘性解意义下满足如下形式的变分不等式 [14, 10]，其中 $\\mathcal { L } ^ { u }$ 是第 3 节中定义的马尔可夫状态 $( p _ { t } , \\gamma _ { t } )$ 的受控无穷小生成元。在所假设的成本结构下，$f$ 连续且有界，因此在标准假设下，$V$ 是连续的。将停时区域定义为闭集，而将继续区域定义为开集："
+  },
+  {
+    "block_id": "p13_b152",
+    "page_idx": 13,
+    "order": 152,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Then the first hitting time of the stopping region, is an optimal stopping time; moreover, it is the smallest (minimal) optimal stopping time in the usual sense for such problems [14]. This completes the proof sketch.",
+    "zh_text": "于是，首次击中停时区域的时刻即为一个最优停时；此外，它在此类问题的通常意义上是最小（极小）的最优停时 [14]。至此，证明概要完成。"
+  }
+]

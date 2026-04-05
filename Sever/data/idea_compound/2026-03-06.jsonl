@@ -1,0 +1,1 @@
+{"status": "done", "date": "2026-03-06", "user_id": 1, "new_exemplars": 50, "stats": {"atom_count": 3006, "question_count": 19, "candidate_count": 90, "published_count": 85, "exemplar_count": 99, "atom_type_distribution": {"claim": 473, "limitation": 631, "method": 588, "setup": 408, "tag": 906}}}
