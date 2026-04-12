@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="fg" x1="256" y1="273" x2="256" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#fd267a"/>
+      <stop offset="100%" stop-color="#ff6036"/>
+    </linearGradient>
+    <linearGradient id="ig" x1="256" y1="268" x2="256" y2="133" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#ff8c00" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#ffe066" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="90" fill="#111111"/>
+
+  <path d="M148,260 L320,260 L364,304 L364,426 L148,426 Z"
+        fill="rgba(255,255,255,0.09)"
+        stroke="rgba(255,255,255,0.20)" stroke-width="2.5"/>
+  <path d="M320,260 L364,260 L364,304 Z"
+        fill="rgba(255,255,255,0.04)"
+        stroke="rgba(255,255,255,0.12)" stroke-width="1.5"/>
+  <rect x="172" y="320" width="114" height="8" rx="4" fill="rgba(255,255,255,0.18)"/>
+  <rect x="172" y="343" width="152" height="8" rx="4" fill="rgba(255,255,255,0.13)"/>
+  <rect x="172" y="366" width="134" height="8" rx="4" fill="rgba(255,255,255,0.13)"/>
+  <rect x="172" y="389" width="94"  height="8" rx="4" fill="rgba(255,255,255,0.10)"/>
+
+  <path d="M170,273
+           C150,243 145,206 158,170
+           C166,146 182,133 192,146
+           C200,156 197,174 206,168
+           C214,161 212,140 221,123
+           C230,105 246,96  256,88
+           C266,96  282,105 291,123
+           C300,140 298,161 306,168
+           C315,174 312,156 320,146
+           C330,133 346,146 354,170
+           C367,206 362,243 342,273 Z"
+        fill="url(#fg)" filter="url(#glow)" opacity="0.38"/>
+
+  <path d="M170,273
+           C150,243 145,206 158,170
+           C166,146 182,133 192,146
+           C200,156 197,174 206,168
+           C214,161 212,140 221,123
+           C230,105 246,96  256,88
+           C266,96  282,105 291,123
+           C300,140 298,161 306,168
+           C315,174 312,156 320,146
+           C330,133 346,146 354,170
+           C367,206 362,243 342,273 Z"
+        fill="url(#fg)"/>
+
+  <path d="M210,268
+           C198,244 195,214 206,188
+           C213,170 227,162 233,174
+           C237,183 234,197 241,193
+           C248,188 245,170 253,154
+           C256,145 256,136 256,133
+           C256,136 256,145 259,154
+           C267,170 264,188 271,193
+           C278,197 275,183 279,174
+           C285,162 299,170 306,188
+           C317,214 314,244 302,268 Z"
+        fill="url(#ig)" opacity="0.65"/>
+</svg>

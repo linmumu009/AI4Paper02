@@ -7,29 +7,40 @@ import ActionButtons from '../components/ActionButtons.vue'
 import ContentLayout from '../components/ContentLayout.vue'
 import type { ContentLayoutContext } from '../components/ContentLayout.vue'
 import PdfPanel from '../components/panels/PdfPanel.vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import SidebarPageLayout from '../components/SidebarPageLayout.vue'
+import UpgradePrompt from '../components/UpgradePrompt.vue'
 import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } from '../composables/usePanelLayout'
 import { fetchDates, addKbPaper, deleteNote, fetchIdeaDigest, createIdeaFeedback, addNoteLink, fetchIdeaAtom, fetchPaperDetail, generateCandidatesForPaper, API_ORIGIN } from '../api'
 import type { IdeaCandidate, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useKbSidebarState } from '../composables/useKbSidebarState'
+import { useEngagement } from '../composables/useEngagement'
+import { useEntitlements } from '../composables/useEntitlements'
+import { trackKbAction } from '../composables/useAnalytics'
 
 const router = useRouter()
 const route = useRoute()
 const globalChat = useGlobalChat()
+const engagement = useEngagement()
+const ent = useEntitlements()
+const ideaGenQuotaBlocked = computed(() => !ent.canUse('idea_gen'))
 
 // Dates
 const dates = ref<string[]>([])
 const selectedDate = ref('')
 
 // Knowledge base + sidebar shared state
-const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile } = useKbSidebarState('inspiration')
+const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState('inspiration')
 
 // Sidebar ref
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // ---- 侧栏 Tab 状态 ----
-const sidebarActiveTab = ref<'papers' | 'compare' | 'mypapers' | 'paper-inspiration'>('papers')
+const sidebarActiveTab = ref<'papers' | 'compare' | 'mypapers' | 'paper-inspiration' | 'research'>('papers')
 
 // ---- 论文灵感：生成候选卡片 ----
 const paperInspirationPaperId = ref<string | null>(null)
@@ -54,6 +65,7 @@ async function handlePaperInspiration(paperId: string, title: string, force = fa
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
 
   paperInspirationPaperId.value = paperId
   paperInspirationTitle.value = title
@@ -61,6 +73,13 @@ async function handlePaperInspiration(paperId: string, title: string, force = fa
   paperCandidateIndex.value = 0
   paperCandidateAnimClass.value = 'card-enter'
   paperInspirationError.value = ''
+
+  // Guard: block generation (quota is consumed on each call) when exhausted
+  if (ideaGenQuotaBlocked.value && ent.loaded.value) {
+    paperInspirationError.value = '本月灵感生成次数已用完，请升级套餐继续使用。'
+    return
+  }
+
   paperInspirationLoading.value = true
 
   collapseSidebarOnMobile()
@@ -69,6 +88,8 @@ async function handlePaperInspiration(paperId: string, title: string, force = fa
     // 后端负责检查 DB 中是否已有候选：force=false 时直接返回已有记录，无需重新生成
     const res = await generateCandidatesForPaper(paperId, force)
     paperCandidates.value = res.candidates
+    // Refresh quota after generation (quota is consumed on new generation)
+    void ent.refreshEntitlements(true)
   } catch (e: any) {
     paperInspirationError.value = e?.response?.data?.detail || e?.message || '灵感生成失败'
   } finally {
@@ -96,6 +117,7 @@ function paperCandidateLike() {
   if (!c) return
   paperCandidateNext('right')
   createIdeaFeedback({ candidate_id: c.id, action: 'collect' }).catch(() => {})
+  void engagement.record('collect', 'inspiration-paper-candidate-like', String(c.id))
 }
 
 function paperCandidateOpenDetail() {
@@ -137,8 +159,59 @@ onMounted(async () => {
   if (isAuthenticated.value) {
     await loadKbTree()
     await loadCompareTree()
+    await engagement.loadStatus(true)
   }
 })
+
+// Watch sidebar tab changes to show/hide empty research panel
+watch(sidebarActiveTab, (tab) => {
+  if (tab === 'research') {
+    // 点击深度研究 Tab（含重复点击）时始终重置到空态首页
+    researchPaperIds.value = []
+    researchPaperTitles.value = {}
+    inspireResearchInitialSessionId.value = null
+  } else {
+    // 若在空态研究面板，切换到其他 tab 时收起
+    if (researchPaperIds.value !== null && researchPaperIds.value.length === 0) {
+      researchPaperIds.value = null
+    }
+  }
+})
+
+// Collapse KB sidebar when chat drawer opens on narrow viewports (< 1280px)
+watch(
+  () => globalChat.collapseSidebarSignal.value,
+  () => { showSidebar.value = false },
+)
+
+// Watch global chat research/compare signals from PaperChat shortcuts
+watch(
+  () => globalChat.researchRequest.value,
+  (req) => {
+    if (!req) return
+    handleResearch(req.paperIds, req.titles, req.scope)
+    globalChat.consumeResearchRequest()
+  },
+)
+
+watch(
+  () => globalChat.compareRequest.value,
+  (req) => {
+    if (!req) return
+    handleCompare(req.paperIds)
+    globalChat.consumeCompareRequest()
+  },
+)
+
+// Record analyze when user sends a message in the global chat drawer
+watch(
+  () => globalChat.messageSentSignal.value,
+  (n, old) => {
+    if (n > 0 && n !== old && isAuthenticated.value) {
+      void engagement.record('analyze', 'inspiration-chat', '')
+    }
+  },
+)
 
 watch(
   () => isAuthenticated.value,
@@ -146,6 +219,7 @@ watch(
     if (authed) {
       await loadKbTree()
       await loadCompareTree()
+      await engagement.loadStatus(true)
       if (selectedDate.value) {
         await loadIdeaDigest(selectedDate.value)
       }
@@ -157,9 +231,17 @@ watch(
       ideaTotalAvailable.value = 0
       ideaQuotaLimit.value = null
       ideaResponseTier.value = 'free'
+      engagement.status.value = null
+      engagement.loaded.value = false
     }
   },
 )
+
+// 全局 AI 问答存入笔记时刷新知识库侧栏
+watch(globalChat.noteSavedSignal, async () => {
+  await loadKbTree()
+  sidebarRef.value?.refreshAllExpandedNotes()
+})
 
 // ==================== 灵感推荐（日期驱动，类 DailyDigest）====================
 const ideaCandidates = ref<IdeaCandidate[]>([])
@@ -272,7 +354,8 @@ function ideaLike() {
     '🔎分析总结': [] as string[],
     '💡个人观点': candidate.risks || '',
   }
-  addKbPaper(`idea_${candidate.id}`, paperData as any, activeFolderId.value, 'inspiration')
+  trackKbAction('save', `idea_${candidate.id}`)
+  addKbPaper(`idea_${candidate.id}`, paperData as any, null, 'inspiration')
     .then(async () => {
       await loadKbTree()
       // 3. 将关联的来源论文作为链接子项添加到此灵感条目下（后台静默）
@@ -292,6 +375,7 @@ function ideaLike() {
       }
     })
     .catch(() => {})
+  void engagement.record('collect', 'inspiration-idea-like', String(candidate.id))
 }
 
 function ideaUndo() {
@@ -353,6 +437,25 @@ const comparingPaperIds = ref<string[] | null>(null)
 
 // 查看已保存对比结果
 const viewingCompareResultId = ref<number | null>(null)
+
+// 深度研究
+const researchPaperIds = ref<string[] | null>(null)
+const researchPaperTitles = ref<Record<string, string>>({})
+const researchScope = ref<string>('kb')
+
+/** 任意详情面板打开时为 true，供右下角浮动按钮感知 */
+const isInPanelView = computed(() =>
+  editingNote.value !== null ||
+  !!comparingPaperIds.value ||
+  viewingCompareResultId.value !== null ||
+  !!viewingPdf.value ||
+  !!viewingMd.value ||
+  !!sidebarPaperId.value ||
+  !!researchPaperIds.value,
+)
+
+// 将面板视图状态同步到全局，供右下角浮动按钮感知
+watch(isInPanelView, (v) => { globalChat.setPageInPanelView(v) }, { immediate: true })
 
 const pdfViewerSrc = computed(() => {
   if (!viewingPdf.value) return ''
@@ -638,15 +741,43 @@ const inspireCompareResultContext = computed<ContentLayoutContext>(() => ({
   comparePaperTitles: comparePaperTitles.value,
 }))
 
+const inspireResearchLayoutKey = computed(() =>
+  researchPaperIds.value?.length
+    ? `inspire-research-${researchPaperIds.value.join(',')}`
+    : 'inspire-research',
+)
+
+const inspireResearchPanels = computed<PanelConfigItem[]>(() => [
+  { id: PANEL_IDS.RESEARCH, label: '深度研究', icon: '🔍', available: true },
+])
+
+const inspireResearchDefaultLayout = computed<LayoutState>(() => ({
+  mode: 'single',
+  leftPanel: PANEL_IDS.RESEARCH,
+  rightPanel: PANEL_IDS.RESEARCH,
+  splitRatio: 60,
+}))
+
+const inspireResearchInitialSessionId = ref<number | null>(null)
+
+const inspireResearchContext = computed<ContentLayoutContext>(() => ({
+  researchPaperIds: researchPaperIds.value || [],
+  researchPaperTitles: researchPaperTitles.value,
+  researchScope: researchScope.value,
+  researchInitialSessionId: inspireResearchInitialSessionId.value,
+}))
+
 function handleCompare(paperIds: string[]) {
   editingNote.value = null
   sidebarPaperId.value = null
   viewingPdf.value = null
   viewingMd.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   paperInspirationPaperId.value = null
   comparingPaperIds.value = paperIds
   collapseSidebarOnMobile()
+  void engagement.record('analyze', 'inspiration-compare', paperIds[0] || '')
 }
 
 function closeCompare() {
@@ -663,13 +794,68 @@ function openCompareResult(resultId: number) {
   viewingPdf.value = null
   viewingMd.value = null
   comparingPaperIds.value = null
+  researchPaperIds.value = null
   paperInspirationPaperId.value = null
   viewingCompareResultId.value = resultId
   collapseSidebarOnMobile()
+  void engagement.record('analyze', 'inspiration-compare-result', String(resultId))
 }
 
 function closeCompareResult() {
   viewingCompareResultId.value = null
+}
+
+function handleResearch(paperIds: string[], paperTitles: Record<string, string>, scope?: string) {
+  editingNote.value = null
+  sidebarPaperId.value = null
+  viewingPdf.value = null
+  viewingMd.value = null
+  comparingPaperIds.value = null
+  viewingCompareResultId.value = null
+  paperInspirationPaperId.value = null
+  inspireResearchInitialSessionId.value = null
+  researchPaperIds.value = paperIds
+  researchPaperTitles.value = paperTitles
+  researchScope.value = scope ?? 'kb'
+  collapseSidebarOnMobile()
+  void engagement.record('analyze', 'inspiration-research', paperIds[0] || '')
+}
+
+async function handleOpenResearchSession(sessionId: number) {
+  const { fetchResearchSession: fetchSession } = await import('../api')
+  try {
+    const session = await fetchSession(sessionId)
+    editingNote.value = null
+    sidebarPaperId.value = null
+    viewingPdf.value = null
+    viewingMd.value = null
+    comparingPaperIds.value = null
+    viewingCompareResultId.value = null
+    paperInspirationPaperId.value = null
+    researchPaperIds.value = session.paper_ids
+    researchPaperTitles.value = {}
+    researchScope.value = 'kb'
+    inspireResearchInitialSessionId.value = sessionId
+    collapseSidebarOnMobile()
+    void engagement.record('analyze', 'inspiration-research-session', String(sessionId))
+  } catch {
+    // silently ignore
+  }
+}
+
+function closeResearch() {
+  researchPaperIds.value = null
+  sidebarRef.value?.switchToPapersTab()
+}
+
+function removeResearchPaper(paperId: string) {
+  if (!researchPaperIds.value) return
+  const next = researchPaperIds.value.filter((id) => id !== paperId)
+  // Keep the panel open with empty state so the user can pick different papers
+  researchPaperIds.value = next
+  const titles = { ...researchPaperTitles.value }
+  delete titles[paperId]
+  researchPaperTitles.value = titles
 }
 
 async function openPaperFromSidebar(paperId: string) {
@@ -677,6 +863,7 @@ async function openPaperFromSidebar(paperId: string) {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   paperInspirationPaperId.value = null
   if (editingNote.value && getInspirationNoteEditor()) {
     const isEmpty = getInspirationNoteEditor().isEffectivelyEmpty()
@@ -704,6 +891,7 @@ async function openPaperFromSidebar(paperId: string) {
   sidebarPaperId.value = paperId
   viewingIdeaId.value = null
   collapseSidebarOnMobile()
+  void engagement.record('view', 'inspiration-open-paper', paperId)
 
   void (async () => {
     try {
@@ -730,6 +918,7 @@ async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   paperInspirationPaperId.value = null
   if (editingNote.value && getInspirationNoteEditor()) {
     const isEmpty = getInspirationNoteEditor().isEffectivelyEmpty()
@@ -752,10 +941,12 @@ function openPdfFromSidebar(payload: { paperId: string; filePath: string; title:
   sidebarPaperId.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   viewingMd.value = null
   paperInspirationPaperId.value = null
   viewingPdf.value = payload
   collapseSidebarOnMobile()
+  void engagement.record('view', 'inspiration-open-pdf', payload.paperId)
 }
 
 function openUserPaperViewMd(payload: UserPaperViewMdPayload) {
@@ -770,6 +961,7 @@ function openUserPaperViewMd(payload: UserPaperViewMdPayload) {
   viewingIdeaId.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   paperInspirationPaperId.value = null
   viewingPdf.value = null
   viewingMd.value = payload
@@ -805,7 +997,32 @@ async function handleBackToInspiration() {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   globalChat.clearBrowsingContext()
+}
+
+async function handleIdeaOpenPaper(pid: string) {
+  sidebarPaperId.value = pid
+  viewingIdeaId.value = null
+  paperInspirationPaperId.value = null
+  void (async () => {
+    try {
+      const d = await fetchPaperDetail(pid)
+      if (d?.summary) {
+        globalChat.setBrowsingContext({
+          paperId: pid,
+          title: d.summary.short_title || d.summary['📖标题'] || pid,
+          summary: d.summary,
+          source: 'kb-paper',
+        })
+      } else {
+        globalChat.setBrowsingContext({ paperId: pid, title: pid, source: 'kb-paper' })
+      }
+    } catch {
+      globalChat.setBrowsingContext({ paperId: pid, title: pid, source: 'kb-paper' })
+    }
+    globalChat.applyBrowsingToPaperContext()
+  })()
 }
 
 async function closeNoteEditor() {
@@ -843,16 +1060,10 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 </script>
 
 <template>
-  <div class="h-full flex relative">
+  <SidebarPageLayout v-model:show-sidebar="showSidebar">
 
-    <!-- Sidebar overlay backdrop (mobile only, when sidebar is open) -->
-    <Transition name="fade">
-      <div
-        v-if="showSidebar"
-        class="fixed inset-0 z-20 bg-black/60 lg:hidden"
-        @click="showSidebar = false"
-      />
-    </Transition>
+    <!-- ===== Sidebar slot ===== -->
+    <template #sidebar>
 
     <!-- ===== Authenticated sidebar ===== -->
     <template v-if="isAuthenticated">
@@ -881,6 +1092,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @open-note="openNoteFromSidebar"
             @open-pdf="openPdfFromSidebar"
             @compare="handleCompare"
+            @research="handleResearch"
             @refresh="loadKbTree"
             @open-compare-result="openCompareResult"
             @refresh-compare="loadCompareTree"
@@ -889,6 +1101,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @paper-inspiration="handlePaperInspiration"
             @paper-inspiration-detail="handlePaperInspirationDetail"
             @tab-changed="(tab: string) => sidebarActiveTab = tab as any"
+            @open-research-session="handleOpenResearchSession"
+            @update-read-status="markPaperReadStatus"
             :active-user-paper-id="inspirationActiveUserPaperId"
             :active-view-md-key="inspirationActiveViewMdKey"
           />
@@ -902,7 +1116,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <aside
           v-show="showSidebar"
           :class="[
-            'z-30 w-[80vw] max-w-[320px] lg:w-72 h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300 ease-in-out relative',
+            'z-30 w-[80vw] max-w-[340px] lg:w-[var(--sidebar-w)] h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300 ease-in-out relative',
             'fixed lg:relative inset-y-0 left-0',
             showSidebar ? 'translate-x-0' : '-translate-x-full lg:-translate-x-full'
           ]"
@@ -950,22 +1164,11 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       </Transition>
     </template>
 
-    <!-- Universal "open sidebar" button -->
-    <Transition name="fade">
-      <button
-        v-if="!showSidebar"
-        class="fixed top-[100px] left-0 z-10 flex items-center justify-center w-11 h-11 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
-        title="展开知识库"
-        @click="showSidebar = true"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/>
-        </svg>
-      </button>
-    </Transition>
+    </template>
+    <!-- End sidebar slot -->
 
     <!-- ==================== 主内容区 ==================== -->
-    <div class="flex-1 flex flex-col relative overflow-hidden min-w-0">
+
 
       <ContentLayout
         v-if="editingNote !== null"
@@ -989,7 +1192,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         :default-layout="inspireIdeaDefaultLayout"
         :context="inspireIdeaContext"
         @close-idea="viewingIdeaId = null"
-        @idea-open-paper="(pid: string) => { sidebarPaperId = pid; viewingIdeaId = null; paperInspirationPaperId = null }"
+        @idea-open-paper="handleIdeaOpenPaper"
       />
 
       <!-- ==================== 论文灵感候选卡片视图 ==================== -->
@@ -1017,24 +1220,14 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <div class="flex-1 flex flex-col items-center justify-center relative min-h-0">
 
           <!-- 加载中 -->
-          <div v-if="paperInspirationLoading" class="flex flex-col items-center gap-3">
-            <svg class="animate-spin h-8 w-8 text-[#fd267a]" viewBox="0 0 24 24" fill="none">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-            </svg>
-            <span class="text-text-muted text-sm">正在生成灵感候选...</span>
-          </div>
+          <LoadingSpinner v-if="paperInspirationLoading" text="正在生成灵感候选..." />
 
           <!-- 出错 -->
-          <div v-else-if="paperInspirationError" class="flex flex-col items-center gap-3 text-center px-8">
-            <span class="text-[#fd267a] text-base">{{ paperInspirationError }}</span>
-            <button
-              class="px-4 py-2 rounded-full bg-brand-gradient text-white text-sm font-medium cursor-pointer border-none hover:opacity-90 transition-opacity"
-              @click="handlePaperInspiration(paperInspirationPaperId!, paperInspirationTitle, true)"
-            >
-              重试
-            </button>
-          </div>
+          <ErrorState
+            v-else-if="paperInspirationError"
+            :message="paperInspirationError"
+            @retry="handlePaperInspiration(paperInspirationPaperId!, paperInspirationTitle, true)"
+          />
 
           <!-- 全部浏览完 -->
           <div v-else-if="paperAllSwiped" class="flex flex-col items-center gap-4 text-center px-8">
@@ -1071,7 +1264,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             </div>
 
             <!-- 卡片 -->
-            <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(480px, calc(100dvh - 210px), 620px)">
+            <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
               <IdeaCard
                 :key="currentPaperCandidate.id"
                 :candidate="currentPaperCandidate"
@@ -1108,6 +1301,17 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </div>
         </div>
       </div>
+
+      <ContentLayout
+        v-else-if="researchPaperIds"
+        class="flex-1 min-h-0 mt-3"
+        :context-key="inspireResearchLayoutKey"
+        :panel-configs="inspireResearchPanels"
+        :default-layout="inspireResearchDefaultLayout"
+        :context="inspireResearchContext"
+        @close-research="closeResearch"
+        @remove-research-paper="removeResearchPaper"
+      />
 
       <ContentLayout
         v-else-if="comparingPaperIds"
@@ -1196,6 +1400,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       <!-- ==================== 灵感推荐主界面（刷卡模式）==================== -->
       <div v-else class="flex-1 flex flex-col items-center justify-center relative">
 
+
         <!-- 未登录 -->
         <div v-if="!isAuthenticated" class="flex flex-col items-center gap-4 text-center px-8">
           <div class="w-16 h-16 rounded-xl bg-bg-elevated border border-border flex items-center justify-center text-3xl">🔒</div>
@@ -1210,72 +1415,59 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         </div>
 
         <!-- 加载中 -->
-        <div v-else-if="ideaLoading" class="flex flex-col items-center gap-3">
-          <svg class="animate-spin h-8 w-8 text-[#fd267a]" viewBox="0 0 24 24" fill="none">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
-          <span class="text-text-muted text-sm">加载灵感中...</span>
-        </div>
+        <LoadingSpinner v-else-if="ideaLoading" text="加载灵感中..." />
 
         <!-- 加载出错 -->
-        <div v-else-if="ideaError" class="flex flex-col items-center gap-3 text-center px-8">
-          <span class="text-[#fd267a] text-base">{{ ideaError }}</span>
-          <p v-if="ideaErrorType === 'proxy'" class="text-sm text-text-muted max-w-xs">
-            检测到系统代理可能未启动，请关闭代理程序或确保代理正常运行后重试
-          </p>
-          <p v-else-if="ideaErrorType === 'server'" class="text-sm text-text-muted">
-            服务端出现异常，请稍后再试
-          </p>
-          <button
-            class="px-4 py-2 rounded-full bg-brand-gradient text-white text-sm font-medium cursor-pointer border-none hover:opacity-90 transition-opacity"
-            @click="ideaRefresh"
-          >
-            重试
-          </button>
-        </div>
+        <ErrorState v-else-if="ideaError" :message="ideaError" :type="ideaErrorType" @retry="ideaRefresh" />
 
         <!-- 配额超限 -->
         <div
           v-else-if="isIdeaQuotaExceeded && isIdeaActuallyLimited && ideaQuotaExceededMessage"
-          class="flex flex-col items-center justify-center gap-4 text-center px-8"
+          class="flex flex-col items-center justify-center gap-4 text-center px-8 max-w-sm"
         >
-          <div class="text-5xl mb-2">🔒</div>
-          <h2 class="text-xl font-bold text-text-primary">查看限制</h2>
-          <p class="text-base text-text-secondary max-w-md">{{ ideaQuotaExceededMessage }}</p>
-          <p class="text-sm text-text-muted mt-2">升级账号可查看更多灵感推荐</p>
+          <div class="text-5xl mb-1">🔒</div>
+          <h2 class="text-xl font-bold text-text-primary">灵感已达上限</h2>
+          <p class="text-sm text-text-secondary">{{ ideaQuotaExceededMessage }}</p>
+          <UpgradePrompt feature="idea_gen" class="w-full" />
         </div>
 
         <!-- 全部浏览完 -->
-        <div v-else-if="ideaAllSwiped" class="flex flex-col items-center gap-4 text-center px-8">
-          <div class="text-5xl mb-2">🎉</div>
-          <h2 class="text-xl font-bold text-text-primary">今日灵感已全部浏览</h2>
-          <p class="text-sm text-text-muted">共浏览 {{ ideaCandidates.length }} 条灵感</p>
-          <div class="flex items-center gap-3 mt-2">
-            <button
-              class="px-6 py-2.5 rounded-full bg-brand-gradient text-white text-sm font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity"
-              @click="ideaResetCards"
-            >
-              重新浏览
-            </button>
-            <button
-              class="px-4 py-2.5 rounded-full border border-border bg-transparent text-sm text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors"
-              @click="router.push('/idea')"
-            >
-              🧪 前往工作台
-            </button>
-          </div>
-        </div>
+        <EmptyState
+          v-else-if="ideaAllSwiped"
+          icon="🎉"
+          title="今日灵感已全部浏览"
+          :description="`共浏览 ${ideaCandidates.length} 条灵感`"
+        >
+          <button
+            class="px-6 py-2.5 rounded-full bg-brand-gradient text-white text-sm font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity"
+            @click="ideaResetCards"
+          >重新浏览</button>
+          <button
+            class="px-4 py-2.5 rounded-full border border-border bg-transparent text-sm text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors"
+            @click="router.push('/idea')"
+          >🧪 前往工作台</button>
+        </EmptyState>
 
         <!-- 灵感卡片 -->
         <template v-else-if="currentCandidate">
           <!-- 计数 -->
-          <div class="absolute top-4 left-1/2 -translate-x-1/2 text-xs text-text-muted z-20">
-            {{ ideaCurrentIndex + 1 }} / {{ ideaCandidates.length }}
+          <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
+            <span
+              class="text-xs tabular-nums px-2.5 py-0.5 rounded-full backdrop-blur-sm"
+              :class="isIdeaActuallyLimited
+                ? 'text-amber-400 bg-amber-500/15 border border-amber-500/25'
+                : 'text-text-muted bg-bg-card/70 border border-border/50'"
+            >
+              {{ ideaCurrentIndex + 1 }} / {{ ideaCandidates.length }}
+              <template v-if="isIdeaActuallyLimited && ideaTotalAvailable > ideaCandidates.length">
+                <span class="opacity-70">· 共 {{ ideaTotalAvailable }} 条</span>
+                <span class="ml-0.5 text-[10px]">🔒</span>
+              </template>
+            </span>
           </div>
 
           <!-- 卡片 -->
-          <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(480px, calc(100dvh - 210px), 620px)">
+          <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
             <IdeaCard
               :key="currentCandidate.id"
               :candidate="currentCandidate"
@@ -1316,8 +1508,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </button>
         </div>
       </div>
-    </div>
-  </div>
+  </SidebarPageLayout>
 </template>
 
 <style scoped>
@@ -1329,16 +1520,6 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 .sidebar-slide-enter-from,
 .sidebar-slide-leave-to {
   transform: translateX(-100%);
-  opacity: 0;
-}
-
-/* Fade transition for backdrop and open button */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
   opacity: 0;
 }
 </style>

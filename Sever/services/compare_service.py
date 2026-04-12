@@ -12,11 +12,11 @@ defaults defined in ``user_settings_service``.
 """
 
 import json
-import os
-import sys
 from typing import Generator, Optional
 
 from openai import OpenAI
+from services.llm_utils import approx_tokens as _approx_tokens, crop as _crop
+from services import paper_data_utils as _pdu
 
 # ---------------------------------------------------------------------------
 # Lazy service imports (avoid circular imports)
@@ -70,108 +70,34 @@ def _get_user_presets_service():
 
 
 # ---------------------------------------------------------------------------
-# file_collect directory
+# File helpers — delegated to shared paper_data_utils
 # ---------------------------------------------------------------------------
-
-_SEVER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_FILE_COLLECT_DIR = os.path.join(_SEVER_ROOT, "data", "file_collect")
-
-
-def _find_paper_dir(paper_id: str) -> Optional[str]:
-    """Search all date directories under file_collect/ for a paper_id folder.
-    Returns the absolute path to the paper directory, or None."""
-    # Security: reject paper_id with path traversal characters
-    if '..' in paper_id or '/' in paper_id or '\\' in paper_id or '\x00' in paper_id:
-        return None
-    if not os.path.isdir(_FILE_COLLECT_DIR):
-        return None
-    for date_dir in sorted(os.listdir(_FILE_COLLECT_DIR), reverse=True):
-        paper_dir = os.path.join(_FILE_COLLECT_DIR, date_dir, paper_id)
-        if os.path.isdir(paper_dir):
-            return paper_dir
-    return None
-
-
-def _read_file(path: str) -> Optional[str]:
-    """Read a text file, return None if it doesn't exist."""
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except Exception:
-        return None
-
 
 def _load_source_content(paper_id: str, data_source: str) -> Optional[str]:
-    """Load content for a paper based on the chosen data_source.
-
-    data_source values:
-      - "full_text": read {paper_id}_mineru.md from file_collect
-      - "abstract":  read pdf_info.json -> abstract field
-      - "summary":   read {paper_id}_summary.md from file_collect
-    """
-    paper_dir = _find_paper_dir(paper_id)
-    if not paper_dir:
-        return None
-
-    if data_source == "full_text":
-        path = os.path.join(paper_dir, f"{paper_id}_mineru.md")
-        return _read_file(path)
-
-    elif data_source == "abstract":
-        path = os.path.join(paper_dir, "pdf_info.json")
-        if not os.path.isfile(path):
-            return None
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                info = json.load(f)
-            return info.get("abstract") or None
-        except Exception:
-            return None
-
-    elif data_source == "summary":
-        path = os.path.join(paper_dir, f"{paper_id}_summary.md")
-        return _read_file(path)
-
-    return None
-
-
-# ---------------------------------------------------------------------------
-# Token helpers
-# ---------------------------------------------------------------------------
-
-def _approx_tokens(text: str) -> int:
-    # Use character count * 0.6 to better handle CJK text
-    # (CJK chars are ~1 token each, ASCII words ~1.3 chars/token)
-    return int(len(text) * 0.6) if text else 0
-
-
-def _crop(text: str, budget: int) -> str:
-    # budget is in tokens; convert back to char limit (inverse of 0.6 factor)
-    char_limit = int(budget / 0.6)
-    if len(text) <= char_limit:
-        return text
-    return text[:char_limit]
+    return _pdu.load_source_content(paper_id, data_source)
 
 
 # ---------------------------------------------------------------------------
 # KB data aggregation
 # ---------------------------------------------------------------------------
 
-def get_papers_for_compare(
+def get_papers_by_ids(
     user_id: int,
     paper_ids: list[str],
     scope: str = "kb",
 ) -> list[dict]:
     """
-    Fetch paper data for comparison.  For each paper_id:
+    Fetch paper data by IDs, routing to KB or user-paper storage as appropriate.
+
+    For each paper_id:
       - If paper_id starts with 'up_' (user-uploaded paper): fetch from user_paper_service
       - If scope is 'mypapers' and paper_id does not start with 'up_': also try user_paper_service
       - Otherwise: fetch from KB + data_service (standard flow)
 
     Note: Routing is primarily based on paper_id prefix so that cross-library
     carts (mixing kb and mypapers entries) work correctly regardless of scope.
+
+    Formerly named get_papers_for_compare; now shared across compare, research, etc.
     """
     kb = _get_kb_service()
     ds = _get_data_service()
@@ -312,23 +238,62 @@ def _build_user_content(
                 if abstract:
                     parts.append(f"摘要: {abstract}")
 
-                # paper_assets blocks (if available)
+                # paper_assets blocks (if available) — supports new 13-key schema
+                # and falls back gracefully to old 8-key schema.
                 assets = p.get("paper_assets")
                 if assets and isinstance(assets, dict):
                     blocks = assets.get("blocks", assets)
                     if isinstance(blocks, dict):
-                        for key in ("background", "objective", "method", "data",
-                                    "experiment", "metrics", "results", "limitations"):
+                        # Remap legacy key so old stored data still renders
+                        if "experiment" in blocks and "experiment_or_argumentation" not in blocks:
+                            blocks = dict(blocks)
+                            blocks["experiment_or_argumentation"] = blocks.pop("experiment")
+
+                        _ASSET_KEY_ORDER = (
+                            "paper_profile",
+                            "background",
+                            "objective",
+                            "method",
+                            "data",
+                            "experiment_or_argumentation",
+                            "metrics",
+                            "results",
+                            "evidence_chain",
+                            "figures_tables_appendix",
+                            "limitations",
+                            "critical_analysis",
+                            "summary",
+                        )
+                        for key in _ASSET_KEY_ORDER:
                             block = blocks.get(key)
-                            if block and isinstance(block, dict):
-                                text = block.get("text", "")
-                                bullets = block.get("bullets", [])
-                                if text or bullets:
-                                    parts.append(f"[{key}]:")
-                                    if text:
-                                        parts.append(f"  {text}")
-                                    for b in bullets:
-                                        parts.append(f"  - {b}")
+                            if not block or not isinstance(block, dict):
+                                continue
+                            # Collect all non-empty content from the block
+                            block_lines: list[str] = []
+                            text = block.get("text", "")
+                            if text:
+                                block_lines.append(f"  {text}")
+                            for b in (block.get("bullets") or []):
+                                if b:
+                                    block_lines.append(f"  - {b}")
+                            # Include extra sub-fields (skip "text" and "bullets")
+                            for sub_key, sub_val in block.items():
+                                if sub_key in ("text", "bullets"):
+                                    continue
+                                if not sub_val:
+                                    continue
+                                if isinstance(sub_val, list):
+                                    block_lines.append(f"  [{sub_key}]:")
+                                    for item in sub_val:
+                                        if item:
+                                            block_lines.append(f"    - {item}")
+                                elif isinstance(sub_val, str):
+                                    block_lines.append(f"  [{sub_key}]: {sub_val}")
+                                else:
+                                    block_lines.append(f"  [{sub_key}]: {sub_val}")
+                            if block_lines:
+                                parts.append(f"[{key}]:")
+                                parts.extend(block_lines)
 
             parts.append("")  # blank line between papers
 
@@ -435,7 +400,7 @@ def stream_compare(
         return
 
     # 1. Aggregate paper data
-    papers = get_papers_for_compare(user_id, paper_ids, scope) if paper_ids else []
+    papers = get_papers_by_ids(user_id, paper_ids, scope) if paper_ids else []
 
     # 1b. Fetch saved compare results as reference context
     saved_results: list[dict] = []

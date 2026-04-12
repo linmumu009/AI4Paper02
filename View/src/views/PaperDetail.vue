@@ -6,11 +6,15 @@ import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ContentLayout from '../components/ContentLayout.vue'
 import type { ContentLayoutContext } from '../components/ContentLayout.vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 import { fetchPaperDetail, API_ORIGIN } from '../api'
 import type { PaperDetailResponse } from '../types/paper'
 import { setPageMeta } from '../router'
 import { isAuthenticated } from '../stores/auth'
 import { PANEL_IDS, type PanelConfigItem, type LayoutState } from '../composables/usePanelLayout'
+import { useEngagement } from '../composables/useEngagement'
+import { useGlobalChat } from '../composables/useGlobalChat'
+import { trackPaperView, trackPaperViewDuration } from '../composables/useAnalytics'
 
 const emit = defineEmits<{
   noteSaved: []
@@ -18,6 +22,8 @@ const emit = defineEmits<{
 
 const route = useRoute()
 const router = useRouter()
+const engagement = useEngagement()
+const globalChat = useGlobalChat()
 
 const detail = ref<PaperDetailResponse | null>(null)
 const loading = ref(true)
@@ -141,26 +147,66 @@ async function load(paperId: string) {
   }
 }
 
-onMounted(() => {
+let _paperViewStart = 0
+let _currentTrackedPaperId = ''
+
+onMounted(async () => {
   const id = route.params.id as string
-  if (id) load(id)
+  if (id) {
+    await load(id)
+    trackPaperView(id)
+    _paperViewStart = Date.now()
+    _currentTrackedPaperId = id
+    if (isAuthenticated.value) {
+      void engagement.loadStatus()
+      void engagement.record('view', 'paper-detail-page', id)
+    }
+  }
 })
 
 watch(
   () => route.params.id,
   (id) => {
-    if (id) load(id as string)
+    if (id) {
+      // Flush duration for previous paper before loading next
+      if (_currentTrackedPaperId && _paperViewStart > 0) {
+        const dur = (Date.now() - _paperViewStart) / 1000
+        trackPaperViewDuration(_currentTrackedPaperId, dur)
+      }
+      load(id as string).then(() => {
+        trackPaperView(id as string)
+        _paperViewStart = Date.now()
+        _currentTrackedPaperId = id as string
+        if (isAuthenticated.value) {
+          void engagement.record('view', 'paper-detail-page', id as string)
+        }
+      })
+    }
+  },
+)
+
+// Record analyze when user sends a chat message from this page
+watch(
+  () => globalChat.messageSentSignal.value,
+  (n, old) => {
+    if (n > 0 && n !== old && isAuthenticated.value) {
+      void engagement.record('analyze', 'paper-detail-chat', resolvedPaperId.value)
+    }
   },
 )
 
 onUnmounted(() => {
   removePaperJsonLd()
+  if (_currentTrackedPaperId && _paperViewStart > 0) {
+    const dur = (Date.now() - _paperViewStart) / 1000
+    trackPaperViewDuration(_currentTrackedPaperId, dur)
+  }
 })
 </script>
 
 <template>
   <div class="h-full overflow-hidden flex flex-col">
-    <div class="shrink-0 px-3 sm:px-6 pt-2 sm:pt-3">
+    <div class="shrink-0 px-3 sm:px-6 pt-2 sm:pt-3 flex items-center justify-between">
       <button
         class="inline-flex items-center gap-1 text-sm text-text-muted hover:text-tinder-pink mb-1 cursor-pointer bg-transparent border-none transition-colors"
         @click="router.back()"
@@ -170,10 +216,7 @@ onUnmounted(() => {
     </div>
 
     <div v-if="loading" class="flex-1 flex justify-center py-20">
-      <svg class="animate-spin h-8 w-8 text-tinder-pink" viewBox="0 0 24 24" fill="none">
-        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-      </svg>
+      <LoadingSpinner />
     </div>
     <div v-else-if="error" class="flex-1 text-center py-20 px-4">
       <p class="text-tinder-pink text-lg mb-4">{{ error }}</p>

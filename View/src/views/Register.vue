@@ -24,6 +24,7 @@ const smsSending = ref(false)
 const smsVerifying = ref(false)
 const smsError = ref('')
 const smsVerified = ref(false)
+const smsToken = ref('')
 const countdown = ref(0)
 let countdownTimer: ReturnType<typeof setInterval> | null = null
 
@@ -74,7 +75,8 @@ async function handleVerifyAndNext() {
   smsError.value = ''
   smsVerifying.value = true
   try {
-    await verifySms(phone.value.trim(), smsCode.value.trim())
+    const res = await verifySms(phone.value.trim(), smsCode.value.trim())
+    smsToken.value = res?.sms_token ?? ''
     step.value = 2
   } catch (e: any) {
     smsError.value = formatError(e, '验证码错误或已过期，请重新获取')
@@ -99,7 +101,7 @@ async function handleRegister() {
   }
   submitLoading.value = true
   try {
-    await register(username.value.trim(), password.value, phone.value.trim(), smsCode.value.trim())
+    await register(username.value.trim(), password.value, phone.value.trim(), smsToken.value)
     await login(username.value.trim(), password.value)
     const redirect = (route.query.redirect as string) || '/'
     await router.replace(redirect)

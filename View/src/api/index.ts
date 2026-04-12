@@ -5,6 +5,11 @@ import type {
   PaperDetailResponse,
   DigestResponse,
   PipelineStatusResponse,
+  EngagementSignInStatusResponse,
+  EngagementRecordTaskPayload,
+  EngagementRewardGrant,
+  EngagementActiveForFeatureResponse,
+  EngagementUseRewardResponse,
   KbTree,
   KbFolder,
   KbPaper,
@@ -101,23 +106,29 @@ export function clearSessionToken() {
 // 完全绕过 WebView2 的网络栈（WebView2 无法 fetch 外部域名）。
 // ---------------------------------------------------------------------------
 
-/** Tauri 2 全局 IPC invoke（不依赖 @tauri-apps/api） */
-const _tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null =
-  (window as any).__TAURI_INTERNALS__?.invoke ?? null
+/**
+ * 惰性获取 Tauri 2 IPC invoke。
+ * 每次调用时动态检查 window.__TAURI_INTERNALS__，避免模块加载时序问题
+ * （WebView2 可能在 ES 模块求值完毕后才注入该全局变量）。
+ */
+function getTauriInvoke(): ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null {
+  return (window as any).__TAURI_INTERNALS__?.invoke ?? null
+}
 
-/** 是否处于 Tauri 桌面环境 */
-export const IS_TAURI = !!API_ORIGIN && !!_tauriInvoke
+/** 是否处于 Tauri 桌面环境（编译时判断：VITE_API_BASE 仅在 exe 构建中非空） */
+export const IS_TAURI = !!API_ORIGIN
 
 /**
  * Tauri 专用：通过 Rust IPC 获取文本内容（用于 MarkdownViewer 等 fetch 场景）。
  * WebView2 无法直接 fetch 外部域名，必须走此路径。
  */
 export async function tauriFetchText(url: string): Promise<string> {
-  if (!_tauriInvoke) throw new Error('Tauri IPC not available')
+  const invoke = getTauriInvoke()
+  if (!invoke) throw new Error('Tauri IPC not available')
   const headers: Record<string, string> = { Accept: '*/*' }
   const token = getSessionToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
-  const result = await _tauriInvoke('direct_request', {
+  const result = await invoke('direct_request', {
     method: 'GET', url, headers, body: null,
   })
   if (result.status >= 400) throw new Error(`HTTP ${result.status}`)
@@ -130,12 +141,13 @@ export async function tauriFetchText(url: string): Promise<string> {
  * 调用方负责在不再需要时调用 URL.revokeObjectURL() 释放内存。
  */
 export async function tauriFetchPdfBlobUrl(pdfUrl: string): Promise<string> {
-  if (!_tauriInvoke) throw new Error('Tauri IPC not available')
+  const invoke = getTauriInvoke()
+  if (!invoke) throw new Error('Tauri IPC not available')
   const headers: Record<string, string> = {}
   const token = getSessionToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
   const result: { base64: string; content_type: string; file_name: string } =
-    await _tauriInvoke('direct_download_binary', { method: 'GET', url: pdfUrl, headers, body: null })
+    await invoke('direct_download_binary', { method: 'GET', url: pdfUrl, headers, body: null })
   const binary = atob(result.base64)
   const arr = new Uint8Array(binary.length)
   for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
@@ -169,7 +181,8 @@ function fileToBase64(file: File | Blob): Promise<string> {
  *   - 调用 Rust `direct_upload` 命令，由 Rust 用 reqwest 重建 multipart 请求
  */
 async function tauriAdapter(config: any): Promise<any> {
-  if (!_tauriInvoke) throw new Error('Tauri IPC not available')
+  const invoke = getTauriInvoke()
+  if (!invoke) throw new Error('Tauri IPC not available')
 
   // ---- 拼完整 URL ----
   let fullUrl: string = config.url || ''
@@ -228,7 +241,7 @@ async function tauriAdapter(config: any): Promise<any> {
       throw new Error('FormData 中未找到 File 条目')
     }
 
-    const result = await _tauriInvoke('direct_upload', {
+    const result = await invoke('direct_upload', {
       url: fullUrl,
       headers,
       fileName,
@@ -239,10 +252,10 @@ async function tauriAdapter(config: any): Promise<any> {
 
     // 构造 Axios 兼容响应
     let responseData: any = result.body
-    const ct = (result.headers?.['content-type'] || '')
-    if (ct.includes('application/json')) {
-      try { responseData = JSON.parse(result.body) } catch { /* keep raw */ }
-    }
+    // Always attempt JSON parsing regardless of content-type header.
+    // The Tauri IPC bridge may return headers in unexpected casing or omit
+    // them entirely, which previously caused session_id to be lost.
+    try { responseData = JSON.parse(result.body) } catch { /* keep raw string */ }
 
     const response = {
       data: responseData,
@@ -278,7 +291,7 @@ async function tauriAdapter(config: any): Promise<any> {
   }
 
   // ---- 调用 Rust direct_request ----
-  const result = await _tauriInvoke('direct_request', {
+  const result = await invoke('direct_request', {
     method: (config.method || 'get').toUpperCase(),
     url: fullUrl,
     headers,
@@ -287,10 +300,10 @@ async function tauriAdapter(config: any): Promise<any> {
 
   // ---- 构造 Axios 兼容响应 ----
   let responseData: any = result.body
-  const ct = (result.headers?.['content-type'] || '')
-  if (ct.includes('application/json')) {
-    try { responseData = JSON.parse(result.body) } catch { /* keep raw */ }
-  }
+  // Always attempt JSON parsing regardless of content-type header.
+  // The Tauri IPC bridge may return headers in unexpected casing or omit
+  // them entirely, which previously caused session_id to be lost on login.
+  try { responseData = JSON.parse(result.body) } catch { /* keep raw string */ }
 
   const response = {
     data: responseData,
@@ -328,10 +341,11 @@ async function tauriDownloadBinary(
   method: string = 'GET',
   body: string | null = null,
 ): Promise<void> {
-  if (!_tauriInvoke) throw new Error('Tauri IPC not available')
+  const invoke = getTauriInvoke()
+  if (!invoke) throw new Error('Tauri IPC not available')
 
   const result: { base64: string; content_type: string; file_name: string } =
-    await _tauriInvoke('direct_download_binary', { method, url, headers, body })
+    await invoke('direct_download_binary', { method, url, headers, body })
 
   // base64 → Uint8Array
   const binary = atob(result.base64)
@@ -371,8 +385,10 @@ function tauriStreamResponse(
   url: string,
   headers: Record<string, string>,
   body: string | null,
+  signal?: AbortSignal,
 ): Response {
-  if (!_tauriInvoke) throw new Error('Tauri IPC not available')
+  const invoke = getTauriInvoke()
+  if (!invoke) throw new Error('Tauri IPC not available')
 
   const encoder = new TextEncoder()
   let ctrl!: ReadableStreamDefaultController<Uint8Array>
@@ -396,7 +412,14 @@ function tauriStreamResponse(
     false,
   )
 
-  _tauriInvoke('direct_request_stream', {
+  // 监听外部中止信号，关闭流
+  if (signal) {
+    signal.addEventListener('abort', () => {
+      try { ctrl.close() } catch { /* already closed */ }
+    }, { once: true })
+  }
+
+  invoke('direct_request_stream', {
     method,
     url,
     headers,
@@ -424,7 +447,7 @@ const http = axios.create({
   timeout: 30000,
   withCredentials: !API_ORIGIN,  // web=true (cookie), desktop=false (Bearer)
   headers: { 'Cache-Control': 'no-cache' },
-  ...(IS_TAURI ? { adapter: tauriAdapter } : {}),
+  ...(API_ORIGIN ? { adapter: tauriAdapter } : {}),
 })
 
 // 请求拦截器：附加 Authorization header（桌面端跨域 Cookie 不可用时的回退）
@@ -554,7 +577,7 @@ export async function fetchPipelineStatus(date: string): Promise<PipelineStatusR
 // Knowledge Base API
 // ---------------------------------------------------------------------------
 
-export type KbScope = 'kb' | 'inspiration' | 'mypapers'
+export type KbScope = 'kb' | 'inspiration' | 'mypapers' | 'research'
 
 /** 获取知识库完整树 */
 export async function fetchKbTree(scope: KbScope = 'kb'): Promise<KbTree> {
@@ -705,6 +728,7 @@ export async function fetchCompareStream(
   paperIds: string[],
   scope: KbScope = 'kb',
   compareResultIds?: number[],
+  rewardId?: number,
 ): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   const token = getSessionToken()
@@ -714,8 +738,11 @@ export async function fetchCompareStream(
   if (compareResultIds && compareResultIds.length > 0) {
     body.compare_result_ids = compareResultIds
   }
+  if (rewardId !== undefined) {
+    body.reward_id = rewardId
+  }
 
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     // 桌面端走 Rust Channel 流式（逐行推送，真正 streaming）
     return tauriStreamResponse(
       'POST',
@@ -757,7 +784,7 @@ export async function fetchPaperChatStream(paperId: string, message: string): Pr
 
   const url = `${API_ORIGIN}/api/papers/${encodeURIComponent(paperId)}/chat`
 
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     return tauriStreamResponse('POST', url, headers, JSON.stringify({ message }))
   }
 
@@ -787,7 +814,7 @@ export async function fetchGeneralChatStream(message: string): Promise<Response>
 
   const url = `${API_ORIGIN}/api/chat/general`
 
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     return tauriStreamResponse('POST', url, headers, JSON.stringify({ message }))
   }
 
@@ -948,11 +975,22 @@ export async function authRegister(payload: AuthRegisterPayload): Promise<AuthAc
 
 export async function authLogin(payload: AuthPayload): Promise<AuthActionResponse> {
   const { data } = await http.post<AuthActionResponse>('/auth/login', payload)
+  // Belt-and-suspenders for desktop: explicitly persist session_id even though
+  // the response interceptor already does this.  Covers edge cases where the
+  // interceptor fires before JSON parsing completes or the adapter path differs.
+  if (API_ORIGIN) {
+    const sid = (data as any)?.session_id
+    if (sid) setSessionToken(sid)
+  }
   return data
 }
 
 export async function authLoginSms(payload: AuthSmsLoginPayload): Promise<AuthActionResponse> {
   const { data } = await http.post<AuthActionResponse>('/auth/login/sms', payload)
+  if (API_ORIGIN) {
+    const sid = (data as any)?.session_id
+    if (sid) setSessionToken(sid)
+  }
   return data
 }
 
@@ -1068,6 +1106,40 @@ export async function fetchAdminRedeemKeys(params?: {
 
 export async function disableAdminRedeemKey(keyId: number): Promise<{ ok: boolean }> {
   const { data } = await http.patch<{ ok: boolean }>(`/admin/subscription/keys/${keyId}/disable`)
+  return data
+}
+
+export async function adminResetUserPassword(
+  userId: number,
+  newPassword: string,
+): Promise<AuthActionResponse> {
+  const { data } = await http.post<AuthActionResponse>(`/admin/users/${userId}/reset-password`, {
+    new_password: newPassword,
+  })
+  return data
+}
+
+export async function adminForceLogout(
+  userId: number,
+): Promise<{ ok: boolean; sessions_deleted: number }> {
+  const { data } = await http.post<{ ok: boolean; sessions_deleted: number }>(
+    `/admin/users/${userId}/force-logout`,
+  )
+  return data
+}
+
+export async function adminDisableUser(userId: number): Promise<AuthActionResponse> {
+  const { data } = await http.post<AuthActionResponse>(`/admin/users/${userId}/disable`)
+  return data
+}
+
+export async function adminEnableUser(userId: number): Promise<AuthActionResponse> {
+  const { data } = await http.post<AuthActionResponse>(`/admin/users/${userId}/enable`)
+  return data
+}
+
+export async function adminDeleteUser(userId: number): Promise<{ ok: boolean }> {
+  const { data } = await http.delete<{ ok: boolean }>(`/admin/users/${userId}`)
   return data
 }
 
@@ -1547,7 +1619,7 @@ export async function generateIdeasStream(
   }
 
   let response: Response
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     response = tauriStreamResponse(
       'POST',
       `${API_ORIGIN}/api/idea/candidates/generate`,
@@ -1629,7 +1701,7 @@ export async function fetchGeneratePlanStream(
   }
 
   let response: Response
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     response = tauriStreamResponse(
       'POST',
       `${API_ORIGIN}/api/idea/plans/generate`,
@@ -1855,6 +1927,12 @@ export async function fetchAnnouncements(params?: {
   return data
 }
 
+/** 获取单条公告详情 */
+export async function fetchAnnouncementById(id: number): Promise<AnnouncementResponse> {
+  const { data } = await http.get<AnnouncementResponse>(`/announcements/${id}`)
+  return data
+}
+
 /** 管理员创建公告 */
 export async function createAnnouncement(payload: {
   title: string
@@ -1927,6 +2005,14 @@ import type {
   AnalyticsTrendsResponse,
   AnalyticsFeaturesResponse,
   AnalyticsRetentionResponse,
+  AnalyticsEngagementSigninResponse,
+  AnalyticsActivationResponse,
+  AnalyticsActivatedRetentionResponse,
+  AnalyticsContentFunnelResponse,
+  AnalyticsValueRetentionResponse,
+  AnalyticsContentStepFunnelResponse,
+  AnalyticsAiFeatureResponse,
+  AnalyticsEngagementDepthResponse,
 } from '../types/paper'
 
 /** 获取平台总览统计 */
@@ -1974,6 +2060,75 @@ export async function fetchAnalyticsRetention(params?: {
   return data
 }
 
+/** 获取任务签到漏斗数据（A/B 与止损监控） */
+export async function fetchAnalyticsEngagementSignin(params?: {
+  days?: number
+}): Promise<AnalyticsEngagementSigninResponse> {
+  const { data } = await http.get<AnalyticsEngagementSigninResponse>(
+    '/admin/analytics/engagement-signin',
+    { params },
+  )
+  return data
+}
+
+/** 获取新用户激活漏斗数据 */
+export async function fetchAnalyticsActivation(params?: {
+  days?: number
+  activation_window_days?: number
+  tier?: string
+}): Promise<AnalyticsActivationResponse> {
+  const { data } = await http.get<AnalyticsActivationResponse>('/admin/analytics/activation', { params })
+  return data
+}
+
+/** 获取激活用户留存数据 */
+export async function fetchAnalyticsActivatedRetention(params?: {
+  weeks?: number
+}): Promise<AnalyticsActivatedRetentionResponse> {
+  const { data } = await http.get<AnalyticsActivatedRetentionResponse>('/admin/analytics/activated-retention', { params })
+  return data
+}
+
+/** 获取内容与功能转化漏斗数据 */
+export async function fetchAnalyticsContentFunnel(params?: {
+  days?: number
+}): Promise<AnalyticsContentFunnelResponse> {
+  const { data } = await http.get<AnalyticsContentFunnelResponse>('/admin/analytics/content-funnel', { params })
+  return data
+}
+
+/** 获取激活用户价值行为留存数据（比会话留存更真实） */
+export async function fetchAnalyticsValueRetention(params?: {
+  weeks?: number
+}): Promise<AnalyticsValueRetentionResponse> {
+  const { data } = await http.get<AnalyticsValueRetentionResponse>('/admin/analytics/value-retention', { params })
+  return data
+}
+
+/** 获取内容漏斗步骤数据（卡片曝光→详情→收藏→深度行为） */
+export async function fetchAnalyticsContentStepFunnel(params?: {
+  days?: number
+}): Promise<AnalyticsContentStepFunnelResponse> {
+  const { data } = await http.get<AnalyticsContentStepFunnelResponse>('/admin/analytics/content-step-funnel', { params })
+  return data
+}
+
+/** 获取 AI 功能采用数据（深度研究 / 论文聊天 / 灵感生成） */
+export async function fetchAnalyticsAiFeatures(params?: {
+  days?: number
+}): Promise<AnalyticsAiFeatureResponse> {
+  const { data } = await http.get<AnalyticsAiFeatureResponse>('/admin/analytics/ai-features', { params })
+  return data
+}
+
+/** 获取参与深度数据（session 时长 + 论文阅读时长） */
+export async function fetchAnalyticsEngagementDepth(params?: {
+  days?: number
+}): Promise<AnalyticsEngagementDepthResponse> {
+  const { data } = await http.get<AnalyticsEngagementDepthResponse>('/admin/analytics/engagement-depth', { params })
+  return data
+}
+
 /** 获取 Pipeline 各步骤数据量追踪 */
 export async function fetchPipelineDataTracking(params?: {
   user_id?: number
@@ -2008,6 +2163,109 @@ export async function reportAnalyticsEvents(events: Array<{
   meta?: Record<string, unknown>
 }>): Promise<{ ok: boolean; count: number }> {
   const { data } = await http.post<{ ok: boolean; count: number }>('/analytics/events', { events })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Engagement API (任务签到)
+// ---------------------------------------------------------------------------
+
+/** 获取当前用户任务签到状态 */
+export async function fetchEngagementSignInStatus(): Promise<EngagementSignInStatusResponse> {
+  const { data } = await http.get<EngagementSignInStatusResponse>('/engagement/signin-status')
+  return data
+}
+
+/** 上报一次任务动作（view/collect/analyze） */
+export async function recordEngagementTask(
+  payload: EngagementRecordTaskPayload,
+): Promise<EngagementSignInStatusResponse> {
+  const { data } = await http.post<EngagementSignInStatusResponse>('/engagement/tasks/record', payload)
+  return data
+}
+
+/** 获取奖励记录（完整列表，用于成就页面） */
+export async function fetchEngagementRewards(params?: {
+  status?: 'active' | 'used' | 'expired'
+  limit?: number
+}): Promise<{ ok: boolean; rewards: EngagementRewardGrant[] }> {
+  const { data } = await http.get<{ ok: boolean; rewards: EngagementRewardGrant[] }>(
+    '/engagement/rewards',
+    { params },
+  )
+  return data
+}
+
+/** 查询某功能下当前用户的可用奖励 */
+export async function fetchActiveRewardsForFeature(
+  feature: 'chat' | 'idea_gen' | 'compare' | 'research' | 'upload',
+): Promise<EngagementActiveForFeatureResponse> {
+  const { data } = await http.get<EngagementActiveForFeatureResponse>(
+    '/engagement/rewards/active-for-feature',
+    { params: { feature } },
+  )
+  return data
+}
+
+/** 核销（使用）一个奖励 */
+export async function useEngagementReward(
+  rewardId: number,
+  context: string,
+): Promise<EngagementUseRewardResponse> {
+  const { data } = await http.post<EngagementUseRewardResponse>(
+    `/engagement/rewards/${rewardId}/use`,
+    { context },
+  )
+  return data
+}
+
+export interface ActivityCalendarDay {
+  day_key: string
+  completed: boolean
+  partial: boolean
+  tasks_done: number
+}
+
+export interface ActivityCalendarResponse {
+  ok: boolean
+  days: number
+  today: string
+  calendar: ActivityCalendarDay[]
+}
+
+/** 获取用户近 N 天的活动日历（成就页热力图） */
+export async function fetchActivityCalendar(days = 60): Promise<ActivityCalendarResponse> {
+  const { data } = await http.get<ActivityCalendarResponse>('/engagement/activity-calendar', {
+    params: { days },
+  })
+  return data
+}
+
+export interface StreakFreezeStatus {
+  freeze_allowed: boolean
+  freeze_quota: number
+  freeze_used: number
+  freeze_remaining: number
+  streak_would_break: boolean
+  missed_day: string | null
+}
+
+/** 获取连续保护状态 */
+export async function fetchStreakFreezeStatus(): Promise<StreakFreezeStatus> {
+  const { data } = await http.get<StreakFreezeStatus & { ok: boolean }>('/engagement/freeze-status')
+  return data
+}
+
+/** 使用连续保护冻结昨天的缺失 */
+export async function useStreakFreeze(): Promise<{
+  ok: boolean
+  success: boolean
+  message: string
+  new_streak: number
+  frozen_day: string
+  freeze_remaining: number
+}> {
+  const { data } = await http.post('/engagement/freeze')
   return data
 }
 
@@ -2062,6 +2320,40 @@ export async function importUserPaperPdf(
   return data
 }
 
+/** 并发控制：以最多 concurrency 个并发执行 fn(item)，返回 PromiseSettledResult 数组。 */
+async function concurrentMap<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length)
+  let index = 0
+  async function worker() {
+    while (index < items.length) {
+      const i = index++
+      try {
+        const value = await fn(items[i])
+        results[i] = { status: 'fulfilled', value }
+      } catch (reason: unknown) {
+        results[i] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+  return results
+}
+
+export async function batchProcessUserPapers(
+  paperIds: string[],
+  rewardId?: number,
+): Promise<{ results: Array<{ paper_id: string; ok: boolean; message: string }>; priority: number; reward_applied: boolean }> {
+  const { data } = await http.post('/user-papers/batch-process', {
+    paper_ids: paperIds,
+    reward_id: rewardId,
+  })
+  return data
+}
+
 function normalizeUserPapersListPayload(data: unknown): UserPapersListResponse {
   let payload = data as any
 
@@ -2109,11 +2401,18 @@ function normalizeUserPapersListPayload(data: unknown): UserPapersListResponse {
 export async function fetchUserPapers(opts?: {
   source_type?: string
   search?: string
+  institution?: string
   limit?: number
   offset?: number
 }): Promise<UserPapersListResponse> {
   const { data } = await http.get<UserPapersListResponse>('/user-papers', { params: opts })
   return normalizeUserPapersListPayload(data)
+}
+
+/** 获取该用户所有不重复机构名列表 */
+export async function fetchUserPaperInstitutions(): Promise<string[]> {
+  const { data } = await http.get<{ institutions: string[] }>('/user-papers/institutions')
+  return Array.isArray(data?.institutions) ? data.institutions : []
 }
 
 /** 获取单篇上传论文详情 */
@@ -2154,10 +2453,14 @@ export async function deleteUserPaper(paperId: string): Promise<{ ok: boolean; p
   return data
 }
 
-/** 触发单篇论文流水线处理 */
-export async function processUserPaper(paperId: string): Promise<{ ok: boolean; message: string; paper_id: string }> {
-  const { data } = await http.post<{ ok: boolean; message: string; paper_id: string }>(
+/** 触发单篇论文流水线处理（可选 reward_id 用于快速处理加速券） */
+export async function processUserPaper(
+  paperId: string,
+  rewardId?: number,
+): Promise<{ ok: boolean; message: string; paper_id: string; priority?: number; reward_applied?: boolean }> {
+  const { data } = await http.post<{ ok: boolean; message: string; paper_id: string; priority?: number; reward_applied?: boolean }>(
     `/user-papers/${paperId}/process`,
+    rewardId !== undefined ? { reward_id: rewardId } : {},
   )
   return data
 }
@@ -2241,6 +2544,7 @@ export async function moveUserPapers(
 export function userPaperStepLabel(step: string): string {
   const labels: Record<string, string> = {
     queued: '等待处理...',
+    queued_priority: '等待处理（优先）...',
     starting: '初始化...',
     pdf_prepare: '准备 PDF...',
     pdf_download: '下载 PDF...',
@@ -2278,7 +2582,7 @@ import type {
   KbPaperProcessStatusResponse,
   KbPaperTranslateStatusResponse,
   KbPaperFilesResponse,
-} from '@/types/paper'
+} from '../types/paper'
 
 /** 触发 KB 论文 MinerU 解析 */
 export async function processKbPaper(
@@ -2385,7 +2689,21 @@ export async function downloadPaperFile(
   format: 'md' | 'docx' | 'pdf' = 'md',
 ): Promise<void> {
   const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
-  const url = `${base}/download/paper-file?paper_id=${encodeURIComponent(paperId)}&file_type=${fileType}&scope=${scope}&format=${format}`
+  let url = `${base}/download/paper-file?paper_id=${encodeURIComponent(paperId)}&file_type=${fileType}&scope=${scope}&format=${format}`
+
+  // 双语 PDF：从 localStorage 读取用户当前配色与字号并附加到请求，实现所见即所得
+  if (fileType === 'bilingual' && format === 'pdf') {
+    try {
+      const raw = localStorage.getItem('ai4papers-bilingual-theme')
+      if (raw) {
+        const t = JSON.parse(raw) as Record<string, unknown>
+        if (typeof t.hue === 'number') url += `&hue=${t.hue}`
+        if (typeof t.saturation === 'number') url += `&sat=${t.saturation}`
+        if (typeof t.intensity === 'number') url += `&intensity=${t.intensity}`
+        if (typeof t.fontSize === 'number') url += `&font_size=${t.fontSize}`
+      }
+    } catch { /* 读取失败时后端使用默认值 (hue=195, sat=70, intensity=6, font_size=15) */ }
+  }
 
   // The server sets Content-Disposition: attachment; filename="<paper title>..."
   // which takes precedence over the client hint in both browser and Tauri paths.
@@ -2393,7 +2711,7 @@ export async function downloadPaperFile(
   const ext = fileType === 'pdf' ? 'pdf' : format
   const fallbackName = fileType === 'pdf' ? `${paperId}.pdf` : `${paperId}_${fileType}.${ext}`
 
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     // 桌面端：WebView2 的 <a href="外部URL"> 无法携带 Auth header，走 Rust 下载
     // Rust 侧优先使用服务器返回的 Content-Disposition filename
     const headers: Record<string, string> = {}
@@ -2430,12 +2748,51 @@ export async function downloadPaperFile(
   URL.revokeObjectURL(objectUrl)
 }
 
+/** 下载深度研究结果（MD / DOCX / PDF） */
+export async function downloadResearchResult(
+  sessionId: number,
+  format: 'md' | 'docx' | 'pdf' = 'md',
+): Promise<void> {
+  const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
+  const url = `${base}/research/${sessionId}/download?format=${format}`
+
+  if (IS_TAURI) {
+    const headers: Record<string, string> = {}
+    const token = getSessionToken()
+    if (token) headers['Authorization'] = `Bearer ${token}`
+    const ext = format === 'docx' ? 'docx' : format === 'pdf' ? 'pdf' : 'md'
+    await tauriDownloadBinary(url, headers, `research_${sessionId}.${ext}`)
+    return
+  }
+
+  const token = getSessionToken()
+  const fetchHeaders: Record<string, string> = {}
+  if (token) fetchHeaders['Authorization'] = `Bearer ${token}`
+  const resp = await fetch(url, { headers: fetchHeaders })
+  if (!resp.ok) throw new Error(`下载失败: ${resp.status}`)
+
+  const blob = await resp.blob()
+  const cd = resp.headers.get('Content-Disposition') || ''
+  const fnMatch = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
+  const ext = format === 'docx' ? 'docx' : format === 'pdf' ? 'pdf' : 'md'
+  const fileName = fnMatch ? decodeURIComponent(fnMatch[1]) : `research_${sessionId}.${ext}`
+
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = fileName
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(objectUrl)
+}
+
 /** 下载/导出笔记（触发浏览器下载） */
 export function downloadNote(noteId: number): void {
   const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
   const url = `${base}/download/note/${noteId}`
 
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     const headers: Record<string, string> = {}
     const token = getSessionToken()
     if (token) headers['Authorization'] = `Bearer ${token}`
@@ -2462,7 +2819,7 @@ export interface BatchDownloadItem {
 
 /** 批量下载（返回 zip，触发浏览器保存） */
 export async function downloadBatch(items: BatchDownloadItem[]): Promise<void> {
-  if (IS_TAURI && _tauriInvoke !== null) {
+  if (IS_TAURI) {
     // 桌面端：tauriAdapter 不支持 blob responseType，走专用二进制下载命令
     const url = `${API_ORIGIN}/api/download/batch`
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -2605,4 +2962,241 @@ export async function closeCommunityPost(
 ): Promise<{ ok: boolean; is_closed: boolean }> {
   const resp = await http.put(`/community/posts/${postId}/close`, { closed })
   return resp.data
+}
+
+// ---------------------------------------------------------------------------
+// Deep Research Q&A API
+// ---------------------------------------------------------------------------
+
+import type { ResearchSession, ResearchConfig } from '../types/paper'
+
+export interface StartResearchPayload {
+  question: string
+  paper_ids: string[]
+  scope?: string
+  config?: ResearchConfig
+  signal?: AbortSignal
+  reward_id?: number
+}
+
+/** Start a deep research session — returns a fetch Response for SSE streaming */
+export async function fetchResearchStream(payload: StartResearchPayload): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getSessionToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const url = `${API_ORIGIN}/api/research/start`
+  const bodyObj: Record<string, unknown> = {
+    question: payload.question,
+    paper_ids: payload.paper_ids,
+    scope: payload.scope ?? 'kb',
+    config: payload.config ?? {},
+  }
+  if (payload.reward_id !== undefined) {
+    bodyObj.reward_id = payload.reward_id
+  }
+  const body = JSON.stringify(bodyObj)
+
+  if (IS_TAURI) {
+    return tauriStreamResponse('POST', url, headers, body, payload.signal)
+  }
+
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: API_ORIGIN ? 'omit' : 'include',
+    body,
+    signal: payload.signal,
+  })
+}
+
+/** List user's research sessions */
+export async function fetchResearchSessions(limit = 20, savedOnly = false): Promise<{ sessions: ResearchSession[] }> {
+  const { data } = await http.get<{ sessions: ResearchSession[] }>('/research/sessions', {
+    params: { limit, saved_only: savedOnly || undefined },
+  })
+  return data
+}
+
+/** Save or unsave a research session */
+export async function saveResearchSession(sessionId: number, saved = true): Promise<void> {
+  await http.patch(`/research/${sessionId}/save`, null, { params: { saved } })
+}
+
+/** Rename a research session (update its question field) */
+export async function renameResearchSession(sessionId: number, question: string): Promise<void> {
+  await http.patch(`/research/${sessionId}/rename`, { question })
+}
+
+/** Get research session folder tree */
+export async function fetchResearchTree(): Promise<import('../types/paper').ResearchTree> {
+  const { data } = await http.get('/research/tree')
+  return data
+}
+
+/** Batch-move research sessions to a target folder (null = root) */
+export async function moveResearchSessions(sessionIds: number[], targetFolderId: number | null): Promise<void> {
+  await http.patch('/research/move', { session_ids: sessionIds, target_folder_id: targetFolderId })
+}
+
+/** Get a single research session with all rounds */
+export async function fetchResearchSession(sessionId: number): Promise<ResearchSession> {
+  const { data } = await http.get<ResearchSession>(`/research/${sessionId}`)
+  return data
+}
+
+/** Delete a research session */
+export async function deleteResearchSession(sessionId: number): Promise<void> {
+  await http.delete(`/research/${sessionId}`)
+}
+
+/** Continue a completed session with Round 3 (full-text deep read) — returns a fetch Response for SSE streaming */
+export async function fetchResearchContinueRound3(sessionId: number, signal?: AbortSignal): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getSessionToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const url = `${API_ORIGIN}/api/research/${sessionId}/continue-round3`
+
+  if (IS_TAURI) {
+    return tauriStreamResponse('POST', url, headers, '', signal)
+  }
+
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: API_ORIGIN ? 'omit' : 'include',
+    signal,
+  })
+}
+
+/** Follow-up on a completed session reusing its R1 results — returns a fetch Response for SSE streaming */
+export async function fetchResearchFollowup(
+  sessionId: number,
+  payload: { question: string; context?: string },
+  signal?: AbortSignal,
+): Promise<Response> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getSessionToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const url = `${API_ORIGIN}/api/research/${sessionId}/followup`
+  const body = JSON.stringify({ question: payload.question, context: payload.context })
+
+  if (IS_TAURI) {
+    return tauriStreamResponse('POST', url, headers, body, signal)
+  }
+
+  return fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: API_ORIGIN ? 'omit' : 'include',
+    body,
+    signal,
+  })
+}
+
+/** Cancel a running research session so a new one can be started */
+export async function cancelResearchSession(sessionId: number): Promise<void> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const token = getSessionToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const url = `${API_ORIGIN}/api/research/${sessionId}/cancel`
+
+  if (IS_TAURI) {
+    // Non-streaming POST — use axios http adapter
+    await http.post(`/research/${sessionId}/cancel`)
+    return
+  }
+
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers,
+    credentials: API_ORIGIN ? 'omit' : 'include',
+  })
+  if (!resp.ok) throw new Error(`Cancel failed: ${resp.status}`)
+}
+
+// ---------------------------------------------------------------------------
+// Entitlements
+// ---------------------------------------------------------------------------
+
+import type { UserEntitlements } from '../types/paper'
+
+/** Fetch current user's full entitlement snapshot (tier, quotas, gates, storage). */
+export async function fetchEntitlements(): Promise<UserEntitlements> {
+  const { data } = await http.get<UserEntitlements & { ok: boolean }>('/entitlements/me')
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Auto-classify API
+// ---------------------------------------------------------------------------
+
+export interface AutoClassifyFolder {
+  name: string
+  description: string
+  folder_id?: number | null
+  parent_id?: number | null
+  /** Temporary key for unsynced folders — used by sync_folders for parent-child resolution */
+  _key?: string
+  /** References parent's _key when parent has no folder_id yet */
+  _parent_key?: string | null
+}
+
+/** 获取待分类论文数量 */
+export async function fetchAutoClassifyPendingCount(scope = 'kb'): Promise<{ pending: number }> {
+  const { data } = await http.get<{ pending: number }>('/kb/auto-classify/pending-count', { params: { scope } })
+  return data
+}
+
+/** 获取「未分类」文件夹中的论文数量，用于提示用户扩充目录 */
+export async function fetchAutoClassifyUnclassifiedCount(scope = 'kb'): Promise<{ unclassified: number }> {
+  const { data } = await http.get<{ unclassified: number }>('/kb/auto-classify/unclassified-count', { params: { scope } })
+  return data
+}
+
+/** 同步分类目录定义到实际 KB 文件夹，返回填充了 folder_id 的列表 */
+export async function syncAutoClassifyFolders(
+  folders: AutoClassifyFolder[],
+  scope = 'kb'
+): Promise<{ ok: boolean; folders: AutoClassifyFolder[] }> {
+  const { data } = await http.post<{ ok: boolean; folders: AutoClassifyFolder[] }>(
+    '/kb/auto-classify/sync-folders',
+    { folders, scope }
+  )
+  return data
+}
+
+/** 重新分类知识库中所有论文 */
+export async function reclassifyAllKbPapers(scope = 'kb'): Promise<{ ok: boolean; enqueued: number }> {
+  const { data } = await http.post<{ ok: boolean; enqueued: number }>(
+    '/kb/auto-classify/reclassify-all',
+    { scope }
+  )
+  return data
+}
+
+/** 手动触发单篇论文分类 */
+export async function classifyKbPaper(paperId: string, scope = 'kb'): Promise<{ ok: boolean; enqueued: boolean }> {
+  const { data } = await http.post<{ ok: boolean; enqueued: boolean }>(
+    `/kb/papers/${paperId}/classify`,
+    null,
+    { params: { scope } }
+  )
+  return data
+}
+
+/** 更新知识库论文阅读状态 */
+export async function updateKbPaperReadStatus(
+  paperId: string,
+  status: 'unread' | 'reading' | 'read',
+  scope = 'kb'
+): Promise<{ ok: boolean }> {
+  const { data } = await http.patch<{ ok: boolean }>(
+    `/kb/papers/${paperId}/read-status`,
+    { status, scope }
+  )
+  return data
 }

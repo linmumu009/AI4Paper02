@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import CommunitySidebar from '../components/CommunitySidebar.vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
+import ErrorState from '../components/ErrorState.vue'
 import MarkdownIt from 'markdown-it'
 import texmath from 'markdown-it-texmath'
 import katex from 'katex'
@@ -377,7 +379,7 @@ function canEditReply(reply: CommunityReply): boolean {
     <Transition name="fade">
       <button
         v-if="!showSidebar"
-        class="fixed top-[100px] left-0 z-10 flex items-center justify-center w-11 h-11 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+        class="fixed top-[calc(var(--navbar-h)+2.5rem)] left-0 z-10 flex items-center justify-center w-11 h-11 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
         title="展开侧边栏"
         @click="showSidebar = true"
       >
@@ -407,21 +409,12 @@ function canEditReply(reply: CommunityReply): boolean {
     <div class="max-w-3xl mx-auto px-4 py-6">
       <!-- Loading -->
       <div v-if="loading" class="flex flex-col items-center gap-3 py-20">
-        <svg class="animate-spin h-8 w-8 text-[#fd267a]" viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-        </svg>
-        <span class="text-text-muted text-sm">加载中...</span>
+        <LoadingSpinner text="加载中..." />
       </div>
 
       <!-- Error -->
       <div v-else-if="error" class="flex flex-col items-center gap-3 py-20 text-center px-8">
-        <div class="text-5xl mb-2">⚠️</div>
-        <p class="text-text-secondary text-sm">{{ error }}</p>
-        <button
-          class="px-5 py-2 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
-          @click="loadPost"
-        >重试</button>
+        <ErrorState :message="error" @retry="loadPost" />
       </div>
 
       <template v-else-if="post">

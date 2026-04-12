@@ -75,6 +75,7 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
     "compare": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
     "inspiration": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
     "paper_chat": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
+    "deep_research": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
     "idea_generate": {
         "llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id",
         # Per-phase LLM preset IDs (每阶段独立 1:1)
@@ -98,6 +99,12 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
         "summary_limit_prompt_findings_preset_id", "summary_limit_prompt_opinion_preset_id",
         # MinerU 服务密钥
         "mineru_token",
+    },
+    "auto_classify": {
+        # llm_preset_id must come from user; empty string means not configured
+        "llm_preset_id",
+        # folders list is user-defined; don't overwrite with empty default
+        "folders",
     },
 }
 
@@ -317,6 +324,16 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
         # K value used by recent_k and summary strategies (number of turns)
         "context_k": 10,
     },
+    "deep_research": {
+        "llm_base_url": "",
+        "llm_api_key": "",
+        "llm_model": "",
+        "temperature": 0.5,
+        "max_tokens": 8192,
+        "input_hard_limit": 200000,
+        "input_safety_margin": 8192,
+        "system_prompt": "",
+    },
     "idea_generate": {
         "llm_base_url": "",
         "llm_api_key": "",
@@ -338,6 +355,16 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
     },
     # Future features can be added here:
     # "theme_filter": { ... },
+    "auto_classify": {
+        "enabled": False,
+        # LLM preset (id) to use for classification; empty = not configured
+        "llm_preset_id": "",
+        # Minimum confidence (0.0–1.0) to assign a folder; below this goes to '未分类'
+        "confidence_threshold": 0.6,
+        # User-defined folder list for classification
+        # Each entry: {"name": str, "description": str, "folder_id": null | int}
+        "folders": [],
+    },
 }
 
 

@@ -65,31 +65,57 @@ function confirm() {
 
         <!-- Folder list -->
         <div class="flex-1 overflow-y-auto p-2">
-          <!-- Root option -->
+        <!-- Root option -->
           <button
-            class="w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer border-none"
+            class="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs transition-colors cursor-pointer border-none"
             :class="selectedId === null
-              ? 'bg-tinder-pink/15 text-tinder-pink font-semibold'
+              ? 'bg-tinder-pink/12 text-tinder-pink font-semibold'
               : 'bg-transparent text-text-secondary hover:bg-bg-hover'"
             @click="pick(null)"
           >
-            <span class="text-sm">📂</span>
+            <!-- Root folder icon -->
+            <svg
+              class="shrink-0 transition-colors"
+              style="width:16px;height:16px;"
+              :class="selectedId === null ? 'text-tinder-pink' : 'text-text-secondary'"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+            >
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
             根目录
+            <!-- Check mark when selected -->
+            <svg v-if="selectedId === null" class="ml-auto w-3.5 h-3.5 shrink-0 text-tinder-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
           </button>
 
           <!-- Flattened folder list with indent -->
           <button
             v-for="ff in flatFolders"
             :key="ff.id"
-            class="w-full text-left flex items-center gap-2 py-2 rounded-lg text-xs transition-colors cursor-pointer border-none"
+            class="w-full text-left flex items-center gap-2.5 py-2 rounded-lg text-xs transition-colors cursor-pointer border-none"
             :class="selectedId === ff.id
-              ? 'bg-tinder-pink/15 text-tinder-pink font-semibold'
+              ? 'bg-tinder-pink/10 text-tinder-pink font-medium'
               : 'bg-transparent text-text-secondary hover:bg-bg-hover'"
             :style="{ paddingLeft: (12 + ff.depth * 16) + 'px', paddingRight: '12px' }"
             @click="pick(ff.id)"
           >
-            <span class="text-sm">📁</span>
+            <!-- Folder icon -->
+            <svg
+              class="shrink-0 transition-colors"
+              style="width:16px;height:16px;"
+              :class="selectedId === ff.id ? 'text-tinder-pink' : 'text-text-secondary'"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+            >
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
             {{ ff.name }}
+            <!-- Check mark when selected -->
+            <svg v-if="selectedId === ff.id" class="ml-auto w-3.5 h-3.5 shrink-0 text-tinder-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
           </button>
 
           <!-- Empty state -->

@@ -33,6 +33,39 @@ def _get_cfg(attr: str, default: Any = None) -> Any:
 _send_lock = threading.Lock()
 _last_send: dict[str, float] = {}
 
+# ---------------------------------------------------------------------------
+# 已验证 token 缓存：{token: {"phone": str, "expires_at": float}}
+# ---------------------------------------------------------------------------
+_token_lock = threading.Lock()
+_verified_tokens: dict[str, dict] = {}
+
+_VERIFY_TOKEN_TTL = 600  # 默认 10 分钟
+
+
+def create_verify_token(phone: str) -> str:
+    """验证码校验通过后生成一次性 sms_token，绑定手机号，TTL 10 分钟。"""
+    token = str(uuid.uuid4())
+    ttl = int(_get_cfg("VERIFY_TOKEN_TTL", _VERIFY_TOKEN_TTL))
+    expires_at = time.time() + ttl
+    with _token_lock:
+        _verified_tokens[token] = {"phone": phone, "expires_at": expires_at}
+    return token
+
+
+def validate_verify_token(token: str, phone: str) -> bool:
+    """校验 sms_token：存在、未过期、手机号匹配；通过后立即删除（一次性）。"""
+    with _token_lock:
+        entry = _verified_tokens.get(token)
+        if entry is None:
+            return False
+        if time.time() > entry["expires_at"]:
+            del _verified_tokens[token]
+            return False
+        if entry["phone"] != phone:
+            return False
+        del _verified_tokens[token]
+        return True
+
 
 def _can_send(phone: str) -> tuple[bool, int]:
     """返回 (是否允许发送, 剩余等待秒数)"""

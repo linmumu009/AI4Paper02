@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { login, loginBySms, sendSms } from '../stores/auth'
-import { API_ORIGIN } from '../api'
+import { login, loginBySms, sendSms, isAuthenticated } from '../stores/auth'
+import { API_ORIGIN, getSessionToken } from '../api'
 
-const _tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null =
-  (window as any).__TAURI_INTERNALS__?.invoke ?? null
+function getTauriInvoke(): ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null {
+  return (window as any).__TAURI_INTERNALS__?.invoke ?? null
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -34,17 +35,27 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 const diagShow = ref(!!API_ORIGIN)       // 仅桌面端显示
 const diagStatus = ref('检测中...')
 const diagDetail = ref('')
+const diagLoginResult = ref('')          // 最近一次登录响应摘要
+const diagSessionId = ref('')            // localStorage 中的 session_id
+const diagIsAuthed = ref<boolean | null>(null)  // isAuthenticated 当前值
+const diagRawShape = ref('')             // 登录响应原始结构摘要
+
+function refreshDiagState() {
+  diagSessionId.value = getSessionToken() || '(未设置)'
+  diagIsAuthed.value = isAuthenticated.value
+}
 
 async function runDiag() {
   if (!API_ORIGIN) return
   diagStatus.value = '检测中...'
   diagDetail.value = ''
+  refreshDiagState()
   try {
     const t0 = Date.now()
     let status = 0
-    if (_tauriInvoke) {
-      // 桌面端走 Rust HTTP 客户端
-      const result = await _tauriInvoke('direct_request', {
+    const invoke = getTauriInvoke()
+    if (invoke) {
+      const result = await invoke('direct_request', {
         method: 'GET',
         url: `${API_ORIGIN}/api/auth/me`,
         headers: { Accept: 'application/json' },
@@ -116,11 +127,26 @@ async function handleSendSms() {
 async function handlePasswordLogin() {
   pwdError.value = ''
   pwdLoading.value = true
+  diagLoginResult.value = ''
+  diagRawShape.value = ''
   try {
-    await login(username.value.trim(), password.value)
+    const user = await login(username.value.trim(), password.value)
+    if (API_ORIGIN) {
+      refreshDiagState()
+      const token = getSessionToken() || ''
+      diagRawShape.value = `login()返回 user=${user ? user.username ?? user.id : 'null'}`
+      const authed = isAuthenticated.value
+      diagLoginResult.value = authed
+        ? `✅ 已登录 | token=${token.slice(0, 16)}…`
+        : `⚠️ user=${user ? 'ok' : 'null'} token=${token ? token.slice(0, 16) + '…' : '(空)'} isAuthed=false`
+    }
     const redirect = (route.query.redirect as string) || '/'
     await router.replace(redirect)
   } catch (e: any) {
+    if (API_ORIGIN) {
+      refreshDiagState()
+      diagLoginResult.value = `login() 失败: ${String(e?.message || e).slice(0, 200)}`
+    }
     pwdError.value = formatError(e, '登录失败，请检查用户名和密码')
   } finally {
     pwdLoading.value = false
@@ -134,8 +160,18 @@ async function handleSmsLogin() {
   }
   smsError.value = ''
   smsLoading.value = true
+  diagLoginResult.value = ''
+  diagRawShape.value = ''
   try {
     const res = await loginBySms(phone.value.trim(), smsCode.value.trim())
+    if (API_ORIGIN) {
+      refreshDiagState()
+      const token = getSessionToken() || ''
+      const authed = isAuthenticated.value
+      diagLoginResult.value = authed
+        ? `✅ SMS已登录 | token=${token.slice(0, 16)}…`
+        : `⚠️ SMS user=${res?.user ? 'ok' : 'null'} token=${token ? token.slice(0, 16) + '…' : '(空)'} isAuthed=false`
+    }
     if (res.is_new_user) {
       await router.replace({ path: '/profile', query: { tab: 'account_info', welcome: '1' } })
     } else {
@@ -143,6 +179,10 @@ async function handleSmsLogin() {
       await router.replace(redirect)
     }
   } catch (e: any) {
+    if (API_ORIGIN) {
+      refreshDiagState()
+      diagLoginResult.value = `SMS登录失败: ${String(e?.message || e).slice(0, 200)}`
+    }
     smsError.value = formatError(e, '登录失败，请检查手机号和验证码')
   } finally {
     smsLoading.value = false
@@ -269,13 +309,18 @@ async function handleSmsLogin() {
       </p>
 
       <!-- 桌面端网络诊断 -->
-      <div v-if="diagShow" class="mt-4 p-2 rounded-lg bg-bg border border-border text-[11px] text-text-muted leading-relaxed">
+      <div v-if="diagShow" class="mt-4 p-2 rounded-lg bg-bg border border-border text-[11px] text-text-muted leading-relaxed space-y-1">
         <div class="flex items-center justify-between">
-          <span>API: {{ API_ORIGIN || '(未设置)' }}</span>
+          <span class="font-semibold">桌面端诊断</span>
           <button class="text-tinder-pink underline" @click="runDiag">重新检测</button>
         </div>
+        <div>API: {{ API_ORIGIN || '(未设置)' }}</div>
         <div>{{ diagStatus }}</div>
         <div v-if="diagDetail" class="text-red-400 break-all">{{ diagDetail }}</div>
+        <div v-if="diagRawShape" class="text-yellow-400 break-all">{{ diagRawShape }}</div>
+        <div v-if="diagLoginResult" :class="diagLoginResult.startsWith('✅') ? 'text-green-400' : 'text-red-400'" class="break-all">{{ diagLoginResult }}</div>
+        <div v-if="diagIsAuthed !== null">isAuthenticated: <span :class="diagIsAuthed ? 'text-green-400' : 'text-red-400'">{{ diagIsAuthed }}</span></div>
+        <div>localStorage token: {{ diagSessionId }}</div>
       </div>
     </div>
   </div>

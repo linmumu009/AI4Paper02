@@ -640,8 +640,14 @@ def stream_generate_candidates(
     question_id: int | None = None,
     custom_question: str = "",
     strategies: list[str] | None = None,
+    atoms_limit: int = 20,
 ) -> Generator[str, None, None]:
-    """Generate inspiration candidates as SSE stream."""
+    """Generate inspiration candidates as SSE stream.
+
+    Args:
+        atoms_limit: Number of atoms retrieved as context for generation.
+            Higher values (via engagement boost) produce more diverse candidates.
+    """
     isvc = _get_idea_service()
     cfg = _get_llm_config(user_id, module="combine_candidate")
     err = _check_credentials(cfg)
@@ -665,10 +671,10 @@ def stream_generate_candidates(
         yield from _sse_error("请提供一个研究问题或选择一个已生成的问题。")
         return
 
-    # Retrieve relevant atoms
-    atoms = isvc.search_atoms_fts(question_text, user_id=user_id, limit=20)
+    # Retrieve relevant atoms (atoms_limit may be boosted by engagement reward)
+    atoms = isvc.search_atoms_fts(question_text, user_id=user_id, limit=atoms_limit)
     if not atoms:
-        atoms = isvc.list_atoms(user_id=user_id, limit=20)
+        atoms = isvc.list_atoms(user_id=user_id, limit=atoms_limit)
 
     atoms_context = "\n\n".join(
         f"[ATOM-{a['id']}] [{a['atom_type'].upper()}] (paper: {a['paper_id']})\n{a['content']}"

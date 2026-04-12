@@ -113,24 +113,35 @@ function avatarColor(paperId: string): string {
   <div @click.stop>
     <!-- Folder row -->
     <div
-      class="flex items-center gap-2 px-2 py-3 rounded-xl cursor-pointer transition-colors group"
-      :class="activeFolderId === folder.id ? 'bg-tinder-blue/8' : 'hover:bg-bg-hover'"
-      :style="{ paddingLeft: (8 + depth * 14) + 'px' }"
+      class="flex items-center gap-2.5 py-2 rounded-lg cursor-pointer transition-colors group"
+      :class="activeFolderId === folder.id ? 'bg-tinder-pink/8 text-tinder-pink' : 'hover:bg-bg-hover'"
+      :style="{ paddingLeft: (8 + depth * 14) + 'px', paddingRight: '8px' }"
       @click="emit('select-folder', folder.id)"
     >
-      <!-- Expand toggle -->
+      <!-- Expand toggle (SVG chevron) -->
       <button
-        class="w-5 h-5 flex items-center justify-center text-[10px] text-text-muted bg-transparent border-none cursor-pointer shrink-0 transition-transform duration-150"
-        :class="expandedFolders.has(folder.id) ? 'rotate-90' : ''"
+        class="w-5 h-5 flex items-center justify-center bg-transparent border-none cursor-pointer shrink-0 p-0"
         @click.stop="emit('toggle-folder', folder.id)"
-      >▶</button>
+      >
+        <svg
+          class="w-3 h-3 text-text-muted transition-transform duration-150"
+          :class="expandedFolders.has(folder.id) ? 'rotate-90' : ''"
+          viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+        >
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
 
-      <!-- Book icon -->
-      <svg class="shrink-0" width="33" height="40" viewBox="0 0 24 24" fill="none">
-        <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5Z" fill="#3b82f6" stroke="#60a5fa" stroke-width="0.75"/>
-        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20v5H6.5A2.5 2.5 0 0 1 4 19.5Z" fill="#2563eb" stroke="#60a5fa" stroke-width="0.75"/>
-        <path d="M9 7h6" stroke="#dbeafe" stroke-width="1.5" stroke-linecap="round"/>
-        <path d="M9 10.5h4" stroke="#dbeafe" stroke-width="1.5" stroke-linecap="round"/>
+      <!-- Folder icon (stroke-only, aligned with Tab icons) -->
+      <svg
+        class="shrink-0 transition-colors"
+        style="width:20px;height:20px;"
+        :class="activeFolderId === folder.id ? 'text-tinder-pink' : 'text-text-secondary'"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+      >
+        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
 
       <!-- Folder name (or rename input) -->
@@ -147,18 +158,26 @@ function avatarColor(paperId: string): string {
         />
       </template>
       <template v-else>
-        <div class="flex-1 min-w-0">
+        <div class="flex-1 min-w-0 flex flex-col justify-center">
           <span
-            class="text-sm font-medium truncate block"
-            :class="activeFolderId === folder.id ? 'text-tinder-blue' : 'text-text-primary'"
+            class="text-sm font-medium truncate"
+            :class="activeFolderId === folder.id ? 'text-tinder-pink' : 'text-text-primary'"
           >{{ folder.name }}</span>
-          <span v-if="folder.papers?.length" class="text-[10px] text-text-muted">{{ folder.papers.length }} 篇论文</span>
+          <span v-if="folder.papers?.length" class="text-[11px] text-text-muted truncate mt-0.5">
+            {{ folder.papers.filter(p => !p.read_status || p.read_status === 'unread').length > 0
+              ? `${folder.papers.filter(p => !p.read_status || p.read_status === 'unread').length} 未读 / ${folder.papers.length}`
+              : `${folder.papers.length} 篇` }}
+          </span>
         </div>
         <!-- Menu -->
         <button
-          class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+          class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
           @click.stop="emit('open-folder-menu', $event, folder)"
-        >⋯</button>
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+            <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
+          </svg>
+        </button>
       </template>
     </div>
 
@@ -170,9 +189,10 @@ function avatarColor(paperId: string): string {
         class="flex items-center gap-2 py-2"
         :style="{ paddingLeft: (22 + (depth + 1) * 14) + 'px' }"
       >
-        <svg class="shrink-0" width="33" height="40" viewBox="0 0 24 24" fill="none" opacity="0.5">
-          <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v15H6.5A2.5 2.5 0 0 0 4 19.5Z" fill="#3b82f6" stroke="#60a5fa" stroke-width="0.75"/>
-          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20v5H6.5A2.5 2.5 0 0 1 4 19.5Z" fill="#2563eb" stroke="#60a5fa" stroke-width="0.75"/>
+        <svg class="shrink-0 text-text-muted" style="width:18px;height:18px;"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
         <input
           class="flex-1 bg-bg-elevated border border-border rounded px-2 py-1 text-sm text-text-primary focus:outline-none focus:border-tinder-blue/50"
@@ -234,7 +254,8 @@ function avatarColor(paperId: string): string {
       >
         <!-- Paper row -->
         <div
-          class="flex items-center gap-2 py-1.5 rounded-lg hover:bg-bg-hover transition-colors group"
+          class="flex items-center gap-2.5 py-2 rounded-lg hover:bg-bg-hover transition-colors group border-l-2"
+          :class="(!paper.read_status || paper.read_status === 'unread') ? 'border-tinder-green/60' : 'border-transparent'"
           :style="{ paddingLeft: (22 + (depth + 1) * 14) + 'px', paddingRight: '8px' }"
         >
           <!-- Batch checkbox -->
@@ -263,7 +284,7 @@ function avatarColor(paperId: string): string {
           <!-- Inline rename for paper -->
           <template v-if="renamingPaperId === paper.paper_id">
             <div
-              class="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+              class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
               :style="{ background: avatarColor(paper.paper_id) }"
             >{{ (paper.paper_data?.institution || '?').slice(0, 2) }}</div>
             <input
@@ -283,12 +304,20 @@ function avatarColor(paperId: string): string {
             @click="emit('open-paper', paper.paper_id)"
           >
             <div
-              class="w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-white text-[9px] font-bold"
+              class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-[10px] font-bold"
               :style="{ background: avatarColor(paper.paper_id) }"
             >{{ (paper.paper_data?.institution || '?').slice(0, 2) }}</div>
             <div class="min-w-0 flex-1">
-              <div class="text-[11px] font-medium text-text-primary truncate">{{ paper.paper_data?.short_title }}</div>
-              <div class="text-[10px] text-text-muted truncate">{{ paper.paper_data?.institution }} · {{ paper.paper_id }}</div>
+              <div
+                class="text-xs truncate"
+                :class="(!paper.read_status || paper.read_status === 'unread') ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'"
+              >{{ paper.paper_data?.short_title }}</div>
+              <div class="text-[11px] text-text-muted truncate">{{ paper.paper_data?.institution }} · {{ paper.paper_id }}</div>
+              <div
+                v-if="paper.classify_status === 'done' && paper.classify_reason"
+                class="text-[10px] text-text-muted/60 truncate mt-0.5 italic"
+                :title="`AI 分类原因：${paper.classify_reason}`"
+              >{{ paper.classify_reason }}</div>
             </div>
           </button>
 
@@ -332,6 +361,22 @@ function avatarColor(paperId: string): string {
             class="shrink-0 w-5 h-5 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded opacity-0 group-hover:opacity-100 transition-opacity text-xs"
             @click.stop="emit('open-paper-menu', $event, paper)"
           >⋯</button>
+
+          <!-- Classify status indicator (shown when not idle) -->
+          <span
+            v-if="paper.classify_status === 'pending' || paper.classify_status === 'running'"
+            class="shrink-0 w-3.5 h-3.5 text-amber-400"
+            title="AI 正在分类中…"
+          >
+            <svg class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+            </svg>
+          </span>
+          <span
+            v-else-if="paper.classify_status === 'failed'"
+            class="shrink-0 w-2.5 h-2.5 rounded-full bg-red-400 cursor-help"
+            :title="`分类失败${paper.classify_error ? '：' + paper.classify_error : ''}`"
+          ></span>
         </div>
 
         <!-- Expanded notes/files under paper -->
@@ -339,7 +384,7 @@ function avatarColor(paperId: string): string {
           <div
             v-for="note in paperNotes.get(paper.paper_id)"
             :key="note.id"
-            class="flex items-center gap-2 py-1.5 rounded hover:bg-bg-hover transition-colors group/note cursor-pointer"
+            class="flex items-center gap-2.5 py-2 rounded hover:bg-bg-hover transition-colors group/note cursor-pointer"
             :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
             @click="onNoteClick(note)"
           >

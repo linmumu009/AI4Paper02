@@ -16,6 +16,7 @@ Usage:
     (run from the Sever/ directory)
 """
 
+import logging
 import os
 import re as _re
 
@@ -24,12 +25,20 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from config.logging_config import configure_logging
+configure_logging()
+
+_logger = logging.getLogger(__name__)
+
 from services import (
     analytics_service,
     auth_service,
     config_service,
+    engagement_service,
+    entitlement_service,
     llm_config_service,
     prompt_config_service,
+    research_service,
 )
 from community.community_router import router as community_router
 from community import community_service
@@ -38,10 +47,13 @@ from community import community_service
 from routers.admin_router import router as admin_router
 from routers.auth_router import router as auth_router
 from routers.download_router import router as download_router
+from routers.engagement_router import router as engagement_router
+from routers.entitlement_router import router as entitlement_router
 from routers.idea_router import router as idea_router
 from routers.kb_router import router as kb_router
 from routers.paper_router import router as paper_router
 from routers.pipeline_router import router as pipeline_router
+from routers.research_router import router as research_router
 from routers.seo_router import router as seo_router
 from routers.user_paper_router import router as user_paper_router
 
@@ -67,23 +79,33 @@ async def startup_event():
     prompt_config_service.init_db()
     seeded_prompts = prompt_config_service.seed_default_idea_prompts()
     if seeded_prompts:
-        print(f"[STARTUP] 已写入 {seeded_prompts} 条灵感生成默认提示词到数据库")
+        _logger.info("已写入 %d 条灵感生成默认提示词到数据库", seeded_prompts)
     seeded_llm = llm_config_service.seed_default_idea_llm_configs()
     if seeded_llm:
-        print(f"[STARTUP] 已写入 {seeded_llm} 条灵感生成默认模型配置到数据库")
+        _logger.info("已写入 %d 条灵感生成默认模型配置到数据库", seeded_llm)
     auth_service.init_auth_db()
     analytics_service.init_db()
+    engagement_service.init_db()
+    entitlement_service.init_db()
     community_service.init_db()
+    research_service.init_db()
+
+    # Re-enqueue any classify jobs that were interrupted by the previous restart
+    try:
+        from services import auto_classify_service as acs
+        recovered = acs.recover_all_stalled_jobs()
+        if recovered:
+            _logger.info("已恢复 %d 个被中断的自动分类任务", recovered)
+    except Exception as exc:
+        _logger.error("auto_classify recovery failed: %s", exc, exc_info=True)
 
     _sever_dir = os.path.dirname(os.path.abspath(__file__))
     _fc_dir = os.path.join(_sever_dir, "data", "file_collect")
     if not os.path.isdir(_fc_dir):
-        print(
-            f"[WARN] data/file_collect 目录不存在: {_fc_dir}\n"
-            "       服务器端尚未运行流水线，日期下拉框和推荐卡片将为空。\n"
-            "       请将本地的 Sever/data/file_collect/ 目录上传到服务器，\n"
-            "       或在服务器上运行一次流水线以生成数据。",
-            flush=True,
+        _logger.warning(
+            "data/file_collect 目录不存在: %s — 服务器端尚未运行流水线，日期下拉框和推荐卡片将为空。"
+            "请将本地的 Sever/data/file_collect/ 目录上传到服务器，或在服务器上运行一次流水线以生成数据。",
+            _fc_dir,
         )
 
 # ---------------------------------------------------------------------------
@@ -109,12 +131,19 @@ _default_origins = [
 _extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 _allowed_origins = list(dict.fromkeys(_default_origins + _extra_origins))
 
+_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+_ALLOWED_HEADERS = [
+    "Content-Type", "Authorization", "Accept", "X-Requested-With",
+    "Cookie", "X-CSRF-Token",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=_ALLOWED_METHODS,
+    allow_headers=_ALLOWED_HEADERS,
+    max_age=600,
 )
 
 # ---------------------------------------------------------------------------
@@ -124,11 +153,19 @@ app.add_middleware(
 _SEVER_ROOT = os.path.dirname(os.path.abspath(__file__))
 _DATA_DIR = os.path.join(_SEVER_ROOT, "data")
 
-if os.path.isdir(_DATA_DIR):
-    app.mount("/static/data", StaticFiles(directory=_DATA_DIR), name="data")
+# SECURITY NOTE: Do NOT mount the entire data/ directory — it would expose all pipeline
+# artifacts (paper PDFs, summaries, etc.) to unauthenticated requests. Each sub-directory
+# that must be publicly reachable is mounted individually below.
+#
+# Previously the whole data/ directory was mounted at /static/data. This has been removed.
+# If any new public asset type is needed, add a targeted sub-directory mount here.
 
 _KB_FILES_DIR = os.path.join(_DATA_DIR, "kb_files")
 os.makedirs(_KB_FILES_DIR, exist_ok=True)
+# SECURITY NOTE: /static/kb_files serves user-private content (KB files, translations, notes)
+# without any per-request authentication. In production this should be protected at the
+# reverse-proxy (nginx) level using auth_request, or migrated to signed download URLs.
+# See routers/download_router.py for the authenticated download endpoints.
 app.mount("/static/kb_files", StaticFiles(directory=_KB_FILES_DIR), name="kb_files")
 
 _PDFJS_DIR = os.path.join(_SEVER_ROOT, "static", "pdfjs")
@@ -144,8 +181,11 @@ app.include_router(auth_router)          # /api/auth/…, /api/subscription/…,
 app.include_router(admin_router)         # /api/admin/…
 app.include_router(paper_router)         # /api/dates, /api/papers/…, /api/chat/…, /api/digest/…, /api/analytics/…
 app.include_router(download_router)      # /api/download/…
+app.include_router(engagement_router)    # /api/engagement/…
+app.include_router(entitlement_router)   # /api/entitlements/…
 app.include_router(kb_router)            # /api/kb/…
 app.include_router(idea_router)          # /api/idea/…
+app.include_router(research_router)      # /api/research/…
 app.include_router(user_paper_router)    # /api/user-papers/…
 app.include_router(pipeline_router)      # /api/pipeline/…, /api/schedule/…
 app.include_router(community_router)     # /api/community/…
@@ -154,11 +194,11 @@ app.include_router(community_router)     # /api/community/…
 # SPA hosting (production) — desktop (/) and mobile (/m/)
 # Serve compiled Vue/Vite dist; unknown paths fall back to index.html.
 # Build first:  cd View && npm run build
-#               cd Mobile && npm run build
+#               cd mobile_new && npm run build
 # ---------------------------------------------------------------------------
 
 _FRONTEND_DIST = os.path.normpath(os.path.join(_SEVER_ROOT, "..", "View", "dist"))
-_MOBILE_DIST = os.path.normpath(os.path.join(_SEVER_ROOT, "..", "Mobile", "dist"))
+_MOBILE_DIST = os.path.normpath(os.path.join(_SEVER_ROOT, "..", "mobile_new", "dist"))
 
 if os.path.isdir(_MOBILE_DIST):
     _mobile_assets = os.path.join(_MOBILE_DIST, "assets")

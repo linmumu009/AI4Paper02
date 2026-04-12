@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import PaperChat from './PaperChat.vue'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { fetchPaperDetail } from '../api'
+import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const {
@@ -22,7 +23,10 @@ const {
   setDrawerWidth,
   resetDrawerWidthToDefault,
   applyBrowsingToPaperContext,
+  signalNoteSaved,
 } = useGlobalChat()
+
+const { showError } = useToast()
 
 const drawerWidth = computed(() => chatDrawerWidthPx.value)
 const isResizingDrawer = ref(false)
@@ -65,7 +69,9 @@ async function syncRoutePaperContext() {
         })
         return
       }
-    } catch {
+    } catch (e) {
+      console.warn('[GlobalChatDrawer] 加载论文上下文失败，使用基础上下文', e)
+      showError('加载论文信息失败，AI 助手将在无论文上下文的情况下运行')
       setPaperContext({ paperId: pid, title: pid })
       return
     }
@@ -135,29 +141,45 @@ onUnmounted(() => {
         <div class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
         <div class="shrink-0 flex items-center gap-2 px-3 py-2 border-b border-border">
           <span class="text-sm font-semibold text-text-primary truncate">AI 助手</span>
-          <div class="ml-auto flex items-center gap-1 flex-wrap justify-end">
-            <button
-              type="button"
-              class="text-xs px-2 py-1 rounded-lg border border-border bg-bg-elevated cursor-pointer"
-              :class="drawerMode === 'general' ? 'border-tinder-blue text-tinder-blue' : ''"
-              @click="setDrawerMode('general')"
+          <div class="ml-auto flex items-center gap-2">
+            <!-- Segmented tab: 通用 / 论文 -->
+            <div
+              class="flex p-0.5 bg-bg-elevated/80 rounded-lg border border-border/40 gap-0.5"
+              role="tablist"
+              aria-label="AI 助手模式"
             >
-              通用
-            </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="drawerMode === 'general'"
+                class="px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer border-none"
+                :class="drawerMode === 'general'
+                  ? 'bg-bg-card text-text-primary shadow-sm'
+                  : 'text-text-muted hover:text-text-secondary bg-transparent'"
+                @click="setDrawerMode('general')"
+              >
+                通用
+              </button>
+              <button
+                type="button"
+                role="tab"
+                :aria-selected="drawerMode === 'paper'"
+                class="px-3 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer border-none"
+                :class="drawerMode === 'paper'
+                  ? 'bg-bg-card text-text-primary shadow-sm'
+                  : 'text-text-muted hover:text-text-secondary bg-transparent'"
+                @click="setDrawerMode('paper')"
+              >
+                论文
+              </button>
+            </div>
             <button
               type="button"
-              class="text-xs px-2 py-1 rounded-lg border border-border bg-bg-elevated cursor-pointer"
-              :class="drawerMode === 'paper' ? 'border-tinder-blue text-tinder-blue' : ''"
-              @click="setDrawerMode('paper')"
-            >
-              论文
-            </button>
-            <button
-              type="button"
-              class="text-xs px-2 py-1 rounded-lg text-text-muted hover:text-text-primary cursor-pointer border-none bg-transparent"
+              class="text-xs w-6 h-6 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-hover cursor-pointer border-none bg-transparent transition-colors"
+              aria-label="关闭 AI 助手面板"
               @click="close"
             >
-              ✕
+              <span aria-hidden="true">✕</span>
             </button>
           </div>
         </div>
@@ -190,6 +212,7 @@ onUnmounted(() => {
             v-if="drawerMode === 'general'"
             chat-mode="general"
             :show-close-button="false"
+            @note-saved="signalNoteSaved"
           />
           <PaperChat
             v-else-if="effectivePaperId"
@@ -197,6 +220,7 @@ onUnmounted(() => {
             :paper-title="paperContext?.title"
             :paper-summary="paperContext?.summary"
             :show-close-button="false"
+            @note-saved="signalNoteSaved"
           />
           <div
             v-else

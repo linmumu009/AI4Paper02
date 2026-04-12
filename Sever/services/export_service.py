@@ -267,12 +267,84 @@ _PDF_HTML_TEMPLATE = """\
   hr {{ border: none; border-top: 1px solid #ddd; margin: 1.5em 0; }}
   img {{ max-width: 100%; height: auto; display: block; margin: 0.5em 0; }}
 </style>
+{bilingual_style}
 {katex_tags}
 </head>
 <body>
 {body}
 </body>
 </html>
+"""
+
+# ---------------------------------------------------------------------------
+# Bilingual-mode CSS — mirrors MarkdownViewer.vue bilingual scoped styles.
+# Accepts hue/saturation/intensity so PDF colour matches the user's theme
+# selection (forwarded from the browser's localStorage via query params).
+# Default values (195 / 70 / 6) match the app's built-in default preset.
+# ---------------------------------------------------------------------------
+def _build_bilingual_css(hue: int = 195, saturation: int = 70, intensity: int = 6, font_size: int = 15) -> str:
+    """Return a <style> block with bilingual colours and font size derived from user params.
+
+    hue:        colour wheel position (0-360)
+    saturation: HSL saturation percent (0-100)
+    intensity:  background opacity level (2-15), maps to alpha the same way
+                the frontend does: blockquote bg = intensity*0.01,
+                [译] label bg = intensity*0.02
+    font_size:  base font size in px (12-20); overrides the template body font-size
+                so that PDF matches the on-screen reading size exactly.
+    """
+    bg_alpha = round(intensity * 0.01, 4)
+    label_alpha = round(intensity * 0.02, 4)
+    return f"""\
+<style>
+  /* Override body font-size to match user's on-screen reading preference */
+  body {{
+    font-size: {font_size}px !important;
+  }}
+  /* English source paragraph (blockquote) */
+  blockquote {{
+    border-left: 3px solid hsl({hue}, {saturation}%, 45%);
+    background: hsla({hue}, {saturation}%, 50%, {bg_alpha});
+    color: #555;
+    font-size: 0.92em;
+    font-style: normal;
+    padding: 0.5em 0.85em;
+    margin: 0.5em 0 0;
+    border-radius: 0 6px 6px 0;
+  }}
+  /* [译] label — strong tag that is the only child of its paragraph */
+  p > strong:only-child {{
+    display: inline-block;
+    font-size: 0.72em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: hsl({hue}, {saturation}%, 38%);
+    background: hsla({hue}, {saturation}%, 50%, {label_alpha});
+    border: 1px solid hsla({hue}, {saturation}%, 50%, 0.28);
+    border-radius: 4px;
+    padding: 0.1em 0.45em;
+    margin: 0.25em 0 0.1em;
+    line-height: 1.5;
+  }}
+  /* Chinese translation paragraph — inherits body font-size (= user's chosen value) */
+  p {{
+    line-height: 1.8;
+    margin: 0.2em 0 0.6em;
+  }}
+  /* Heading sizes — same em ratios as the frontend bilingual-mode overrides
+     so that PDF output matches the on-screen visual hierarchy exactly. */
+  h1 {{ font-size: 1.61em; }}
+  h2 {{ font-size: 1.33em; }}
+  h3 {{ font-size: 1.17em; }}
+  h4, h5, h6 {{ font-size: 1.06em; }}
+  /* Section separator */
+  hr {{
+    border: none;
+    border-top: 1px dashed #ccc;
+    margin: 0.85em 0;
+    opacity: 0.6;
+  }}
+</style>
 """
 
 
@@ -300,7 +372,16 @@ def _rewrite_html_img_srcs(html: str, base_dir: str) -> str:
     return re.sub(r'src=(["\'])([^"\']*)\1', _fix_src, html, flags=re.IGNORECASE)
 
 
-def markdown_to_pdf(md_text: str, output_path: str, md_base_dir: str | None = None) -> None:
+def markdown_to_pdf(
+    md_text: str,
+    output_path: str,
+    md_base_dir: str | None = None,
+    bilingual: bool = False,
+    bilingual_hue: int = 195,
+    bilingual_saturation: int = 70,
+    bilingual_intensity: int = 6,
+    bilingual_font_size: int = 15,
+) -> None:
     """Convert Markdown text to a PDF file at *output_path* via Playwright.
 
     A fresh Playwright Chromium instance is created per call to avoid the
@@ -317,6 +398,19 @@ def markdown_to_pdf(md_text: str, output_path: str, md_base_dir: str | None = No
     md_base_dir: directory of the source Markdown file, used to resolve
     relative image paths (e.g. mineru_bundle/images/xxx.jpg) to absolute
     file:// URIs so Playwright can load them. Pass os.path.dirname(md_path).
+
+    bilingual: when True, injects bilingual-mode CSS that mirrors the
+    MarkdownViewer.vue bilingual styles (coloured blockquote accent,
+    [译] label badge, dashed hr separators).
+
+    bilingual_hue / bilingual_saturation / bilingual_intensity: HSL colour
+    parameters forwarded from the user's browser theme preference so that the
+    downloaded PDF matches the on-screen colour.  Defaults match the app's
+    built-in default preset (hue=195, saturation=70, intensity=6).
+
+    bilingual_font_size: base font size in px (12-20) forwarded from the
+    user's on-screen reading preference so that PDF text size matches
+    exactly what the user sees in the browser.  Default is 15px.
     """
     import markdown as md_lib
     from playwright.sync_api import sync_playwright
@@ -330,6 +424,7 @@ def markdown_to_pdf(md_text: str, output_path: str, md_base_dir: str | None = No
         html_body = _rewrite_html_img_srcs(html_body, md_base_dir)
 
     full_html = _PDF_HTML_TEMPLATE.format(
+        bilingual_style=_build_bilingual_css(bilingual_hue, bilingual_saturation, bilingual_intensity, bilingual_font_size) if bilingual else "",
         katex_tags=_build_katex_tags(),
         body=html_body,
     )

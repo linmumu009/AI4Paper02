@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, kb_service, translate_service, user_paper_service
+from services import auth_service, entitlement_service, kb_service, translate_service, user_paper_service
 from routers._deps import _KB_FILES_DIR, _EXE_RELEASE_DIR
 
 router = APIRouter(prefix="/api/download", tags=["download"])
@@ -48,6 +48,10 @@ def api_download_paper_file(
     file_type: str = Query(..., description="文件类型: pdf | mineru | zh | bilingual"),
     scope: str = Query("kb", description="来源: kb | mypapers"),
     fmt: str = Query("md", alias="format", description="输出格式: md | docx | pdf"),
+    hue: int = Query(195, ge=0, le=360, description="双语 PDF 色相 (0-360)"),
+    sat: int = Query(70, ge=0, le=100, description="双语 PDF 饱和度 (0-100)"),
+    intensity: int = Query(6, ge=2, le=15, description="双语 PDF 背景浓度 (2-15)"),
+    font_size: int = Query(15, ge=12, le=20, description="双语 PDF 基础字号 (12-20px)"),
     _user=Depends(auth_service.require_user),
 ):
     import re
@@ -61,6 +65,10 @@ def api_download_paper_file(
     fmt = fmt.lower().strip()
     if fmt not in ("md", "docx", "pdf"):
         raise HTTPException(status_code=400, detail="无效的 format，可选: md | docx | pdf")
+
+    # Quota check: DOCX/PDF export consumes monthly export quota (all tiers)
+    if fmt in ("docx", "pdf"):
+        entitlement_service.consume_quota(_user["id"], "export")
 
     user_id = _user["id"]
 
@@ -149,7 +157,16 @@ def api_download_paper_file(
         tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
         tmp.close()
         try:
-            export_service.markdown_to_pdf(md_text, tmp.name, md_base_dir=os.path.dirname(md_path))
+            export_service.markdown_to_pdf(
+                md_text,
+                tmp.name,
+                md_base_dir=os.path.dirname(md_path),
+                bilingual=(file_type == "bilingual"),
+                bilingual_hue=hue,
+                bilingual_saturation=sat,
+                bilingual_intensity=intensity,
+                bilingual_font_size=font_size,
+            )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"PDF 转换失败: {exc}") from exc
         pdf_filename = f"{base_name}.pdf"
@@ -202,6 +219,10 @@ def api_download_batch(
     body: BatchDownloadBody,
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: batch export is Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "batch_export"):
+        raise HTTPException(status_code=403, detail="批量导出仅 Pro+ 套餐可用，请升级以继续使用")
+
     import io
     import zipfile as _zipfile
     import re

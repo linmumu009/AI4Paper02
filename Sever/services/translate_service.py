@@ -238,9 +238,16 @@ def _resolve_llm_config() -> dict:
         or (getattr(cfg, "qwen_api_key", None) or "").strip()
     )
     base_url = (getattr(cfg, "translate_base_url", None) or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    model = getattr(cfg, "translate_model", None) or "qwen-plus"
+    # Default to qwen-turbo: it is substantially faster than qwen-plus for
+    # straight translation tasks (no complex reasoning needed), with comparable
+    # output quality.  Override via config.translate_model if you prefer a
+    # heavier model (e.g. "qwen-plus", "qwen-max").
+    model = getattr(cfg, "translate_model", None) or "qwen-turbo"
     max_tokens = int(getattr(cfg, "translate_max_tokens", 4096) or 4096)
     temperature = float(getattr(cfg, "translate_temperature", 0.3) or 0.3)
+    # chunk_size of 6000 chars balances batch count vs per-request latency.
+    # Increasing to ~8000 reduces total API calls but may hit token limits on
+    # some models.  Decreasing improves parallelism but adds overhead.
     chunk_size = int(getattr(cfg, "translate_chunk_size", 6000) or 6000)
     concurrency = int(getattr(cfg, "translate_concurrency", 8) or 8)
     hard = int(getattr(cfg, "translate_input_hard_limit", 120000) or 120000)
@@ -511,6 +518,43 @@ def _assemble_zh_from_blocks(blocks: list, zh_map: dict) -> str:
     return "\n\n".join(parts)
 
 
+def _assemble_zh_partial_from_blocks(blocks: list, zh_map: dict) -> str:
+    """
+    Assemble a partial _zh.md for in-progress previews.
+
+    Differs from _assemble_zh_from_blocks in that blocks whose translation has
+    NOT arrived yet are represented by their English source text wrapped in a
+    lightweight blockquote marker.  This keeps the document in document order
+    and makes it immediately readable even when only some batches have
+    finished, instead of showing a random subset of translated paragraphs
+    with no surrounding context.
+
+    Format for untranslated blocks:
+        > *[翻译中…]*
+        > {English source text}
+
+    Non-translatable blocks (images, tables, equations) are always emitted
+    as-is regardless of the zh_map state.
+    """
+    parts: List[str] = []
+    for blk in blocks:
+        if not blk.translatable:
+            if blk.render_md.strip():
+                parts.append(blk.render_md.strip())
+        else:
+            zh = zh_map.get(blk.block_id, "").strip()
+            if zh:
+                parts.append(zh)
+            else:
+                # Preserve English source with a clear "pending" marker so the
+                # reader knows this section has not been translated yet.
+                src = (blk.source_text or blk.render_md or "").strip()
+                if src:
+                    quoted_lines = "\n".join(f"> {line}" for line in src.splitlines())
+                    parts.append(f"> *[\u7ffb\u8bd1\u4e2d\u2026]*\n{quoted_lines}")
+    return "\n\n".join(parts)
+
+
 def _assemble_bilingual_from_blocks(blocks: list, zh_map: dict) -> str:
     """
     Assemble _bilingual.md with deterministic block-id alignment.
@@ -578,10 +622,15 @@ def _run_block_translation(
     cfg: dict,
     client: object,
     progress_cb,
+    partial_write_fn=None,
 ) -> dict:
     """
     Translate canonical blocks in parallel.
     Returns merged {block_id: zh_text} map.
+
+    partial_write_fn: optional callable(snapshot: dict) → None, called after
+    every completed batch so callers can write an incremental partial file for
+    the user to preview while the rest is still processing.
     """
     batches = _group_blocks_into_batches(blocks, cfg["chunk_size"])
     if not batches:
@@ -589,15 +638,26 @@ def _run_block_translation(
 
     n_total = len(batches)
     batch_results: List[dict | None] = [None] * n_total
+    live_zh_map: dict = {}  # accumulated translations, updated under prog_lock
     prog_lock = threading.Lock()
     done_count = [0]
 
-    def _bump() -> None:
+    def _bump(batch_partial: dict) -> None:
         with prog_lock:
             done_count[0] += 1
             d = done_count[0]
+            live_zh_map.update(batch_partial)
+            snapshot = dict(live_zh_map) if partial_write_fn else None
         pct = min(99, int(100 * d / n_total)) if n_total else 0
         progress_cb(pct)
+        # Write a partial preview file after every batch so the frontend can
+        # show incremental progress without the user needing to wait for the
+        # full translation to finish.
+        if partial_write_fn and snapshot is not None:
+            try:
+                partial_write_fn(snapshot)
+            except Exception:
+                pass  # Partial writes are non-fatal
 
     n_workers = min(cfg["concurrency"], n_total)
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
@@ -617,7 +677,7 @@ def _run_block_translation(
             try:
                 idx, partial = fut.result()
                 batch_results[idx] = partial
-                _bump()
+                _bump(partial)
             except Exception as exc:
                 raise RuntimeError(
                     f"\u5757\u7ffb\u8bd1\u5931\u8d25\uff08\u6279\u6b21 {submit_idx}\uff09: {exc}"
@@ -742,7 +802,19 @@ def run_translation(user_id: int, paper_id: str) -> None:
             # Apply paragraph merge so translated text is based on normalized blocks
             blocks = _merge_adjacent_paragraphs(blocks)
             logger.info("Using block-based translation for %s (%d blocks after merge)", paper_id, len(blocks))
-            zh_map = _run_block_translation(blocks, cfg, client, progress_cb)
+
+            def _partial_write_zh(partial_zh_map: dict) -> None:
+                """Write an ordered partial _zh.md so the frontend can preview while translating."""
+                try:
+                    partial_zh = _assemble_zh_partial_from_blocks(blocks, partial_zh_map)
+                    if partial_zh.strip():
+                        with open(zh_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_zh)
+                        logger.debug("Partial zh written for %s (%d chars)", paper_id, len(partial_zh))
+                except Exception as _exc:
+                    logger.debug("Partial zh write failed for %s: %s", paper_id, _exc)
+
+            zh_map = _run_block_translation(blocks, cfg, client, progress_cb, partial_write_fn=_partial_write_zh)
             _save_blocks_json(blocks, zh_map, blocks_path)
             zh_full = _assemble_zh_from_blocks(blocks, zh_map)
             bi_full = _assemble_bilingual_from_blocks(blocks, zh_map)
@@ -948,7 +1020,20 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
             # Apply paragraph merge so translated text is based on normalized blocks
             blocks = _merge_adjacent_paragraphs(blocks)
             logger.info("Using block-based translation for KB %s (%d blocks after merge)", paper_id, len(blocks))
-            zh_map = _run_block_translation(blocks, cfg, client, _kb_progress)
+
+            def _kb_partial_write_zh(partial_zh_map: dict) -> None:
+                """Write an ordered partial _zh.md so the frontend can preview during translation."""
+                try:
+                    partial_zh = _assemble_zh_partial_from_blocks(blocks, partial_zh_map)
+                    if partial_zh.strip():
+                        os.makedirs(os.path.dirname(zh_path), exist_ok=True)
+                        with open(zh_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_zh)
+                        logger.debug("Partial KB zh written for %s (%d chars)", paper_id, len(partial_zh))
+                except Exception as _exc:
+                    logger.debug("Partial KB zh write failed for %s: %s", paper_id, _exc)
+
+            zh_map = _run_block_translation(blocks, cfg, client, _kb_progress, partial_write_fn=_kb_partial_write_zh)
             _save_blocks_json(blocks, zh_map, blocks_path)
             zh_full = _assemble_zh_from_blocks(blocks, zh_map)
             bi_full = _assemble_bilingual_from_blocks(blocks, zh_map)

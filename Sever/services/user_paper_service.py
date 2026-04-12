@@ -209,6 +209,7 @@ def list_papers(
     *,
     source_type: Optional[str] = None,
     search: Optional[str] = None,
+    institution: Optional[str] = None,
     limit: int = 200,
     offset: int = 0,
 ) -> list[dict]:
@@ -226,6 +227,10 @@ def list_papers(
             q = f"%{search}%"
             params.extend([q, q, q])
 
+        if institution:
+            clauses.append("institution = ?")
+            params.append(institution)
+
         where = " AND ".join(clauses)
         params.extend([limit, offset])
         rows = conn.execute(
@@ -234,6 +239,20 @@ def list_papers(
             params,
         ).fetchall()
         return [_row_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_institutions(user_id: int) -> list[str]:
+    """Return distinct non-empty institution names for a user, sorted alphabetically."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT institution FROM user_uploaded_papers "
+            "WHERE user_id = ? AND institution != '' ORDER BY institution",
+            (user_id,),
+        ).fetchall()
+        return [row[0] for row in rows]
     finally:
         conn.close()
 

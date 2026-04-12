@@ -26,8 +26,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import analytics_service, auth_service, chat_service, data_service, kb_service
-from routers._deps import _get_optional_user, _tier_label, _tier_quota_limit
+from services import analytics_service, auth_service, chat_service, data_service, engagement_service, entitlement_service, kb_service
+from routers._deps import _get_optional_user, _tier_label, _tier_quota_limit, _analytics_limiter
 
 router = APIRouter(prefix="/api", tags=["papers"])
 
@@ -38,6 +38,7 @@ router = APIRouter(prefix="/api", tags=["papers"])
 
 class PaperChatBody(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
+    reward_id: Optional[int] = Field(default=None, description="Engagement reward ID to apply a chat context boost")
 
 
 class AnalyticsEventBody(BaseModel):
@@ -49,7 +50,7 @@ class AnalyticsEventBody(BaseModel):
 
 
 class AnalyticsEventBatchBody(BaseModel):
-    events: list[AnalyticsEventBody] = Field(...)
+    events: list[AnalyticsEventBody] = Field(..., max_length=50)
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +66,9 @@ def api_list_dates(user: Optional[dict] = Depends(_get_optional_user)):
 
 @router.get("/papers", summary="List papers for a date")
 def api_list_papers(
-    date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    search: str = Query(None, description="Search in title / paper_id / institution"),
-    institution: str = Query(None, description="Filter by institution name"),
+    date: str = Query(..., description="Date in YYYY-MM-DD format", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    search: str = Query(None, description="Search in title / paper_id / institution", max_length=200),
+    institution: str = Query(None, description="Filter by institution name", max_length=200),
     user: Optional[dict] = Depends(_get_optional_user),
 ):
     uid = user["id"] if user else 0
@@ -99,7 +100,12 @@ def api_paper_detail(
 
 
 @router.get("/papers/{paper_id}/pdf", summary="Serve local PDF for a paper")
-def api_paper_pdf(paper_id: str):
+def api_paper_pdf(
+    paper_id: str,
+    user: Optional[dict] = Depends(_get_optional_user),
+):
+    if user is None:
+        raise HTTPException(status_code=401, detail="请先登录以查看 PDF")
     source = kb_service._find_pdf_in_file_collect(paper_id)
     if source is None:
         raise HTTPException(status_code=404, detail="PDF not found locally")
@@ -125,8 +131,22 @@ def api_post_paper_chat(
     body: PaperChatBody,
     user=Depends(auth_service.require_user),
 ):
+    # Quota check: consume one chat message credit (Free: 10/day limit)
+    entitlement_service.consume_quota(user["id"], "chat")
+
+    # Apply engagement chat boost if provided (increases input context window for this message)
+    input_multiplier = 1.0
+    if body.reward_id is not None:
+        boost = engagement_service.get_reward_boost(user["id"], "chat", body.reward_id)
+        if boost:
+            try:
+                engagement_service.use_reward(user["id"], body.reward_id, f"chat_boost_{paper_id}")
+                input_multiplier = boost.get("input_hard_limit_multiplier", 1.0)
+            except ValueError:
+                pass  # Already used or expired — proceed without boost
+
     return StreamingResponse(
-        chat_service.stream_chat(user["id"], paper_id, body.message),
+        chat_service.stream_chat(user["id"], paper_id, body.message, input_multiplier=input_multiplier),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -160,9 +180,26 @@ def api_post_general_chat(
     body: PaperChatBody,
     user=Depends(auth_service.require_user),
 ):
+    # Gate check: general chat is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(user["id"], "general_chat"):
+        raise HTTPException(status_code=403, detail="通用 AI 助手仅 Pro 及以上套餐可用，请升级以继续使用")
+    # Quota check: share the same chat quota as per-paper chat messages
+    entitlement_service.consume_quota(user["id"], "chat")
+
+    # Apply engagement chat boost if provided
+    input_multiplier = 1.0
+    if body.reward_id is not None:
+        boost = engagement_service.get_reward_boost(user["id"], "chat", body.reward_id)
+        if boost:
+            try:
+                engagement_service.use_reward(user["id"], body.reward_id, "chat_boost_general")
+                input_multiplier = boost.get("input_hard_limit_multiplier", 1.0)
+            except ValueError:
+                pass
+
     pid = chat_service.GENERAL_CHAT_PAPER_ID
     return StreamingResponse(
-        chat_service.stream_chat(user["id"], pid, body.message),
+        chat_service.stream_chat(user["id"], pid, body.message, input_multiplier=input_multiplier),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -187,20 +224,47 @@ def api_daily_digest(
     user: Optional[dict] = Depends(_get_optional_user),
 ):
     uid = user["id"] if user else 0
-    digest = data_service.get_daily_digest(date, user_id=uid)
-    papers = digest.get("papers", [])
+    quota_limit = _tier_quota_limit(user)
 
+    # Pre-fetch KB and dismissed IDs once (avoid repeated DB calls in fallback loop)
     kb_ids: set[str] = set()
     dismissed_ids: set[str] = set()
     if user:
         kb_ids = kb_service.get_kb_paper_ids(user["id"])
         dismissed_ids = kb_service.get_dismissed_paper_ids(user["id"])
     exclude_ids = kb_ids | dismissed_ids
-    if exclude_ids:
-        papers = [p for p in papers if p.get("paper_id") not in exclude_ids]
+
+    def _filter_papers(raw_papers: list) -> list:
+        if not exclude_ids:
+            return raw_papers
+        return [p for p in raw_papers if p.get("paper_id") not in exclude_ids]
+
+    # Try the requested date first
+    digest = data_service.get_daily_digest(date, user_id=uid)
+    papers = _filter_papers(digest.get("papers", []))
+    effective_date = date
+    is_fallback = False
+
+    # Fallback: if the requested date has no unread papers, look for the most recent
+    # earlier date that still has papers the user hasn't dismissed or collected.
+    if not papers:
+        all_dates = data_service.list_dates(user_id=uid)
+        try:
+            start_idx = all_dates.index(date)
+        except ValueError:
+            # Requested date not in list — start from the beginning
+            start_idx = -1
+        for earlier_date in all_dates[start_idx + 1:]:
+            fallback_digest = data_service.get_daily_digest(earlier_date, user_id=uid)
+            fallback_papers = _filter_papers(fallback_digest.get("papers", []))
+            if fallback_papers:
+                digest = fallback_digest
+                papers = fallback_papers
+                effective_date = earlier_date
+                is_fallback = True
+                break
 
     total_available = len(papers)
-    quota_limit = _tier_quota_limit(user)
     if quota_limit is not None:
         digest["papers"] = papers[:quota_limit]
     else:
@@ -209,6 +273,8 @@ def api_daily_digest(
     digest["total_papers"] = len(digest["papers"])
     digest["quota_limit"] = quota_limit
     digest["tier"] = _tier_label(user)
+    digest["effective_date"] = effective_date
+    digest["is_fallback"] = is_fallback
     return digest
 
 
@@ -226,6 +292,8 @@ def api_pipeline_status(
 
 @router.post("/analytics/event", summary="Report a single analytics event")
 def api_analytics_event(body: AnalyticsEventBody, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    _analytics_limiter.check(client_ip)
     user = auth_service.get_current_user_optional(request)
     user_id = user["id"] if user else 0
     eid = analytics_service.record_event(
@@ -241,6 +309,8 @@ def api_analytics_event(body: AnalyticsEventBody, request: Request):
 
 @router.post("/analytics/events", summary="Report analytics events in batch")
 def api_analytics_events_batch(body: AnalyticsEventBatchBody, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    _analytics_limiter.check(client_ip)
     user = auth_service.get_current_user_optional(request)
     user_id = user["id"] if user else 0
     events = [

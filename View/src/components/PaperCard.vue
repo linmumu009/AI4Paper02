@@ -1,12 +1,29 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { PaperSummary } from '../types/paper'
+import { openExternal } from '../utils/openExternal'
 
 const props = defineProps<{
   paper: PaperSummary
   animClass?: string
   source?: 'recommendation' | 'user_upload'
 }>()
+
+const copiedId = ref(false)
+
+async function copyArxivId() {
+  try {
+    await navigator.clipboard.writeText(props.paper.paper_id)
+    copiedId.value = true
+    setTimeout(() => { copiedId.value = false }, 1500)
+  } catch {
+    // fallback: do nothing
+  }
+}
+
+function openArxivPage() {
+  openExternal(`https://arxiv.org/abs/${props.paper.paper_id}`)
+}
 
 /* card background is set via CSS class, no dynamic gradient needed */
 
@@ -52,7 +69,7 @@ function tierLabel(tier: number): string {
 
 <template>
   <div
-    class="card-bg relative w-full h-full rounded-2xl overflow-hidden select-none flex flex-col"
+    class="card-bg relative w-full h-full rounded-2xl overflow-hidden flex flex-col"
     :class="animClass"
   >
     <!-- Scrollable content area -->
@@ -180,14 +197,34 @@ function tierLabel(tier: number): string {
         <span class="not-italic font-semibold">💡 </span>{{ paper['一句话记忆版'] }}
       </div>
 
-      <!-- === Footer: paper ID === -->
-      <div class="flex items-center justify-between pt-2 border-t border-border">
+      <!-- === Footer: paper ID + quick actions === -->
+      <div class="flex items-center justify-between pt-2 border-t border-border select-none">
         <span class="text-xs text-text-muted font-mono">
           {{ paper.paper_id }}
         </span>
-        <span class="text-xs text-text-muted">
-          arXiv · {{ paper.image_count || 0 }} 张图
-        </span>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-text-muted">
+            arXiv · {{ paper.image_count || 0 }} 张图
+          </span>
+          <!-- Quick action: copy arXiv ID -->
+          <button
+            class="quick-action-btn"
+            :title="copiedId ? '已复制！' : '复制 arXiv ID'"
+            :aria-label="copiedId ? '已复制 arXiv ID' : '复制 arXiv ID'"
+            @click.stop="copyArxivId"
+          >
+            {{ copiedId ? '✓' : '⎘' }}
+          </button>
+          <!-- Quick action: open arXiv page -->
+          <button
+            class="quick-action-btn"
+            title="在 arXiv 查看原文"
+            aria-label="在 arXiv 查看原文（新窗口）"
+            @click.stop="openArxivPage"
+          >
+            ↗
+          </button>
+        </div>
       </div>
 
     </div>
@@ -279,5 +316,25 @@ function tierLabel(tier: number): string {
 .scrollbar-thin::-webkit-scrollbar-thumb {
   background: var(--color-border-light);
   border-radius: 2px;
+}
+
+/* Quick-action icon buttons in card footer */
+.quick-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.quick-action-btn:hover {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
 }
 </style>

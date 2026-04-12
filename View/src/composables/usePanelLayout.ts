@@ -31,6 +31,7 @@ export const PANEL_IDS = {
   COMPARE_RESULT: 'compare-result',
   IDEA_DETAIL: 'idea-detail',
   AI_CHAT: 'ai-chat',
+  RESEARCH: 'research',
 } as const
 
 function loadState(key: string, fallback: LayoutState): LayoutState {

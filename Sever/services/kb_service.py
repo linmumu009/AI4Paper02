@@ -169,6 +169,8 @@ def init_db() -> None:
         _migrate_add_scope(conn)
         # Migrate kb_papers to add process/translate status columns
         _migrate_add_kb_paper_status(conn)
+        # Migrate kb_papers to add auto-classify and read_status columns
+        _migrate_add_classify_and_read_status(conn)
     finally:
         conn.close()
 
@@ -260,6 +262,31 @@ def _migrate_add_kb_paper_status(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE kb_papers ADD COLUMN translate_progress INTEGER NOT NULL DEFAULT 0")
     conn.execute("ALTER TABLE kb_papers ADD COLUMN translate_error TEXT NOT NULL DEFAULT ''")
     conn.commit()
+
+
+def _migrate_add_classify_and_read_status(conn: sqlite3.Connection) -> None:
+    """
+    One-time migration: add auto-classify columns and read_status to kb_papers.
+    - classify_status: 'none' | 'pending' | 'running' | 'done' | 'failed' | 'skipped'
+    - classify_folder_id: folder assigned by auto-classify (NULL = not yet classified)
+    - classify_confidence: LLM confidence score (0.0–1.0)
+    - classify_error: error message if classification failed
+    - classify_reason: one-sentence reason returned by LLM
+    - read_status: 'unread' | 'reading' | 'read'
+    """
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(kb_papers)").fetchall()}
+    if "classify_status" not in cols:
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN classify_status TEXT NOT NULL DEFAULT 'none'")
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN classify_folder_id INTEGER DEFAULT NULL")
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN classify_confidence REAL DEFAULT NULL")
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN classify_error TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    if "classify_reason" not in cols:
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN classify_reason TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    if "read_status" not in cols:
+        conn.execute("ALTER TABLE kb_papers ADD COLUMN read_status TEXT NOT NULL DEFAULT 'unread'")
+        conn.commit()
 
 
 def _migrate_add_scope(conn: sqlite3.Connection) -> None:
@@ -1605,3 +1632,161 @@ def get_kb_pdf_path(user_id: int, paper_id: str) -> Optional[str]:
         if os.path.isfile(abs_path):
             return abs_path
     return None
+
+
+# ---------------------------------------------------------------------------
+# Auto-classify helpers
+# ---------------------------------------------------------------------------
+
+def set_classify_status(
+    user_id: int,
+    paper_id: str,
+    status: str,
+    folder_id: Optional[int] = None,
+    confidence: Optional[float] = None,
+    error: str = "",
+    reason: str = "",
+    scope: str = _DEFAULT_SCOPE,
+) -> None:
+    """Update auto-classify status fields for a KB paper."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE kb_papers SET classify_status = ?, classify_folder_id = ?, "
+            "classify_confidence = ?, classify_error = ?, classify_reason = ? "
+            "WHERE user_id = ? AND paper_id = ? AND scope = ?",
+            (status, folder_id, confidence, error, reason, user_id, paper_id, scope),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_pending_classify_papers(user_id: int, scope: str = _DEFAULT_SCOPE) -> list[dict]:
+    """Return all kb_papers for user with classify_status='pending'."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM kb_papers WHERE user_id = ? AND scope = ? AND classify_status = 'pending'",
+            (user_id, scope),
+        ).fetchall()
+        results = []
+        for row in rows:
+            r = _row_to_dict(row)
+            try:
+                r["paper_data"] = json.loads(r["paper_data"])
+            except Exception:
+                r["paper_data"] = {}
+            results.append(r)
+        return results
+    finally:
+        conn.close()
+
+
+def count_pending_classify(user_id: int, scope: str = _DEFAULT_SCOPE) -> int:
+    """Return count of papers actively waiting for or undergoing auto-classification."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM kb_papers WHERE user_id = ? AND scope = ? AND classify_status IN ('pending', 'running')",
+            (user_id, scope),
+        ).fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+def get_stalled_classify_papers(scope: str = "kb") -> list[dict]:
+    """
+    Return all kb_papers with classify_status='pending' or 'running' across ALL users.
+    Used on startup to re-enqueue tasks that were interrupted by a server restart.
+    """
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT user_id, paper_id, scope FROM kb_papers "
+            "WHERE scope = ? AND classify_status IN ('pending', 'running')",
+            (scope,),
+        ).fetchall()
+        return [{"user_id": r["user_id"], "paper_id": r["paper_id"], "scope": r["scope"]} for r in rows]
+    finally:
+        conn.close()
+
+
+def get_or_create_system_folder(user_id: int, name: str, scope: str = _DEFAULT_SCOPE) -> int:
+    """
+    Return the id of a root-level folder with the given name for this user+scope.
+    Creates it if it does not exist yet. Used for the '未分类' catch-all folder.
+    """
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT id FROM kb_folders WHERE user_id = ? AND scope = ? AND name = ? AND parent_id IS NULL",
+            (user_id, scope, name),
+        ).fetchone()
+        if row:
+            return row["id"]
+        now = _now_iso()
+        cur = conn.execute(
+            "INSERT INTO kb_folders (user_id, scope, name, parent_id, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)",
+            (user_id, scope, name, now, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Read-status helpers
+# ---------------------------------------------------------------------------
+
+def set_read_status(
+    user_id: int,
+    paper_id: str,
+    status: str,
+    scope: str = _DEFAULT_SCOPE,
+) -> None:
+    """Update read_status for a KB paper. status: 'unread' | 'reading' | 'read'."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE kb_papers SET read_status = ? WHERE user_id = ? AND paper_id = ? AND scope = ?",
+            (status, user_id, paper_id, scope),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_read_status(user_id: int, paper_id: str, scope: str = _DEFAULT_SCOPE) -> str:
+    """Return read_status for a KB paper, defaulting to 'unread'."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT read_status FROM kb_papers WHERE user_id = ? AND paper_id = ? AND scope = ?",
+            (user_id, paper_id, scope),
+        ).fetchone()
+        return row["read_status"] if row else "unread"
+    finally:
+        conn.close()
+
+
+def count_unclassified_papers(user_id: int, scope: str = _DEFAULT_SCOPE) -> int:
+    """
+    Return the count of papers inside folders named '未分类' for this user+scope.
+    Used to surface the 'inbox overflowing' nudge in the UI.
+    """
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) as cnt FROM kb_papers kp
+            JOIN kb_folders kf ON kp.folder_id = kf.id
+            WHERE kp.user_id = ? AND kp.scope = ? AND kf.name = '未分类'
+            """,
+            (user_id, scope),
+        ).fetchone()
+        return row["cnt"] if row else 0
+    finally:
+        conn.close()

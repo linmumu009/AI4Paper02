@@ -32,6 +32,10 @@ class UpdateUserRoleBody(BaseModel):
     role: str = Field(..., pattern="^(user|admin|superadmin)$")
 
 
+class AdminResetPasswordBody(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
 class AdminIssueRedeemKeysBody(BaseModel):
     plan_tier: str = Field(..., pattern="^(pro|pro_plus)$")
     duration_days: int = Field(..., ge=1, le=3650)
@@ -159,6 +163,52 @@ def api_admin_update_user_role(
     return {"ok": True, "user": user}
 
 
+@router.post("/users/{user_id}/reset-password", summary="Admin reset user password")
+def api_admin_reset_password(
+    user_id: int,
+    body: AdminResetPasswordBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    user = auth_service.admin_reset_password(user_id, body.new_password)
+    return {"ok": True, "user": user}
+
+
+@router.post("/users/{user_id}/force-logout", summary="Admin force logout all sessions")
+def api_admin_force_logout(
+    user_id: int,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    count = auth_service.admin_force_logout(user_id)
+    return {"ok": True, "sessions_deleted": count}
+
+
+@router.post("/users/{user_id}/disable", summary="Admin disable user account")
+def api_admin_disable_user(
+    user_id: int,
+    admin=Depends(auth_service.require_admin_user),
+):
+    user = auth_service.admin_disable_user(user_id, admin["id"])
+    return {"ok": True, "user": user}
+
+
+@router.post("/users/{user_id}/enable", summary="Admin enable user account")
+def api_admin_enable_user(
+    user_id: int,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    user = auth_service.admin_enable_user(user_id)
+    return {"ok": True, "user": user}
+
+
+@router.delete("/users/{user_id}", summary="Superadmin permanently delete user")
+def api_admin_delete_user(
+    user_id: int,
+    admin=Depends(auth_service.require_superadmin_user),
+):
+    auth_service.admin_delete_user(user_id, admin["id"])
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Redeem keys
 # ---------------------------------------------------------------------------
@@ -243,6 +293,76 @@ def api_admin_analytics_retention(
     _admin=Depends(auth_service.require_admin_user),
 ):
     return {"ok": True, **analytics_service.get_retention_data(weeks=weeks)}
+
+
+@router.get("/analytics/engagement-signin", summary="Admin analytics for task-signin funnel")
+def api_admin_analytics_engagement_signin(
+    days: int = Query(14, ge=1, le=90),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_engagement_signin_stats(days=days)}
+
+
+@router.get("/analytics/activation", summary="Admin analytics: new user 7-day activation funnel")
+def api_admin_analytics_activation(
+    days: int = Query(30, ge=7, le=180),
+    activation_window_days: int = Query(7, ge=1, le=30),
+    tier: Optional[str] = Query(None, description="Filter by user tier: free | pro | pro_plus"),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_activation_stats(
+        days=days,
+        activation_window_days=activation_window_days,
+        tier=tier if tier in ("free", "pro", "pro_plus") else None,
+    )}
+
+
+@router.get("/analytics/activated-retention", summary="Admin analytics: retention of activated users only")
+def api_admin_analytics_activated_retention(
+    weeks: int = Query(8, ge=2, le=24),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_activated_retention(weeks=weeks)}
+
+
+@router.get("/analytics/content-funnel", summary="Admin analytics: content & feature conversion funnel")
+def api_admin_analytics_content_funnel(
+    days: int = Query(30, ge=7, le=180),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_content_funnel_stats(days=days)}
+
+
+@router.get("/analytics/value-retention", summary="Admin analytics: value-action weekly retention of activated users")
+def api_admin_analytics_value_retention(
+    weeks: int = Query(8, ge=2, le=24),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_value_action_retention(weeks=weeks)}
+
+
+@router.get("/analytics/content-step-funnel", summary="Admin analytics: step funnel card_view->paper_view->save->deep_action")
+def api_admin_analytics_content_step_funnel(
+    days: int = Query(30, ge=7, le=180),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_content_step_funnel(days=days)}
+
+
+@router.get("/analytics/ai-features", summary="Admin analytics: AI feature adoption (research / chat / idea)")
+def api_admin_analytics_ai_features(
+    days: int = Query(30, ge=7, le=180),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_ai_feature_stats(days=days)}
+
+
+@router.get("/analytics/engagement-depth", summary="Admin analytics: session & reading engagement depth")
+def api_admin_analytics_engagement_depth(
+    days: int = Query(30, ge=7, le=90),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    return {"ok": True, **analytics_service.get_engagement_depth(days=days)}
 
 
 # ---------------------------------------------------------------------------

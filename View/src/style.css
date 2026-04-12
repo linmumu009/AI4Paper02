@@ -23,9 +23,16 @@
   --color-tinder-gold: #f5b731;
   --color-tinder-purple: #a64dff;
 
+  /* Accent alias — used by Deep Research components */
+  --color-accent-primary: #ff4458;
+
   /* Gradient for cards */
   --color-gradient-start: #fd267a;
   --color-gradient-end: #ff6036;
+
+  /* "我的论文" / user-content accent gradient (amber → red) */
+  --color-mypapers-start: #f59e0b;
+  --color-mypapers-end: #ef4444;
 
   /* Tag colors */
   --color-tag-large-bg: rgba(46, 230, 109, 0.15);
@@ -50,12 +57,36 @@
   --color-border: #d5d5d5;
   --color-border-light: #c0c0c0;
 
+  /* Accent alias — light theme keeps the same pink */
+  --color-accent-primary: #ff4458;
+
   /* Tag colors — slightly adjusted for light bg */
   --color-tag-large-bg: rgba(30, 180, 80, 0.12);
   --color-tag-large-text: #1a9e4a;
   --color-tag-score-high: #1a9e4a;
   --color-tag-score-mid: #c48f00;
   --color-tag-score-low: #888888;
+}
+
+/* Bilingual display defaults (overridden at runtime by useBilingualTheme via document.documentElement.style) */
+:root {
+  --bilingual-hue: 195;
+  --bilingual-saturation: 70%;
+  --bilingual-intensity: 6;
+  --bilingual-font-size: 15px;
+
+  /* Layout dimension tokens — used by sidebar, drawer, workbench etc. */
+  --navbar-h: 3rem;                                   /* h-12 = 48px */
+  --sidebar-w: clamp(220px, 22vw, 340px);             /* main KB sidebar */
+  --drawer-w: clamp(320px, 32vw, 520px);              /* global chat drawer default */
+  --settings-sidebar-w: clamp(10rem, 18vw, 14rem);   /* profile / admin sidebar */
+  --workbench-sidebar-w: clamp(3rem, 12vw, 11rem);   /* workbench tool sidebar */
+}
+
+@media (min-width: 640px) {
+  :root {
+    --navbar-h: 3.5rem;  /* sm:h-14 = 56px */
+  }
 }
 
 /* Base */
@@ -123,6 +154,13 @@ body {
   }
   .bg-brand-gradient-br {
     background-image: linear-gradient(to bottom right, var(--color-gradient-start), var(--color-gradient-end));
+  }
+  /* "我的论文" accent gradient — amber to red */
+  .bg-mypapers-gradient {
+    background-image: linear-gradient(to right, var(--color-mypapers-start), var(--color-mypapers-end));
+  }
+  .bg-mypapers-gradient-br {
+    background-image: linear-gradient(to bottom right, var(--color-mypapers-start), var(--color-mypapers-end));
   }
 }
 
@@ -341,4 +379,87 @@ body {
 /* Selection */
 .note-editor-content ::selection {
   background: rgba(253, 38, 122, 0.3);
+}
+
+/* ===== Deep Research Panel animations ===== */
+
+/* Stepper: gentle pulsing ring around active step */
+@keyframes researchPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 68, 88, 0.15); opacity: 1; }
+  50% { box-shadow: 0 0 0 5px rgba(255, 68, 88, 0); opacity: 0.85; }
+}
+.research-pulse {
+  animation: researchPulse 2.4s ease-in-out infinite;
+}
+
+/* Connector line shimmer while round is running */
+@keyframes researchLineShimmer {
+  0% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+  100% { opacity: 0.3; }
+}
+.research-line-shimmer {
+  animation: researchLineShimmer 1.8s ease-in-out infinite;
+}
+
+/* Round card shimmer border (running state) */
+@keyframes researchShimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.research-shimmer-border {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(99, 102, 241, 0.25) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: researchShimmer 2s linear infinite;
+}
+
+/* P6: Single-shot ping animation for EngagementProgressBar task completion feedback */
+@keyframes pingOnce {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.6); opacity: 0.5; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-ping-once {
+  animation: pingOnce 0.6s ease-out forwards;
+}
+
+/* Milestone toast confetti: background shimmer shift */
+@keyframes bgShift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+/* MilestoneTimeline: pulsing current node */
+@keyframes milestonePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45, 184, 226, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(45, 184, 226, 0); }
+}
+.milestone-pulse {
+  animation: milestonePulse 2s ease-in-out infinite;
+}
+
+/* ─── Accessibility: prefers-reduced-motion ──────────────────────────────── */
+/* Users who have requested reduced motion in their OS settings (Settings →
+   Accessibility → Reduce Motion on macOS/iOS, or System Preferences on
+   Windows) should not see decorative animations. This block disables or
+   drastically slows every animation defined above.                           */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Keep focus-ring transitions very short but still visible */
+  :focus-visible {
+    transition-duration: 0ms !important;
+  }
 }

@@ -18,7 +18,7 @@ from typing import Optional
 
 from fastapi import HTTPException, Request, Response
 
-from services import auth_service
+from services import auth_service, entitlement_service
 
 # ---------------------------------------------------------------------------
 # Path constants
@@ -77,6 +77,12 @@ class _RateLimiter:
 _login_limiter = _RateLimiter(max_attempts=10, window_seconds=300)
 # 5 attempts per 10 minutes per IP for registration
 _register_limiter = _RateLimiter(max_attempts=5, window_seconds=600)
+# 5 SMS sends per 10 minutes per IP (to prevent SMS cost abuse)
+_sms_send_limiter = _RateLimiter(max_attempts=5, window_seconds=600)
+# 10 SMS verify attempts per 5 minutes per IP (to prevent brute-force)
+_sms_verify_limiter = _RateLimiter(max_attempts=10, window_seconds=300)
+# 120 analytics events per minute per IP (generous but bounded)
+_analytics_limiter = _RateLimiter(max_attempts=120, window_seconds=60)
 
 
 # ---------------------------------------------------------------------------
@@ -152,17 +158,8 @@ def _get_optional_user(request: Request) -> Optional[dict]:
 
 
 def _tier_quota_limit(user: Optional[dict]) -> Optional[int]:
-    if not user:
-        return 3
-    role = user.get("role", "user")
-    if role in ("admin", "superadmin"):
-        return None
-    tier = user.get("tier", "free")
-    if tier == "pro":
-        return 15
-    if tier == "pro_plus":
-        return None
-    return 3
+    uid = user["id"] if user else None
+    return entitlement_service.get_browse_limit(uid)
 
 
 def _tier_label(user: Optional[dict]) -> str:

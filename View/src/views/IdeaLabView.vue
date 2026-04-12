@@ -365,7 +365,7 @@ async function handleRefresh() {
         </div>
 
         <!-- The card — responsive width/height -->
-        <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(480px, calc(100dvh - 210px), 620px)">
+        <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
           <IdeaCard
             :key="currentCandidate.id"
             :candidate="currentCandidate"

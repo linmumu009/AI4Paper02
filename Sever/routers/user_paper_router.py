@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
-from services import auth_service, translate_service, user_paper_pipeline_service, user_paper_service
+from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 
@@ -119,6 +119,8 @@ def api_user_paper_import_manual(
     body: UserPaperManualBody,
     _user=Depends(auth_service.require_user),
 ):
+    # Quota check: consume one upload credit (Free: 5 total, Pro: 30/month)
+    entitlement_service.consume_quota(_user["id"], "upload")
     paper = user_paper_service.create_paper(
         _user["id"],
         source_type="manual",
@@ -138,6 +140,8 @@ def api_user_paper_import_arxiv(
     body: UserPaperArxivBody,
     _user=Depends(auth_service.require_user),
 ):
+    # Quota check: consume one upload credit
+    entitlement_service.consume_quota(_user["id"], "upload")
     try:
         meta = user_paper_service.fetch_arxiv_metadata(body.arxiv_id)
     except ValueError as exc:
@@ -171,6 +175,8 @@ async def api_user_paper_import_pdf(
     external_url: str = Query(default=""),
     _user=Depends(auth_service.require_user),
 ):
+    # Quota check: consume one upload credit
+    entitlement_service.consume_quota(_user["id"], "upload")
     _MAX_UPLOAD_SIZE = 50 * 1024 * 1024
     if file.content_type not in ("application/pdf", "application/octet-stream"):
         if not (file.filename or "").lower().endswith(".pdf"):
@@ -211,6 +217,7 @@ async def api_user_paper_import_pdf(
 def api_user_paper_list(
     source_type: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    institution: Optional[str] = Query(None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     _user=Depends(auth_service.require_user),
@@ -219,12 +226,21 @@ def api_user_paper_list(
         _user["id"],
         source_type=source_type,
         search=search,
+        institution=institution,
         limit=limit,
         offset=offset,
     )
     papers = [_enrich_user_paper(p) for p in papers]
     total = user_paper_service.count_papers(_user["id"])
     return {"total": total, "papers": papers}
+
+
+@router.get("/institutions", summary="获取该用户所有不重复机构名列表")
+def api_user_paper_institutions(
+    _user=Depends(auth_service.require_user),
+):
+    institutions = user_paper_service.list_institutions(_user["id"])
+    return {"institutions": institutions}
 
 
 @router.get("/tree", summary="获取我的论文文件夹树")
@@ -320,9 +336,14 @@ def api_user_paper_delete(
 # Pipeline / translate / files
 # ---------------------------------------------------------------------------
 
+class ProcessPaperBody(BaseModel):
+    reward_id: Optional[int] = Field(default=None, description="Fast-track engagement reward ID")
+
+
 @router.post("/{paper_id}/process", summary="触发单篇论文流水线处理")
 def api_user_paper_process(
     paper_id: str,
+    body: ProcessPaperBody = ProcessPaperBody(),
     _user=Depends(auth_service.require_user),
 ):
     paper = user_paper_service.get_paper(_user["id"], paper_id)
@@ -332,10 +353,77 @@ def api_user_paper_process(
     if user_paper_pipeline_service.is_processing(paper_id):
         return {"ok": False, "message": "处理已在进行中", "paper_id": paper_id}
 
-    started = user_paper_pipeline_service.start_processing(_user["id"], paper_id)
+    # Determine priority from fast-track reward
+    priority = 0
+    reward_applied = False
+    if body.reward_id is not None:
+        boost = engagement_service.get_reward_boost(_user["id"], "upload", body.reward_id)
+        if boost.get("upload_priority", 0) > 0:
+            try:
+                engagement_service.use_reward(
+                    _user["id"], body.reward_id,
+                    f"upload_fast_track_{paper_id}"
+                )
+                priority = 1
+                reward_applied = True
+            except ValueError:
+                pass  # Reward already used or expired — proceed normally
+
+    started = user_paper_pipeline_service.start_processing(_user["id"], paper_id, priority=priority)
     if not started:
         return {"ok": False, "message": "处理已在进行中", "paper_id": paper_id}
-    return {"ok": True, "message": "处理已启动", "paper_id": paper_id}
+    return {"ok": True, "message": "处理已启动", "paper_id": paper_id, "priority": priority, "reward_applied": reward_applied}
+
+
+class BatchProcessBody(BaseModel):
+    paper_ids: list[str] = Field(..., description="要处理的论文 ID 列表（最多 20 篇）")
+    reward_id: Optional[int] = Field(default=None, description="Fast-track engagement reward ID（批量共享同一个 reward）")
+
+
+@router.post("/batch-process", summary="批量启动多篇论文流水线处理")
+def api_user_paper_batch_process(
+    body: BatchProcessBody,
+    _user=Depends(auth_service.require_user),
+):
+    if not body.paper_ids:
+        raise HTTPException(status_code=400, detail="paper_ids 不能为空")
+    if len(body.paper_ids) > 20:
+        raise HTTPException(status_code=400, detail="单次最多批量处理 20 篇论文")
+
+    # Resolve reward priority once for the whole batch
+    priority = 0
+    reward_applied = False
+    if body.reward_id is not None:
+        boost = engagement_service.get_reward_boost(_user["id"], "upload", body.reward_id)
+        if boost.get("upload_priority", 0) > 0:
+            try:
+                engagement_service.use_reward(
+                    _user["id"], body.reward_id,
+                    f"upload_fast_track_batch_{body.paper_ids[0]}"
+                )
+                priority = 1
+                reward_applied = True
+            except ValueError:
+                pass
+
+    results = []
+    for pid in body.paper_ids:
+        paper = user_paper_service.get_paper(_user["id"], pid)
+        if paper is None:
+            results.append({"paper_id": pid, "ok": False, "message": "论文不存在"})
+            continue
+        started = user_paper_pipeline_service.start_processing(_user["id"], pid, priority=priority)
+        results.append({
+            "paper_id": pid,
+            "ok": started,
+            "message": "处理已启动" if started else "处理已在进行中",
+        })
+
+    return {
+        "results": results,
+        "priority": priority,
+        "reward_applied": reward_applied,
+    }
 
 
 @router.get("/{paper_id}/process-status", summary="查询单篇论文处理状态")
@@ -361,6 +449,11 @@ def api_user_paper_translate(
     paper_id: str,
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: translation is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
+        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
+    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+    entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
@@ -375,6 +468,11 @@ def api_user_paper_retranslate(
     paper_id: str,
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: translation is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
+        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
+    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+    entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")

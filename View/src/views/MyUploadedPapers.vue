@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
 import {
   fetchUserPapers,
   importUserPaperManual,
@@ -48,7 +49,7 @@ const searchQuery = ref('')
 const filterSource = ref<string>('')
 
 // PDF import form
-const pdfFile = ref<File | null>(null)
+const pdfFiles = ref<File[]>([])
 const pdfMeta = ref({ title: '', authors: '', abstract: '', institution: '', year: '', external_url: '' })
 
 // arXiv import form
@@ -173,44 +174,186 @@ onMounted(loadPapers)
 // ---------------------------------------------------------------------------
 // Import: PDF
 // ---------------------------------------------------------------------------
+const pdfDropActive = ref(false)
+const batchUploadProgress = ref({ done: 0, total: 0 })
+const batchUploadPhase = ref<'idle' | 'uploading' | 'done'>('idle')
+const batchUploadResults = ref<Array<{ name: string; ok: boolean; error?: string }>>([])
+const pdfFileStatuses = ref<Array<'pending' | 'uploading' | 'done' | 'failed'>>([])
+const showBatchSuccessList = ref(false)
+
+const MAX_PDF_FILES = 20
+const MAX_PDF_FILE_SIZE = 50 * 1024 * 1024 // 50 MB
+
+const atPdfFileLimit = computed(() => pdfFiles.value.length >= MAX_PDF_FILES)
+const nearPdfFileLimit = computed(() => pdfFiles.value.length >= 15 && pdfFiles.value.length < MAX_PDF_FILES)
+const batchUploadPercent = computed(() =>
+  batchUploadProgress.value.total
+    ? Math.round((batchUploadProgress.value.done / batchUploadProgress.value.total) * 100)
+    : 0,
+)
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function addPdfFiles(fileList: FileList | null | undefined) {
+  if (!fileList) return
+  let pdfs = Array.from(fileList).filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
+
+  // Size validation
+  const oversized = pdfs.filter(f => f.size > MAX_PDF_FILE_SIZE)
+  if (oversized.length > 0) {
+    const names = oversized.length <= 2
+      ? oversized.map(f => f.name).join('、')
+      : `${oversized.slice(0, 2).map(f => f.name).join('、')} 等 ${oversized.length} 个`
+    importError.value = `${names} 超过 50 MB 限制，已自动过滤`
+    pdfs = pdfs.filter(f => f.size <= MAX_PDF_FILE_SIZE)
+  } else {
+    importError.value = ''
+  }
+
+  const combined = [...pdfFiles.value, ...pdfs]
+  if (combined.length > MAX_PDF_FILES) {
+    const allowed = MAX_PDF_FILES - pdfFiles.value.length
+    if (!importError.value) importError.value = `单次最多选择 ${MAX_PDF_FILES} 个 PDF 文件，已截断`
+    pdfFiles.value = [...pdfFiles.value, ...pdfs.slice(0, allowed)]
+    pdfFileStatuses.value = [...pdfFileStatuses.value, ...Array(allowed).fill('pending')]
+  } else {
+    pdfFiles.value = combined
+    pdfFileStatuses.value = [...pdfFileStatuses.value, ...Array(pdfs.length).fill('pending')]
+  }
+}
+
 function onPdfFileChange(e: Event) {
   const input = e.target as HTMLInputElement
-  pdfFile.value = input.files?.[0] ?? null
+  addPdfFiles(input.files)
+  // Reset so same files can be added again after removal
+  input.value = ''
+}
+
+function onPdfDrop(e: DragEvent) {
+  pdfDropActive.value = false
+  if (batchUploadPhase.value !== 'idle') return
+  addPdfFiles(e.dataTransfer?.files)
+}
+
+function removePdfFile(idx: number) {
+  pdfFiles.value = pdfFiles.value.filter((_, i) => i !== idx)
+  pdfFileStatuses.value = pdfFileStatuses.value.filter((_, i) => i !== idx)
+}
+
+function retryFailedPdfFiles() {
+  const failedIndices = pdfFileStatuses.value
+    .map((s, i) => (s === 'failed' ? i : -1))
+    .filter(i => i >= 0)
+  const failedFiles = failedIndices.map(i => pdfFiles.value[i])
+  pdfFiles.value = failedFiles
+  pdfFileStatuses.value = failedFiles.map(() => 'pending')
+  batchUploadPhase.value = 'idle'
+  batchUploadResults.value = []
+  showBatchSuccessList.value = false
+}
+
+/** Concurrency-limited map */
+async function concurrentMap<T, R>(
+  items: T[],
+  fn: (item: T) => Promise<R>,
+  concurrency: number,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length)
+  let index = 0
+  async function worker() {
+    while (index < items.length) {
+      const i = index++
+      try {
+        results[i] = { status: 'fulfilled', value: await fn(items[i]) }
+      } catch (reason: unknown) {
+        results[i] = { status: 'rejected', reason }
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+  return results
 }
 
 async function submitPdfImport() {
-  if (!pdfFile.value) {
+  if (!pdfFiles.value.length) {
     importError.value = '请选择 PDF 文件'
     return
   }
   importLoading.value = true
   importError.value = ''
   importSuccess.value = ''
-  try {
-    const authors = pdfMeta.value.authors
-      ? pdfMeta.value.authors.split(/[,，]\s*/).map(s => s.trim()).filter(Boolean)
-      : []
-    const created = await importUserPaperPdf(pdfFile.value, {
-      title: pdfMeta.value.title,
-      authors,
-      abstract: pdfMeta.value.abstract,
-      institution: pdfMeta.value.institution,
-      year: pdfMeta.value.year ? parseInt(pdfMeta.value.year) : undefined,
-      external_url: pdfMeta.value.external_url,
-    })
-    upsertPaper(created)
-    importSuccess.value = '论文已成功导入！'
-    pdfFile.value = null
+  batchUploadResults.value = []
+  showBatchSuccessList.value = false
+  batchUploadProgress.value = { done: 0, total: pdfFiles.value.length }
+  batchUploadPhase.value = 'uploading'
+  pdfFileStatuses.value = pdfFiles.value.map(() => 'pending')
+
+  const files = pdfFiles.value.slice()
+  const authors = pdfMeta.value.authors
+    ? pdfMeta.value.authors.split(/[,，]\s*/).map(s => s.trim()).filter(Boolean)
+    : []
+
+  const fileEntries = files.map((file, i) => ({ file, i }))
+  const settled = await concurrentMap(
+    fileEntries,
+    async ({ file, i }) => {
+      pdfFileStatuses.value[i] = 'uploading'
+      const created = await importUserPaperPdf(file, {
+        title: pdfMeta.value.title || file.name.replace(/\.pdf$/i, ''),
+        authors,
+        abstract: pdfMeta.value.abstract,
+        institution: pdfMeta.value.institution,
+        year: pdfMeta.value.year ? parseInt(pdfMeta.value.year) : undefined,
+        external_url: pdfMeta.value.external_url,
+      })
+      batchUploadProgress.value.done++
+      pdfFileStatuses.value[i] = 'done'
+      return created
+    },
+    3,
+  )
+
+  // Mark failed statuses
+  for (let i = 0; i < settled.length; i++) {
+    if (settled[i].status === 'rejected') {
+      pdfFileStatuses.value[i] = 'failed'
+    }
+  }
+
+  const resultsArr: Array<{ name: string; ok: boolean; error?: string }> = []
+  let successCount = 0
+  for (let i = 0; i < settled.length; i++) {
+    const r = settled[i]
+    if (r.status === 'fulfilled') {
+      upsertPaper(r.value)
+      resultsArr.push({ name: files[i].name, ok: true })
+      successCount++
+    } else {
+      const err = (r.reason as any)?.response?.data?.detail || (r.reason as any)?.message || '导入失败'
+      resultsArr.push({ name: files[i].name, ok: false, error: err })
+    }
+  }
+  batchUploadResults.value = resultsArr
+  batchUploadPhase.value = 'done'
+
+  // Auto-close only if all succeeded
+  if (resultsArr.every(r => r.ok)) {
+    pdfFiles.value = []
+    pdfFileStatuses.value = []
     pdfMeta.value = { title: '', authors: '', abstract: '', institution: '', year: '', external_url: '' }
+    batchUploadPhase.value = 'idle'
+    importSuccess.value = `成功导入 ${successCount} 篇论文！`
     setTimeout(() => {
       importSuccess.value = ''
       showImportDialog.value = false
     }, 1500)
-  } catch (e: any) {
-    importError.value = e?.response?.data?.detail || e?.message || '导入失败'
-  } finally {
-    importLoading.value = false
   }
+
+  importLoading.value = false
 }
 
 // ---------------------------------------------------------------------------
@@ -384,12 +527,24 @@ async function doDelete() {
 function openImportDialog() {
   importError.value = ''
   importSuccess.value = ''
+  pdfFiles.value = []
+  pdfFileStatuses.value = []
+  batchUploadPhase.value = 'idle'
+  batchUploadResults.value = []
+  batchUploadProgress.value = { done: 0, total: 0 }
+  showBatchSuccessList.value = false
   showImportDialog.value = true
 }
 
 watch(importTab, () => {
   importError.value = ''
   importSuccess.value = ''
+  // Reset batch PDF state when switching tabs
+  pdfFiles.value = []
+  pdfFileStatuses.value = []
+  batchUploadPhase.value = 'idle'
+  batchUploadResults.value = []
+  showBatchSuccessList.value = false
 })
 
 // PDF viewer URL builder
@@ -465,10 +620,7 @@ function formatDate(iso: string): string {
 
       <!-- Loading -->
       <div v-if="loading" class="flex justify-center py-16">
-        <svg class="animate-spin h-7 w-7 text-tinder-pink" viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-        </svg>
+        <LoadingSpinner />
       </div>
 
       <!-- Error -->
@@ -640,16 +792,134 @@ function formatDate(iso: string): string {
             <!-- PDF upload tab -->
             <template v-if="importTab === 'pdf'">
               <div>
-                <label class="block text-xs font-semibold text-text-secondary mb-1">PDF 文件 <span class="text-tinder-pink">*</span></label>
+                <label class="block text-xs font-semibold text-text-secondary mb-1">
+                  PDF 文件 <span class="text-tinder-pink">*</span>
+                  <span
+                    class="font-normal ml-1 transition-colors"
+                    :class="atPdfFileLimit ? 'text-tinder-pink' : nearPdfFileLimit ? 'text-[#f59e0b]' : 'text-text-muted'"
+                  >
+                    <span v-if="atPdfFileLimit">（已达上限 {{ MAX_PDF_FILES }} 个）</span>
+                    <span v-else-if="pdfFiles.length > 0">（已选 {{ pdfFiles.length }}/{{ MAX_PDF_FILES }}）</span>
+                    <span v-else>（可多选，最多 {{ MAX_PDF_FILES }} 个）</span>
+                  </span>
+                </label>
+                <!-- Drop zone — hidden during upload -->
                 <div
-                  class="relative flex items-center justify-center w-full h-24 border-2 border-dashed border-border rounded-xl cursor-pointer hover:border-tinder-pink/60 transition-colors bg-bg-elevated"
-                  @click="openPdfInput"
+                  v-if="batchUploadPhase === 'idle'"
+                  class="relative flex flex-col items-center justify-center w-full h-20 border-2 border-dashed rounded-xl transition-colors bg-bg-elevated"
+                  :class="[
+                    atPdfFileLimit
+                      ? 'border-border/40 opacity-60 cursor-not-allowed'
+                      : pdfDropActive
+                        ? 'border-tinder-pink/80 bg-tinder-pink/5 cursor-pointer'
+                        : 'border-border hover:border-tinder-pink/60 cursor-pointer',
+                  ]"
+                  @dragover.prevent="!atPdfFileLimit && (pdfDropActive = true)"
+                  @dragleave="pdfDropActive = false"
+                  @drop.prevent="onPdfDrop"
+                  @click="!atPdfFileLimit && openPdfInput()"
                 >
                   <div class="text-center pointer-events-none">
-                    <div class="text-2xl mb-1">{{ pdfFile ? '📄' : '⬆️' }}</div>
-                    <p class="text-xs text-text-muted">{{ pdfFile ? pdfFile.name : '点击选择 PDF（最大 50 MB）' }}</p>
+                    <div class="text-xl mb-0.5">⬆️</div>
+                    <p class="text-xs text-text-muted">
+                      <span v-if="atPdfFileLimit">已达上限，无法继续添加</span>
+                      <template v-else>拖拽或<span class="text-tinder-pink">点击选择</span> PDF（最大 50 MB/个）</template>
+                    </p>
                   </div>
-                  <input ref="pdfInputRef" type="file" accept=".pdf,application/pdf" class="hidden" @change="onPdfFileChange" />
+                  <input ref="pdfInputRef" type="file" accept=".pdf,application/pdf" multiple class="hidden" @change="onPdfFileChange" />
+                </div>
+
+                <!-- File list — always visible when files selected -->
+                <div v-if="pdfFiles.length > 0" class="mt-2 space-y-1 max-h-36 overflow-y-auto">
+                  <div
+                    v-for="(file, idx) in pdfFiles"
+                    :key="idx"
+                    class="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-bg-elevated border transition-colors"
+                    :class="pdfFileStatuses[idx] === 'failed' ? 'border-red-500/40' : 'border-border'"
+                  >
+                    <span class="text-sm shrink-0">📄</span>
+                    <span class="flex-1 truncate text-xs text-text-primary">{{ file.name }}</span>
+                    <span class="text-[10px] text-text-muted shrink-0">{{ formatFileSize(file.size) }}</span>
+                    <!-- Per-file status icon -->
+                    <span v-if="pdfFileStatuses[idx] === 'uploading'" class="shrink-0 inline-block animate-spin text-tinder-pink text-xs leading-none" title="上传中">⟳</span>
+                    <span v-else-if="pdfFileStatuses[idx] === 'done'" class="shrink-0 text-green-500 text-xs leading-none" title="上传成功">✓</span>
+                    <span v-else-if="pdfFileStatuses[idx] === 'failed'" class="shrink-0 text-red-500 text-xs leading-none" title="上传失败">✗</span>
+                    <!-- Remove button — only in idle phase -->
+                    <button
+                      v-if="batchUploadPhase === 'idle'"
+                      class="shrink-0 text-text-muted hover:text-red-500 bg-transparent border-none cursor-pointer text-xs p-0.5 leading-none"
+                      @click.stop="removePdfFile(idx)"
+                    >✕</button>
+                  </div>
+                </div>
+
+                <!-- Batch upload progress -->
+                <div v-if="batchUploadPhase === 'uploading'" class="mt-2 space-y-1.5">
+                  <div class="flex justify-between text-xs text-text-muted">
+                    <span>正在上传 {{ batchUploadProgress.done }}/{{ batchUploadProgress.total }}...</span>
+                    <span class="text-tinder-pink font-medium">{{ batchUploadPercent }}%</span>
+                  </div>
+                  <div class="w-full h-2 bg-bg-elevated rounded-full overflow-hidden">
+                    <div
+                      class="h-full bg-tinder-pink rounded-full transition-all duration-300"
+                      :style="{ width: `${batchUploadPercent}%` }"
+                    />
+                  </div>
+                </div>
+
+                <!-- Batch results summary -->
+                <div v-if="batchUploadPhase === 'done'" class="mt-2 space-y-2">
+                  <!-- Summary header -->
+                  <div class="flex items-center gap-2 text-xs font-medium flex-wrap">
+                    <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-500/10 text-green-500">
+                      ✓ 成功 {{ batchUploadResults.filter(r => r.ok).length }} 篇
+                    </span>
+                    <span v-if="batchUploadResults.some(r => !r.ok)" class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-red-500/10 text-red-500">
+                      ✗ 失败 {{ batchUploadResults.filter(r => !r.ok).length }} 篇
+                    </span>
+                    <span class="text-text-muted">/ 共 {{ batchUploadResults.length }} 篇</span>
+                  </div>
+
+                  <!-- Failed items — full error, no truncate -->
+                  <div v-if="batchUploadResults.some(r => !r.ok)" class="space-y-1">
+                    <div
+                      v-for="r in batchUploadResults.filter(r => !r.ok)"
+                      :key="r.name"
+                      class="text-[11px] text-red-500 leading-relaxed bg-red-500/5 border border-red-500/20 rounded-lg px-2.5 py-1.5"
+                    >
+                      <span class="font-medium break-all">{{ r.name }}</span>
+                      <span class="text-red-400 block mt-0.5">{{ r.error }}</span>
+                    </div>
+                  </div>
+
+                  <!-- Success list — collapsible -->
+                  <div v-if="batchUploadResults.some(r => r.ok)">
+                    <button
+                      class="text-[11px] text-text-muted hover:text-text-secondary bg-transparent border-none cursor-pointer p-0 flex items-center gap-1 transition-colors"
+                      @click="showBatchSuccessList = !showBatchSuccessList"
+                    >
+                      <span class="transition-transform duration-200" :class="showBatchSuccessList ? 'rotate-90' : ''">▶</span>
+                      {{ showBatchSuccessList ? '收起' : '展开' }}成功列表（{{ batchUploadResults.filter(r => r.ok).length }} 篇）
+                    </button>
+                    <div v-if="showBatchSuccessList" class="mt-1 space-y-0.5">
+                      <div
+                        v-for="r in batchUploadResults.filter(r => r.ok)"
+                        :key="r.name"
+                        class="text-[11px] text-green-500/80 truncate px-2"
+                      >
+                        ✓ {{ r.name }}
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Retry failed button -->
+                  <button
+                    v-if="batchUploadResults.some(r => !r.ok)"
+                    class="text-[11px] text-tinder-pink border border-tinder-pink/30 bg-tinder-pink/5 hover:bg-tinder-pink/10 rounded-lg px-3 py-1.5 cursor-pointer transition-colors"
+                    @click="retryFailedPdfFiles"
+                  >
+                    重新导入失败项（{{ batchUploadResults.filter(r => !r.ok).length }} 篇）
+                  </button>
                 </div>
               </div>
               <div>
@@ -752,10 +1022,15 @@ function formatDate(iso: string): string {
             >取消</button>
             <button
               class="px-5 py-2 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity disabled:opacity-50"
-              :disabled="importLoading"
+              :disabled="importLoading || (importTab === 'pdf' && pdfFiles.length === 0)"
               @click="importTab === 'pdf' ? submitPdfImport() : importTab === 'arxiv' ? submitArxivImport() : submitManualImport()"
             >
-              <span v-if="importLoading">导入中…</span>
+              <span v-if="importLoading && importTab === 'pdf' && batchUploadPhase === 'uploading'" class="inline-flex items-center gap-1">
+                <span class="inline-block animate-spin">⟳</span>
+                上传中 {{ batchUploadProgress.done }}/{{ batchUploadProgress.total }}
+              </span>
+              <span v-else-if="importLoading">导入中…</span>
+              <span v-else-if="importTab === 'pdf' && pdfFiles.length > 1">导入（{{ pdfFiles.length }} 篇）</span>
               <span v-else>{{ importTab === 'manual' ? '录入' : '导入' }}</span>
             </button>
           </div>

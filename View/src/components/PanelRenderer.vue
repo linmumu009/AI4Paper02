@@ -10,6 +10,7 @@ import CompareResultViewer from './CompareResultViewer.vue'
 import IdeaDetailPanel from './idea/IdeaDetailPanel.vue'
 import PaperChat from './PaperChat.vue'
 import PdfPanel from './panels/PdfPanel.vue'
+import ResearchPanel from './ResearchPanel.vue'
 import { PANEL_IDS } from '../composables/usePanelLayout'
 import type { ContentLayoutContext } from './ContentLayout.vue'
 
@@ -35,6 +36,9 @@ const emit = defineEmits<{
   compareSaved: [resultId: number]
   openPdf: []
   openChat: []
+  closeResearch: []
+  removeResearchPaper: [paperId: string]
+  saveToLibrary: [sessionId: number]
 }>()
 
 const noteEditorRef = ref<NoteEditorExposed | null>(null)
@@ -112,12 +116,14 @@ defineExpose({
     :url="context.mdZhUrl"
     :root-class="mdRootClass"
     mode="zh"
+    :auto-refresh-ms="context.translateInProgress ? 4000 : 0"
   />
   <MarkdownViewer
     v-else-if="panelId === PANEL_IDS.MARKDOWN_BILINGUAL && context.mdBilingualUrl"
     :url="context.mdBilingualUrl"
     :root-class="mdRootClass"
     mode="bilingual"
+    :auto-refresh-ms="context.translateInProgress ? 4000 : 0"
   />
   <ComparePanel
     v-else-if="panelId === PANEL_IDS.COMPARE"
@@ -146,5 +152,15 @@ defineExpose({
     :paper-title="context.paperDetail?.summary.short_title || context.paperDetail?.summary['📖标题']"
     :paper-summary="context.paperDetail?.summary ?? context.paperSummary"
     @note-saved="emit('noteSaved')"
+  />
+  <ResearchPanel
+    v-else-if="panelId === PANEL_IDS.RESEARCH && context.researchPaperIds"
+    :paper-ids="context.researchPaperIds"
+    :paper-titles="context.researchPaperTitles"
+    :scope="context.researchScope ?? 'kb'"
+    :initial-session-id="context.researchInitialSessionId ?? null"
+    @close="emit('closeResearch')"
+    @remove-paper="emit('removeResearchPaper', $event)"
+    @save-to-library="emit('saveToLibrary', $event)"
   />
 </template>

@@ -1,7 +1,7 @@
 import { ref, onBeforeUnmount } from 'vue'
 import { fetchKbTree, fetchCompareResultsTree, type KbScope } from '../api'
 import { isAuthenticated } from '../stores/auth'
-import type { KbTree, KbCompareResultsTree } from '../types/paper'
+import type { KbTree, KbPaper, KbCompareResultsTree } from '../types/paper'
 
 /**
  * Shared state and logic for pages that show the KB/compare sidebar
@@ -54,6 +54,22 @@ export function useKbSidebarState(kbScope?: KbScope) {
     if (!mql.matches) showSidebar.value = false
   }
 
+  /** Immediately update a paper's read_status in the local kbTree (avoids full re-fetch). */
+  function markPaperReadStatus(paperId: string, status: 'unread' | 'reading' | 'read') {
+    const rootPaper = kbTree.value.papers.find(p => p.paper_id === paperId)
+    if (rootPaper) {
+      rootPaper.read_status = status
+      return
+    }
+    for (const folder of kbTree.value.folders) {
+      const folderPaper = folder.papers?.find(p => p.paper_id === paperId)
+      if (folderPaper) {
+        folderPaper.read_status = status
+        return
+      }
+    }
+  }
+
   return {
     kbTree,
     activeFolderId,
@@ -62,5 +78,6 @@ export function useKbSidebarState(kbScope?: KbScope) {
     loadKbTree,
     loadCompareTree,
     collapseSidebarOnMobile,
+    markPaperReadStatus,
   }
 }

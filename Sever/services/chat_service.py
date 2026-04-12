@@ -538,6 +538,7 @@ def stream_chat(
     user_id: int,
     paper_id: str,
     user_message: str,
+    input_multiplier: float = 1.0,
 ) -> Generator[str, None, None]:
     """
     Generator that yields SSE-formatted strings:
@@ -550,6 +551,10 @@ def stream_chat(
     2. Get or create session; persist the user message.
     3. Build messages array using the configured context strategy.
     4. Stream LLM response; persist the complete assistant reply when done.
+
+    Args:
+        input_multiplier: Engagement boost multiplier applied to `input_hard_limit`.
+            Values > 1.0 allow the model to read more paper context in a single turn.
     """
     us = _get_user_settings_service()
     ups = _get_user_presets_service()
@@ -578,6 +583,11 @@ def stream_chat(
         p_preset = ups.get_prompt_preset(user_id, int(prompt_preset_id))
         if p_preset and p_preset.get("prompt_content"):
             cfg["system_prompt"] = p_preset["prompt_content"]
+
+    # Apply engagement boost multiplier to input context window
+    if input_multiplier > 1.0:
+        base_limit = int(cfg.get("input_hard_limit", 129024))
+        cfg["input_hard_limit"] = int(base_limit * input_multiplier)
 
     llm_url = (cfg.get("llm_base_url") or "").strip()
     llm_key = (cfg.get("llm_api_key") or "").strip()

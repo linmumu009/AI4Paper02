@@ -292,6 +292,8 @@ def _ensure_auth_user_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE auth_users ADD COLUMN nickname TEXT DEFAULT ''")
     if "is_phone_auto_created" not in existing:
         conn.execute("ALTER TABLE auth_users ADD COLUMN is_phone_auto_created INTEGER DEFAULT 0")
+    if "is_disabled" not in existing:
+        conn.execute("ALTER TABLE auth_users ADD COLUMN is_disabled INTEGER NOT NULL DEFAULT 0")
     conn.execute("UPDATE auth_users SET role = 'user' WHERE role IS NULL OR role = ''")
     conn.execute("UPDATE auth_users SET tier = 'free' WHERE tier IS NULL OR tier = ''")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_auth_users_phone ON auth_users(phone)")
@@ -323,6 +325,7 @@ def _row_user_public(row: sqlite3.Row) -> dict:
         "phone": _mask_phone(raw_phone),
         "phone_verified": bool(row["phone_verified"]) if "phone_verified" in keys else False,
         "is_phone_auto_created": bool(row["is_phone_auto_created"]) if "is_phone_auto_created" in keys else False,
+        "is_disabled": bool(row["is_disabled"]) if "is_disabled" in keys else False,
         "has_password": has_password,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -443,6 +446,8 @@ def login_by_phone(phone: str) -> Optional[dict]:
         row = conn.execute("SELECT * FROM auth_users WHERE phone = ?", (p,)).fetchone()
         if row is None:
             return None
+        if row["is_disabled"] if "is_disabled" in row.keys() else False:
+            raise HTTPException(status_code=403, detail="账号已被禁用，请联系管理员")
         _ensure_user_tier_not_expired(conn, row["id"])
         now = _now_iso()
         conn.execute(
@@ -471,6 +476,8 @@ def verify_credentials(username: str, password: str) -> Optional[dict]:
         actual = _hash_password(pwd, salt)
         if not hmac.compare_digest(actual, expected):
             return None
+        if row["is_disabled"] if "is_disabled" in row.keys() else False:
+            raise HTTPException(status_code=403, detail="账号已被禁用，请联系管理员")
         _ensure_user_tier_not_expired(conn, row["id"])
         now = _now_iso()
         conn.execute(
@@ -536,6 +543,10 @@ def get_user_by_session(session_id: str, touch: bool = True) -> Optional[dict]:
             (session_id,),
         ).fetchone()
         if row is None:
+            return None
+        if row["is_disabled"] if "is_disabled" in row.keys() else False:
+            conn.execute("DELETE FROM auth_sessions WHERE session_id = ?", (session_id,))
+            conn.commit()
             return None
         _ensure_user_tier_not_expired(conn, row["id"])
         conn.commit()
@@ -1237,6 +1248,104 @@ def get_admin_user_detail(user_id: int) -> Optional[dict]:
             "active_sessions": active_count,
             "subscription_history": subscription_history,
         }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Admin user management operations
+# ---------------------------------------------------------------------------
+
+def admin_reset_password(user_id: int, new_password: str) -> dict:
+    """管理员重置指定用户密码（无需旧密码）。"""
+    pwd = _validate_password(new_password)
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT id FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        salt = secrets.token_bytes(16)
+        pw_hash = _hash_password(pwd, salt)
+        now = _now_iso()
+        conn.execute(
+            "UPDATE auth_users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?",
+            (pw_hash, salt.hex(), now, user_id),
+        )
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        return _row_user_public(refreshed)
+    finally:
+        conn.close()
+
+
+def admin_force_logout(user_id: int) -> int:
+    """删除指定用户的所有活跃会话，返回被删除的会话数量。"""
+    conn = _connect()
+    try:
+        cur = conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def admin_disable_user(user_id: int, operator_id: int) -> dict:
+    """禁用账号：设置 is_disabled=1 并删除该用户所有会话。"""
+    if user_id == operator_id:
+        raise HTTPException(status_code=400, detail="不能禁用自己的账号")
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT id FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        now = _now_iso()
+        conn.execute(
+            "UPDATE auth_users SET is_disabled = 1, updated_at = ? WHERE id = ?",
+            (now, user_id),
+        )
+        conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        return _row_user_public(refreshed)
+    finally:
+        conn.close()
+
+
+def admin_enable_user(user_id: int) -> dict:
+    """启用账号：清除 is_disabled 标记。"""
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT id FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        now = _now_iso()
+        conn.execute(
+            "UPDATE auth_users SET is_disabled = 0, updated_at = ? WHERE id = ?",
+            (now, user_id),
+        )
+        conn.commit()
+        refreshed = conn.execute("SELECT * FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        return _row_user_public(refreshed)
+    finally:
+        conn.close()
+
+
+def admin_delete_user(user_id: int, operator_id: int) -> None:
+    """永久删除用户账号及直接级联数据（auth_sessions、auth_entitlements）。
+    announcements.created_by 置空（保留公告内容），announcement_reads 行直接删除。
+    其他业务表的 user_id 数据因无外键约束，保留以免破坏历史记录。
+    """
+    if user_id == operator_id:
+        raise HTTPException(status_code=400, detail="不能删除自己的账号")
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT id FROM auth_users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        conn.execute("DELETE FROM announcement_reads WHERE user_id = ?", (user_id,))
+        conn.execute("UPDATE announcements SET created_by = NULL WHERE created_by = ?", (user_id,))
+        conn.execute("DELETE FROM auth_users WHERE id = ?", (user_id,))
+        conn.commit()
     finally:
         conn.close()
 

@@ -9,12 +9,14 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
-from services import announcement_service, auth_service, sms_service, user_presets_service, user_settings_service
+from services import announcement_service, auth_service, entitlement_service, sms_service, user_presets_service, user_settings_service
 from routers._deps import (
     _clear_session_cookie,
     _login_limiter,
     _register_limiter,
     _set_session_cookie,
+    _sms_send_limiter,
+    _sms_verify_limiter,
 )
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -33,7 +35,7 @@ class AuthRegisterBody(BaseModel):
     username: str = Field(..., min_length=3, max_length=32)
     password: str = Field(..., min_length=8, max_length=128)
     phone: str = Field(..., description="中国大陆手机号，注册时必填")
-    sms_code: str = Field(..., min_length=4, max_length=8, description="短信验证码")
+    sms_token: str = Field(..., min_length=8, max_length=64, description="由 /auth/sms/verify 返回的一次性验证 token")
 
 
 class SmsSendBody(BaseModel):
@@ -70,42 +72,55 @@ class SubscriptionRedeemBody(BaseModel):
 
 
 class AnnouncementCreateBody(BaseModel):
-    title: str
-    content: str
-    tag: str = "general"
+    title: str = Field(..., min_length=1, max_length=200)
+    content: str = Field(..., min_length=1, max_length=50000)
+    tag: str = Field(default="general", max_length=32)
     is_pinned: bool = False
 
 
 class AnnouncementUpdateBody(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
-    tag: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=200)
+    content: Optional[str] = Field(None, max_length=50000)
+    tag: Optional[str] = Field(None, max_length=32)
     is_pinned: Optional[bool] = None
 
 
 class AnnouncementMarkReadBody(BaseModel):
-    announcement_ids: Optional[list] = None
+    announcement_ids: Optional[list[int]] = None
     all: bool = False
 
 
 class UserSettingsBody(BaseModel):
-    settings: dict
+    settings: dict = Field(..., description="Feature settings dict; max 100 keys")
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls._validate_size
+
+    @classmethod
+    def _validate_size(cls, v):
+        return v
+
+    def model_post_init(self, __context):
+        if len(self.settings) > 100:
+            from pydantic import ValidationError
+            raise ValueError("settings dict exceeds maximum of 100 keys")
 
 
 class UserLlmPresetBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
-    base_url: str = ""
-    api_key: str = ""
-    model: str = ""
-    max_tokens: Optional[int] = None
-    temperature: Optional[float] = None
-    input_hard_limit: Optional[int] = None
-    input_safety_margin: Optional[int] = None
+    base_url: str = Field(default="", max_length=512)
+    api_key: str = Field(default="", max_length=256)
+    model: str = Field(default="", max_length=128)
+    max_tokens: Optional[int] = Field(default=None, ge=1, le=200000)
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    input_hard_limit: Optional[int] = Field(default=None, ge=1, le=500000)
+    input_safety_margin: Optional[int] = Field(default=None, ge=0, le=100000)
 
 
 class UserPromptPresetBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
-    prompt_content: str = ""
+    prompt_content: str = Field(default="", max_length=32000)
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +128,9 @@ class UserPromptPresetBody(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.post("/auth/sms/send", summary="Send SMS verify code")
-def api_auth_sms_send(body: SmsSendBody):
+def api_auth_sms_send(body: SmsSendBody, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    _sms_send_limiter.check(client_ip)
     result = sms_service.send_verify_code(body.phone)
     if not result["success"]:
         raise HTTPException(
@@ -124,17 +141,21 @@ def api_auth_sms_send(body: SmsSendBody):
 
 
 @router.post("/auth/sms/verify", summary="Verify SMS code without side effects")
-def api_auth_sms_verify(body: SmsVerifyBody):
+def api_auth_sms_verify(body: SmsVerifyBody, request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    _sms_verify_limiter.check(client_ip)
     result = sms_service.check_verify_code(body.phone, body.code)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
-    return {"ok": True, "message": result["message"]}
+    sms_token = sms_service.create_verify_token(body.phone)
+    return {"ok": True, "message": result["message"], "sms_token": sms_token}
 
 
 @router.post("/auth/login/sms", summary="Login by phone + SMS code (auto-register if new)")
 def api_auth_login_sms(body: SmsLoginBody, request: Request, response: Response):
     client_ip = request.client.host if request.client else "unknown"
     _login_limiter.check(client_ip)
+    _sms_verify_limiter.check(client_ip)
 
     verify = sms_service.check_verify_code(body.phone, body.code)
     if not verify["success"]:
@@ -150,6 +171,10 @@ def api_auth_login_sms(body: SmsLoginBody, request: Request, response: Response)
         user_agent=request.headers.get("user-agent"),
     )
     _set_session_cookie(response, session["session_id"], request=request)
+    # SECURITY NOTE: session_id is also returned in the response body for the Tauri
+    # desktop client, which cannot reliably read httpOnly cookies via its WebView.
+    # For web-only deployments, consider removing it from the body and relying solely
+    # on the httpOnly cookie. Tracked as a TODO for Tauri secure-storage migration.
     return {"ok": True, "user": user, "is_new_user": is_new_user, "session_id": session["session_id"]}
 
 
@@ -162,9 +187,8 @@ def api_auth_register(body: AuthRegisterBody, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     _register_limiter.check(client_ip)
 
-    verify = sms_service.check_verify_code(body.phone, body.sms_code)
-    if not verify["success"]:
-        raise HTTPException(status_code=400, detail=f"手机验证失败：{verify['message']}")
+    if not sms_service.validate_verify_token(body.sms_token, body.phone):
+        raise HTTPException(status_code=400, detail="手机验证失败：验证 token 无效或已过期，请重新验证手机号")
     user = auth_service.register_user(body.username, body.password, phone=body.phone)
     return {"ok": True, "user": user}
 
@@ -183,6 +207,7 @@ def api_auth_login(body: AuthCredentialBody, request: Request, response: Respons
         user_agent=request.headers.get("user-agent"),
     )
     _set_session_cookie(response, session["session_id"], request=request)
+    # SECURITY NOTE: session_id included for Tauri desktop compatibility (see SMS login note above).
     return {"ok": True, "user": user, "session_id": session["session_id"]}
 
 
@@ -291,6 +316,14 @@ def api_list_announcements(
     return {"ok": True, "announcements": items, "total": total}
 
 
+@router.get("/announcements/{announcement_id}", summary="Get single announcement")
+def api_get_announcement(announcement_id: int, user=Depends(auth_service.require_user)):
+    item = announcement_service.get_announcement(announcement_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="公告不存在")
+    return {"ok": True, "announcement": item}
+
+
 @router.get("/announcements/unread-count", summary="Get unread announcement count")
 def api_announcements_unread_count(user=Depends(auth_service.require_user)):
     count = announcement_service.count_unread(user_id=user["id"])
@@ -385,12 +418,16 @@ def api_user_list_llm_presets(_user=Depends(auth_service.require_user)):
 
 @router.post("/user/llm-presets", summary="Create LLM preset")
 def api_user_create_llm_preset(body: UserLlmPresetBody, _user=Depends(auth_service.require_user)):
+    if not entitlement_service.check_boolean_gate(_user["id"], "llm_preset"):
+        raise HTTPException(status_code=403, detail="自定义模型预设仅 Pro 及以上套餐可用，请升级以继续使用")
     preset = user_presets_service.create_llm_preset(_user["id"], body.dict())
     return {"ok": True, "preset": preset}
 
 
 @router.put("/user/llm-presets/{preset_id}", summary="Update LLM preset")
 def api_user_update_llm_preset(preset_id: int, body: UserLlmPresetBody, _user=Depends(auth_service.require_user)):
+    if not entitlement_service.check_boolean_gate(_user["id"], "llm_preset"):
+        raise HTTPException(status_code=403, detail="自定义模型预设仅 Pro 及以上套餐可用，请升级以继续使用")
     preset = user_presets_service.update_llm_preset(_user["id"], preset_id, body.dict())
     if preset is None:
         raise HTTPException(status_code=404, detail="预设不存在")
@@ -417,12 +454,16 @@ def api_user_list_prompt_presets(_user=Depends(auth_service.require_user)):
 
 @router.post("/user/prompt-presets", summary="Create prompt preset")
 def api_user_create_prompt_preset(body: UserPromptPresetBody, _user=Depends(auth_service.require_user)):
+    if not entitlement_service.check_boolean_gate(_user["id"], "prompt_preset"):
+        raise HTTPException(status_code=403, detail="自定义提示词预设仅 Pro 及以上套餐可用，请升级以继续使用")
     preset = user_presets_service.create_prompt_preset(_user["id"], body.dict())
     return {"ok": True, "preset": preset}
 
 
 @router.put("/user/prompt-presets/{preset_id}", summary="Update prompt preset")
 def api_user_update_prompt_preset(preset_id: int, body: UserPromptPresetBody, _user=Depends(auth_service.require_user)):
+    if not entitlement_service.check_boolean_gate(_user["id"], "prompt_preset"):
+        raise HTTPException(status_code=403, detail="自定义提示词预设仅 Pro 及以上套餐可用，请升级以继续使用")
     preset = user_presets_service.update_prompt_preset(_user["id"], preset_id, body.dict())
     if preset is None:
         raise HTTPException(status_code=404, detail="预设不存在")

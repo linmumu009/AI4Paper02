@@ -33,6 +33,11 @@ import {
   updateAnnouncement,
   deleteAnnouncement,
   fetchPipelineDataTracking,
+  adminResetUserPassword,
+  adminForceLogout,
+  adminDisableUser,
+  adminEnableUser,
+  adminDeleteUser,
 } from '../api'
 import type {
   AuthUser,
@@ -1421,6 +1426,11 @@ function closeUserDetail() {
   userDetailVisible.value = false
   userDetail.value = null
   userDetailError.value = ''
+  showResetPwdForm.value = false
+  showDeleteConfirm.value = false
+  resetPwdValue.value = ''
+  deleteConfirmInput.value = ''
+  clearActionFeedback()
 }
 
 function handleUserDetailKeydown(e: KeyboardEvent) {
@@ -1436,6 +1446,112 @@ function sourceLabel(source: string): string {
     manual: '手动',
   }
   return map[source] ?? source
+}
+
+// ---------------------------------------------------------------------------
+// User Detail – Admin Actions
+// ---------------------------------------------------------------------------
+const actionBusy = ref(false)
+const actionMsg = ref('')
+const actionError = ref('')
+const showResetPwdForm = ref(false)
+const resetPwdValue = ref('')
+const showDeleteConfirm = ref(false)
+const deleteConfirmInput = ref('')
+
+function clearActionFeedback() {
+  actionMsg.value = ''
+  actionError.value = ''
+}
+
+async function handleAdminResetPassword() {
+  if (!userDetail.value) return
+  clearActionFeedback()
+  actionBusy.value = true
+  try {
+    await adminResetUserPassword(userDetail.value.user.id, resetPwdValue.value)
+    showResetPwdForm.value = false
+    resetPwdValue.value = ''
+    actionMsg.value = '密码已重置'
+  } catch (e: any) {
+    actionError.value = e?.response?.data?.detail || '重置失败'
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function handleAdminForceLogout() {
+  if (!userDetail.value) return
+  if (!confirm(`确定要强制下线用户「${userDetail.value.user.username}」的所有会话吗？`)) return
+  clearActionFeedback()
+  actionBusy.value = true
+  try {
+    const res = await adminForceLogout(userDetail.value.user.id)
+    actionMsg.value = `已清除 ${res.sessions_deleted} 个会话`
+    userDetail.value.active_sessions = 0
+  } catch (e: any) {
+    actionError.value = e?.response?.data?.detail || '操作失败'
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function handleAdminDisable() {
+  if (!userDetail.value) return
+  if (!confirm(`确定要禁用用户「${userDetail.value.user.username}」的账号吗？禁用后该用户将无法登录。`)) return
+  clearActionFeedback()
+  actionBusy.value = true
+  try {
+    const res = await adminDisableUser(userDetail.value.user.id)
+    userDetail.value.user = res.user
+    actionMsg.value = '账号已禁用'
+  } catch (e: any) {
+    actionError.value = e?.response?.data?.detail || '操作失败'
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+async function handleAdminEnable() {
+  if (!userDetail.value) return
+  if (!confirm(`确定要启用用户「${userDetail.value.user.username}」的账号吗？`)) return
+  clearActionFeedback()
+  actionBusy.value = true
+  try {
+    const res = await adminEnableUser(userDetail.value.user.id)
+    userDetail.value.user = res.user
+    actionMsg.value = '账号已启用'
+  } catch (e: any) {
+    actionError.value = e?.response?.data?.detail || '操作失败'
+  } finally {
+    actionBusy.value = false
+  }
+}
+
+function openDeleteConfirm() {
+  deleteConfirmInput.value = ''
+  showDeleteConfirm.value = true
+  clearActionFeedback()
+}
+
+async function handleAdminDelete() {
+  if (!userDetail.value) return
+  if (deleteConfirmInput.value !== userDetail.value.user.username) {
+    actionError.value = '输入的用户名不匹配，请重新输入'
+    return
+  }
+  clearActionFeedback()
+  actionBusy.value = true
+  try {
+    await adminDeleteUser(userDetail.value.user.id)
+    // 从列表中移除
+    users.value = users.value.filter((u) => u.id !== userDetail.value!.user.id)
+    closeUserDetail()
+  } catch (e: any) {
+    actionError.value = e?.response?.data?.detail || '删除失败'
+  } finally {
+    actionBusy.value = false
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1586,15 +1702,15 @@ onUnmounted(() => {
     <!-- ============================== -->
     <aside
       :class="[
-        'z-30 md:z-auto w-56 h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300',
+        'z-30 lg:z-auto settings-sidebar h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300',
         showAdminSidebar
-          ? 'fixed md:relative inset-y-0 left-0 translate-x-0'
-          : 'fixed md:relative inset-y-0 left-0 -translate-x-full md:translate-x-0'
+          ? 'fixed lg:relative inset-y-0 left-0 translate-x-0'
+          : 'fixed lg:relative inset-y-0 left-0 -translate-x-full lg:translate-x-0'
       ]"
     >
-      <!-- Mobile close button -->
+      <!-- Mobile close button (hidden once sidebar is persistent at lg) -->
       <button
-        class="md:hidden absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-bg-hover text-text-muted hover:text-text-primary border-none cursor-pointer"
+        class="lg:hidden absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-bg-hover text-text-muted hover:text-text-primary border-none cursor-pointer"
         @click="showAdminSidebar = false"
       >✕</button>
       <!-- Sidebar header -->
@@ -1881,6 +1997,10 @@ onUnmounted(() => {
                     v-if="currentUser?.id === u.id"
                     class="ml-1 text-[10px] bg-green-500/20 text-green-400 px-1.5 py-0.5 rounded-full"
                   >我</span>
+                  <span
+                    v-if="u.is_disabled"
+                    class="ml-1 text-[10px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full border border-red-500/30"
+                  >已禁用</span>
                 </td>
                 <td class="px-4 py-3">
                   <span
@@ -2977,7 +3097,7 @@ onUnmounted(() => {
         </div><!-- /max-w-3xl -->
 
         <!-- ── 底部 Sticky 保存栏 ── -->
-        <div class="fixed bottom-0 left-0 md:left-56 right-0 z-20 pointer-events-none">
+        <div class="fixed bottom-0 left-0 lg:left-[var(--settings-sidebar-w)] right-0 z-20 pointer-events-none">
           <div class="max-w-3xl mx-auto px-3 sm:px-6 pb-4 pointer-events-auto">
             <transition name="slide-up">
               <div
@@ -3165,7 +3285,7 @@ onUnmounted(() => {
         </div><!-- /max-w-3xl -->
 
         <!-- ── 底部 Sticky 保存栏 ── -->
-        <div class="fixed bottom-0 left-0 md:left-56 right-0 z-20 pointer-events-none">
+        <div class="fixed bottom-0 left-0 lg:left-[var(--settings-sidebar-w)] right-0 z-20 pointer-events-none">
           <div class="max-w-3xl mx-auto px-3 sm:px-6 pb-4 pointer-events-auto">
             <transition name="slide-up">
               <div
@@ -3654,6 +3774,120 @@ onUnmounted(() => {
                   </table>
                 </div>
               </section>
+
+              <div class="border-t border-border"></div>
+
+              <!-- Section: 管理员操作 -->
+              <section>
+                <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">管理员操作</h3>
+
+                <!-- 反馈消息 -->
+                <div v-if="actionMsg" class="mb-3 px-3 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">{{ actionMsg }}</div>
+                <div v-if="actionError" class="mb-3 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{{ actionError }}</div>
+
+                <!-- 普通操作 -->
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <!-- 重置密码 -->
+                  <button
+                    class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary bg-bg-elevated hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors"
+                    :disabled="actionBusy"
+                    @click="showResetPwdForm = !showResetPwdForm; clearActionFeedback()"
+                  >
+                    🔑 重置密码
+                  </button>
+                  <!-- 强制下线 -->
+                  <button
+                    class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary bg-bg-elevated hover:bg-bg-hover disabled:opacity-50 cursor-pointer transition-colors"
+                    :disabled="actionBusy"
+                    @click="handleAdminForceLogout"
+                  >
+                    ⚡ 强制下线
+                  </button>
+                </div>
+
+                <!-- 重置密码表单（展开） -->
+                <div v-if="showResetPwdForm" class="mb-4 p-3 rounded-lg border border-border bg-bg-elevated">
+                  <label class="block text-xs text-text-muted mb-1.5">新密码（至少 8 位）</label>
+                  <div class="flex gap-2">
+                    <input
+                      v-model="resetPwdValue"
+                      type="password"
+                      placeholder="输入新密码"
+                      class="flex-1 px-3 py-1.5 rounded-lg bg-bg-card border border-border text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+                      @keydown.enter="handleAdminResetPassword"
+                    />
+                    <button
+                      class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs disabled:opacity-50 cursor-pointer"
+                      :disabled="actionBusy || resetPwdValue.length < 8"
+                      @click="handleAdminResetPassword"
+                    >
+                      {{ actionBusy ? '保存中...' : '确认重置' }}
+                    </button>
+                    <button
+                      class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-muted hover:bg-bg-hover cursor-pointer"
+                      @click="showResetPwdForm = false; resetPwdValue = ''"
+                    >取消</button>
+                  </div>
+                </div>
+
+                <!-- 账号状态操作 -->
+                <div class="flex flex-wrap gap-2 mb-4">
+                  <button
+                    v-if="!userDetail.user.is_disabled"
+                    class="px-3 py-1.5 rounded-lg border border-amber-500/40 text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-50 cursor-pointer transition-colors"
+                    :disabled="actionBusy"
+                    @click="handleAdminDisable"
+                  >
+                    🚫 禁用账号
+                  </button>
+                  <button
+                    v-else
+                    class="px-3 py-1.5 rounded-lg border border-green-500/40 text-xs text-green-400 bg-green-500/10 hover:bg-green-500/20 disabled:opacity-50 cursor-pointer transition-colors"
+                    :disabled="actionBusy"
+                    @click="handleAdminEnable"
+                  >
+                    ✅ 启用账号
+                  </button>
+                  <span v-if="userDetail.user.is_disabled" class="text-xs text-amber-400 flex items-center">当前账号已禁用</span>
+                </div>
+
+                <!-- 危险操作区 -->
+                <div class="border border-red-500/20 rounded-lg p-3 bg-red-500/5">
+                  <p class="text-xs text-red-400 font-semibold mb-2">危险操作</p>
+                  <p class="text-xs text-text-muted mb-3">永久删除账号后无法恢复，该用户的登录凭据将被清除。</p>
+                  <button
+                    v-if="!showDeleteConfirm"
+                    class="px-3 py-1.5 rounded-lg border border-red-500/40 text-xs text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-50 cursor-pointer transition-colors"
+                    :disabled="actionBusy"
+                    @click="openDeleteConfirm"
+                  >
+                    🗑️ 永久删除账号
+                  </button>
+                  <div v-else class="space-y-2">
+                    <p class="text-xs text-red-400">请输入用户名 <span class="font-mono font-bold">{{ userDetail.user.username }}</span> 确认删除：</p>
+                    <div class="flex gap-2">
+                      <input
+                        v-model="deleteConfirmInput"
+                        type="text"
+                        placeholder="输入用户名确认"
+                        class="flex-1 px-3 py-1.5 rounded-lg bg-bg-card border border-red-500/40 text-text-primary text-sm focus:outline-none focus:ring-1 focus:ring-red-500/50"
+                        @keydown.enter="handleAdminDelete"
+                      />
+                      <button
+                        class="px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs disabled:opacity-50 cursor-pointer"
+                        :disabled="actionBusy || deleteConfirmInput !== userDetail.user.username"
+                        @click="handleAdminDelete"
+                      >
+                        {{ actionBusy ? '删除中...' : '确认删除' }}
+                      </button>
+                      <button
+                        class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-muted hover:bg-bg-hover cursor-pointer"
+                        @click="showDeleteConfirm = false; deleteConfirmInput = ''"
+                      >取消</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </template>
           </div>
         </div>
@@ -3689,5 +3923,9 @@ onUnmounted(() => {
 .fade-modal-leave-to .relative.z-10 {
   opacity: 0;
   transform: scale(0.96) translateY(8px);
+}
+
+.settings-sidebar {
+  width: var(--settings-sidebar-w);
 }
 </style>

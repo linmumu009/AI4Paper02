@@ -144,6 +144,7 @@ _CONFIG_GROUPS = {
         "summary_limit_prompt_headline",
         "summary_batch_system_prompt",
         "pdf_info_system_prompt",
+        "paper_assets_max_tokens",
         "paper_assets_system_prompt",
         "idea_ingest_system_prompt",
         "idea_question_system_prompt",
@@ -357,6 +358,8 @@ def _get_config_description(key: str) -> str:
         "idea_revise_system_prompt": "灵感修订系统提示词（灵感评审：自动修订阶段）",
         "idea_plan_system_prompt": "实验计划生成系统提示词（灵感计划生成）",
         "idea_eval_system_prompt": "灵感评测回放系统提示词（灵感评测回放）",
+        "paper_assets_max_tokens": "结构化分析（13块 JSON）输出最大 Token 数，建议不低于 12288",
+        "paper_assets_system_prompt": "结构化分析系统提示词（13块 JSON 抽取器，控制输出语言、字段规则等）",
     }
     return descriptions.get(key, "")
 

@@ -30,6 +30,7 @@ from config.config import (  # noqa: E402
     summary_input_hard_limit,
     summary_input_safety_margin,
     summary_concurrency,
+    paper_assets_max_tokens,
     paper_assets_system_prompt,
     DATA_ROOT,
     SLLM,
@@ -100,7 +101,7 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
     cfg: Dict[str, Any] = {
         "model": g_model,
         "temperature": summary_temperature,
-        "max_tokens": summary_max_tokens,
+        "max_tokens": paper_assets_max_tokens,
         "input_hard_limit": summary_input_hard_limit,
         "input_safety_margin": summary_input_safety_margin,
         "system_prompt": paper_assets_system_prompt or "",
@@ -128,6 +129,10 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if ucfg.get(k) is not None:
                         cfg[k] = ucfg[k]
+
+    # User presets may carry a small max_tokens suited for paper_summary;
+    # paper_assets requires a much larger budget for its 13-key JSON output.
+    cfg["max_tokens"] = max(int(cfg["max_tokens"]), paper_assets_max_tokens)
 
     if not key:
         raise SystemExit("paper_assets: no api_key available (global config or user preset)")
@@ -215,38 +220,174 @@ def build_url(paper_id: str) -> str:
     return ""
 
 
-def ensure_blocks_structure(blocks: Any) -> Dict[str, Dict[str, List[str]]]:
-    """确保 blocks 结构完整且类型正确。"""
-    expected_keys = [
-        "background",
-        "objective",
-        "method",
-        "data",
-        "experiment",
-        "metrics",
-        "results",
-        "limitations",
-    ]
-    out: Dict[str, Dict[str, List[str]]] = {}
+def _norm_str(v: Any) -> str:
+    """Coerce a value to str, treating None as empty string."""
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v.strip()
+    return str(v).strip()
+
+
+def _norm_str_list(v: Any) -> List[str]:
+    """Coerce a value to a list of non-empty strings."""
+    if not isinstance(v, list):
+        return []
+    out: List[str] = []
+    for item in v:
+        if isinstance(item, str):
+            s = item.strip()
+        else:
+            s = str(item).strip() if item is not None else ""
+        if s:
+            out.append(s)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# New 13-block schema definition.
+# Each entry maps a top-level block key to the set of extra sub-fields it
+# carries beyond the universal "text" and "bullets".  The value describes
+# default types:  "" → str,  [] → list,  None → nullable (kept as-is).
+# ---------------------------------------------------------------------------
+_BLOCK_EXTRA: Dict[str, Dict[str, Any]] = {
+    "paper_profile": {
+        "title": "",
+        "authors": [],
+        "affiliations": [],
+        "year": None,
+        "publication_status": "",
+        "paper_type": "",
+        "research_domain": "",
+        "problem_gap": "",
+        "position_in_literature": "",
+    },
+    "background": {},
+    "objective": {
+        "research_questions": [],
+        "claimed_contributions": [],
+    },
+    "method": {
+        "input": None,
+        "task_or_object": None,
+        "architecture_or_paradigm": None,
+        "key_mechanisms": [],
+        "training_required": None,
+        "training_or_optimization": None,
+        "inference_strategy": None,
+        "novelty": [],
+    },
+    "data": {
+        "datasets_or_materials": [],
+        "data_source": None,
+        "data_scale": None,
+        "domain_scope": None,
+    },
+    "experiment_or_argumentation": {
+        "design": None,
+        "baselines_or_comparators": [],
+        "variables_or_modules": [],
+        "ablation_or_counterfactual": None,
+        "argumentation_structure": None,
+    },
+    "metrics": {
+        "metric_names": [],
+        "evaluation_protocol": None,
+        "judge_or_annotation_method": None,
+    },
+    "results": {
+        "main_findings": [],
+        "numerical_results": [],
+        "phenomena": [],
+        "mechanism_explanations": [],
+    },
+    "evidence_chain": {
+        "claim_to_evidence": [],
+        "strongly_supported_claims": [],
+        "weakly_supported_claims": [],
+        "unsupported_or_overextended_claims": [],
+        "key_evidence_from_figures_tables_appendix": [],
+    },
+    "figures_tables_appendix": {},
+    "limitations": {
+        "scope_boundaries": [],
+        "threats_to_validity": [],
+        "generalization_limits": [],
+    },
+    "critical_analysis": {
+        "strongest_argument": "",
+        "weakest_argument": "",
+        "substantive_contributions": [],
+        "packaging_or_framing_elements": [],
+        "strong_conclusions": [],
+        "weak_conclusions": [],
+        "needs_more_evidence": [],
+        "reproduction_or_extension_priorities": [],
+    },
+    "summary": {
+        "one_sentence_summary": "",
+        "three_takeaways": [],
+        "literature_review_comment": "",
+    },
+}
+
+# Legacy 8-key → new-key mapping (for backward-compat with stored data)
+_LEGACY_KEY_MAP: Dict[str, str] = {
+    "experiment": "experiment_or_argumentation",
+}
+
+# Keys that carry only text+bullets (no extra sub-fields)
+_TEXT_BULLETS_ONLY = {"background", "figures_tables_appendix"}
+
+
+def _normalize_block(raw: Any, extra_schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalise a single block dict against its schema.
+
+    Always produces "text" and "bullets".  Extra fields from *extra_schema*
+    are included with type-appropriate defaults when absent in *raw*.
+    """
+    if not isinstance(raw, dict):
+        raw = {}
+
+    out: Dict[str, Any] = {
+        "text": _norm_str(raw.get("text")),
+        "bullets": _norm_str_list(raw.get("bullets")),
+    }
+
+    for field, default in extra_schema.items():
+        raw_val = raw.get(field, default)
+        if default == "" or isinstance(default, str):
+            out[field] = _norm_str(raw_val) if raw_val is not None else ""
+        elif default == [] or isinstance(default, list):
+            out[field] = _norm_str_list(raw_val) if isinstance(raw_val, list) else []
+        else:
+            # nullable field (default is None): pass through as-is
+            out[field] = raw_val
+
+    return out
+
+
+def ensure_blocks_structure(blocks: Any) -> Dict[str, Any]:
+    """Validate and normalise a blocks dict against the 13-key schema.
+
+    Handles:
+    - Missing keys → filled with empty defaults
+    - Legacy 8-key data → experiment remapped to experiment_or_argumentation
+    - Extra/unknown keys in raw data are dropped
+    """
     if not isinstance(blocks, dict):
         blocks = {}
-    for key in expected_keys:
-        raw = blocks.get(key, {}) if isinstance(blocks, dict) else {}
-        text = raw.get("text") if isinstance(raw, dict) else ""
-        bullets = raw.get("bullets") if isinstance(raw, dict) else []
-        if not isinstance(text, str):
-            text = "" if text is None else str(text)
-        if not isinstance(bullets, list):
-            bullets = []
-        norm_bullets: List[str] = []
-        for b in bullets:
-            if isinstance(b, str):
-                s = b.strip()
-            else:
-                s = str(b).strip()
-            if s:
-                norm_bullets.append(s)
-        out[key] = {"text": text.strip(), "bullets": norm_bullets}
+
+    # Apply legacy key remapping so old stored data still works
+    for old_key, new_key in _LEGACY_KEY_MAP.items():
+        if old_key in blocks and new_key not in blocks:
+            blocks[new_key] = blocks[old_key]
+
+    out: Dict[str, Any] = {}
+    for key, extra_schema in _BLOCK_EXTRA.items():
+        raw = blocks.get(key, {})
+        out[key] = _normalize_block(raw, extra_schema)
+
     return out
 
 
@@ -302,7 +443,7 @@ def extract_blocks_with_llm(
             {"role": "system", "content": sys_prompt},
             {
                 "role": "user",
-                "content": "下面是某篇论文的中文摘要/笔记文本，请根据系统提示词只构造 blocks 字段的内容：\n\n" + user_content,
+                "content": "请根据系统提示词对下面这篇论文进行结构化分析：\n\n" + user_content,
             },
         ],
         stream=False,
@@ -310,7 +451,7 @@ def extract_blocks_with_llm(
     )
     reply = resp.choices[0].message.content if resp.choices else ""
     obj = parse_json_from_text(reply)
-    # 模型按 prompt 只输出 blocks 对象（8 个键在顶层）；兼容历史上可能返回 {"blocks": {...}} 的情况
+    # 模型按 prompt 只输出 blocks 对象（13 个键在顶层）；兼容历史上可能返回 {"blocks": {...}} 的情况
     if isinstance(obj, dict) and "blocks" in obj and isinstance(obj["blocks"], dict):
         blocks_raw = obj["blocks"]
     else:

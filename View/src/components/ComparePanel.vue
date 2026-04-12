@@ -3,6 +3,12 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import type { KbScope } from '../api'
 import { saveCompareResult, fetchCompareStream } from '../api'
+import { useEngagement } from '../composables/useEngagement'
+import { trackEvent } from '../composables/useAnalytics'
+import { useEntitlements } from '../composables/useEntitlements'
+import RewardBoostBanner from './RewardBoostBanner.vue'
+import UpgradePrompt from './UpgradePrompt.vue'
+import QuotaWarningBanner from './QuotaWarningBanner.vue'
 
 const props = defineProps<{
   paperIds: string[]
@@ -21,9 +27,18 @@ const emit = defineEmits<{
 // Markdown renderer
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
+// Engagement reward
+const engagement = useEngagement()
+const useCompareReward = ref(false)
+
+// Entitlements
+const ent = useEntitlements()
+const compareQuotaBlocked = computed(() => !ent.canUse('compare'))
+const compareQuotaSummary = computed(() => ent.quotaSummary('compare'))
+
 // State
-type Phase = 'loading' | 'streaming' | 'done' | 'error'
-const phase = ref<Phase>('loading')
+type Phase = 'idle' | 'loading' | 'streaming' | 'done' | 'error'
+const phase = ref<Phase>('idle')
 const rawMarkdown = ref('')
 const errorMsg = ref('')
 const contentRef = ref<HTMLElement | null>(null)
@@ -61,12 +76,22 @@ async function startStreaming() {
 
   abortController = new AbortController()
 
+  const rewardToUse = useCompareReward.value ? engagement.bestCompareReward.value : undefined
+  const rewardId = rewardToUse?.id
+
   try {
     const response = await fetchCompareStream(
       props.paperIds,
       props.scope || 'kb',
       props.compareResultIds,
+      rewardId,
     )
+    if (rewardId !== undefined && rewardToUse) {
+      useCompareReward.value = false
+      engagement.notifyRewardUsed(rewardToUse.reward_name)
+      void engagement.loadActiveRewards('compare')
+      void engagement.loadStatus(true)
+    }
 
     if (!response.ok) {
       const text = await response.text()
@@ -103,6 +128,8 @@ async function startStreaming() {
 
         if (payload === '[DONE]') {
           phase.value = 'done'
+          // Refresh quota display after consuming a compare credit
+          void ent.refreshEntitlements(true)
           return
         }
 
@@ -123,6 +150,9 @@ async function startStreaming() {
     if (phase.value === 'streaming') {
       phase.value = 'done'
     }
+
+    // Refresh quota display after consuming a compare credit
+    void ent.refreshEntitlements(true)
   } catch (e: any) {
     if (e.name === 'AbortError') return
     errorMsg.value = e?.message || '请求失败'
@@ -138,8 +168,13 @@ function stopStreaming() {
   }
 }
 
-onMounted(() => {
-  startStreaming()
+onMounted(async () => {
+  // P3: Always show idle phase first so UX is consistent regardless of reward availability.
+  // Users with rewards and users without rewards both see the same explicit "start" button.
+  if (engagement.loaded.value) {
+    await engagement.loadActiveRewards('compare')
+  }
+  phase.value = 'idle'
 })
 
 onBeforeUnmount(() => {
@@ -166,6 +201,7 @@ async function saveToLibrary() {
     const result = await saveCompareResult(title, rawMarkdown.value, props.paperIds)
     saved.value = true
     emit('saved', result.id)
+    trackEvent('compare_saved', { targetId: props.paperIds.join(','), value: props.paperIds.length })
   } catch {
     // 保存失败时不改变状态
   } finally {
@@ -253,8 +289,44 @@ async function saveToLibrary() {
 
     <!-- Content area -->
     <div ref="contentRef" class="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
+      <!-- Idle state with reward boost option -->
+      <div v-if="phase === 'idle'" class="flex flex-col items-center justify-center h-full gap-5 max-w-sm mx-auto">
+        <div class="text-4xl">🔬</div>
+        <div class="text-center">
+          <h3 class="text-sm font-semibold text-text-primary mb-1">准备对比 {{ paperIds.length }} 篇论文</h3>
+          <p class="text-xs text-text-muted">AI 将综合阅读所有论文并生成结构化对比分析报告</p>
+        </div>
+
+        <!-- Quota upgrade prompt -->
+        <UpgradePrompt
+          v-if="compareQuotaBlocked && ent.loaded.value"
+          feature="compare"
+          class="w-full"
+        />
+
+        <template v-else>
+          <!-- Quota warning (near limit) -->
+          <QuotaWarningBanner v-if="ent.loaded.value" feature="compare" class="w-full" />
+
+          <!-- Quota indicator -->
+          <p v-if="ent.loaded.value && ent.limit('compare') !== null" class="text-[11px] text-text-muted">
+            本月对比：{{ compareQuotaSummary }}
+          </p>
+          <div class="w-full">
+            <RewardBoostBanner
+              :reward="engagement.bestCompareReward.value"
+              v-model="useCompareReward"
+            />
+          </div>
+          <button
+            class="px-6 py-2.5 rounded-full bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
+            @click="startStreaming"
+          >开始分析</button>
+        </template>
+      </div>
+
       <!-- Loading state -->
-      <div v-if="phase === 'loading'" class="flex flex-col items-center justify-center h-full gap-4">
+      <div v-else-if="phase === 'loading'" class="flex flex-col items-center justify-center h-full gap-4">
         <div class="relative w-16 h-16 flex items-center justify-center">
           <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#6366f1] border-r-[#8b5cf6] animate-spin"></div>
           <div class="absolute inset-2 rounded-full border-2 border-transparent border-b-[#6366f1] border-l-[#8b5cf6] animate-spin" style="animation-direction: reverse; animation-duration: 1.5s;"></div>

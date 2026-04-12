@@ -717,3 +717,1064 @@ def get_retention_data(weeks: int = 8) -> dict:
         return {"cohorts": cohorts, "weeks": weeks}
     finally:
         conn.close()
+
+
+def get_engagement_signin_stats(days: int = 14) -> dict:
+    """
+    Engagement funnel metrics for task-signin rollout.
+
+    Returns:
+      - daily series for task recorded / day completed / milestone granted
+      - completion_rate = completed / recorded
+      - grant_rate = granted / completed
+      - unique users for each stage in the selected window
+    """
+    days = max(1, min(days, 90))
+    now = _now()
+    start_dt = now - timedelta(days=days - 1)
+    start_iso = start_dt.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    conn = _connect_auth()
+    try:
+        if not _table_exists(conn, "analytics_events"):
+            return {
+                "days": days,
+                "dates": [],
+                "task_recorded": [],
+                "day_completed": [],
+                "milestone_granted": [],
+                "completion_rate": [],
+                "grant_rate": [],
+                "unique_users": {"task_recorded": 0, "day_completed": 0, "milestone_granted": 0},
+            }
+
+        rows = conn.execute(
+            """
+            SELECT DATE(created_at) as day, event_type, COUNT(*) as cnt
+            FROM analytics_events
+            WHERE created_at >= ?
+              AND event_type IN ('signin_task_recorded', 'signin_day_completed', 'signin_milestone_granted')
+            GROUP BY DATE(created_at), event_type
+            """,
+            (start_iso,),
+        ).fetchall()
+
+        user_rows = conn.execute(
+            """
+            SELECT event_type, COUNT(DISTINCT user_id) as cnt
+            FROM analytics_events
+            WHERE created_at >= ?
+              AND user_id > 0
+              AND event_type IN ('signin_task_recorded', 'signin_day_completed', 'signin_milestone_granted')
+            GROUP BY event_type
+            """,
+            (start_iso,),
+        ).fetchall()
+
+        day_map = defaultdict(lambda: {"signin_task_recorded": 0, "signin_day_completed": 0, "signin_milestone_granted": 0})
+        for r in rows:
+            day_map[r["day"]][r["event_type"]] = int(r["cnt"])
+
+        dates: list[str] = []
+        task_recorded: list[int] = []
+        day_completed: list[int] = []
+        milestone_granted: list[int] = []
+        completion_rate: list[float] = []
+        grant_rate: list[float] = []
+
+        for i in range(days):
+            d = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+            bucket = day_map[d]
+            rec = int(bucket["signin_task_recorded"])
+            comp = int(bucket["signin_day_completed"])
+            grant = int(bucket["signin_milestone_granted"])
+            dates.append(d)
+            task_recorded.append(rec)
+            day_completed.append(comp)
+            milestone_granted.append(grant)
+            completion_rate.append(round((comp / rec) * 100, 2) if rec > 0 else 0.0)
+            grant_rate.append(round((grant / comp) * 100, 2) if comp > 0 else 0.0)
+
+        uniq = {"signin_task_recorded": 0, "signin_day_completed": 0, "signin_milestone_granted": 0}
+        for r in user_rows:
+            uniq[r["event_type"]] = int(r["cnt"])
+
+        return {
+            "days": days,
+            "dates": dates,
+            "task_recorded": task_recorded,
+            "day_completed": day_completed,
+            "milestone_granted": milestone_granted,
+            "completion_rate": completion_rate,
+            "grant_rate": grant_rate,
+            "unique_users": {
+                "task_recorded": uniq["signin_task_recorded"],
+                "day_completed": uniq["signin_day_completed"],
+                "milestone_granted": uniq["signin_milestone_granted"],
+            },
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module A: New User Activation (7-day activation funnel)
+# ---------------------------------------------------------------------------
+
+def get_activation_stats(days: int = 30, activation_window_days: int = 7, tier: str = None) -> dict:
+    """
+    Answers: "Are new users completing their first valuable action?"
+
+    Activation = user performed at least one key action (save paper, create note,
+    make annotation, dismiss paper, run compare) within `activation_window_days`
+    of their registration date.
+
+    Returns:
+      - activation_rate_overall: % of users registered in [days] who activated
+      - daily_registrations: list of new users per day
+      - daily_activations: list of users who activated (per registration day)
+      - activation_funnel: { registered, activated, pending, not_activated }
+      - recent_unactivated: list of up to 20 recently registered but not yet activated users
+    """
+    now = _now()
+    start_dt = now - timedelta(days=days)
+    start_iso = start_dt.isoformat()
+
+    conn = _connect_auth()
+    try:
+        # Fetch all users registered in the window (optionally filtered by tier)
+        _uq = (
+            "SELECT id, username, created_at, last_login_at, tier"
+            " FROM auth_users WHERE created_at >= ?"
+        )
+        _up: list = [start_iso]
+        if tier:
+            _uq += " AND tier = ?"
+            _up.append(tier)
+        _uq += " ORDER BY created_at ASC"
+        users = conn.execute(_uq, _up).fetchall()
+
+        if not users:
+            return {
+                "activation_rate_overall": 0.0,
+                "daily_registrations": [],
+                "daily_activations": [],
+                "dates": [],
+                "activation_funnel": {"registered": 0, "activated": 0, "pending": 0, "not_activated": 0},
+                "recent_unactivated": [],
+                "tier_breakdown": {},
+                "activation_definition": "save_note_annotation_compare",
+            }
+
+        # Build a set of user_ids that have performed at least one key action
+        user_ids = [u["id"] for u in users]
+        placeholders = ",".join("?" * len(user_ids))
+
+        activated_ids = set()
+
+        # Check kb_papers (save paper)
+        if _table_exists(conn, "kb_papers"):
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT kp.user_id
+                FROM kb_papers kp
+                JOIN auth_users au ON au.id = kp.user_id
+                WHERE kp.user_id IN ({placeholders})
+                  AND (julianday(kp.created_at) - julianday(au.created_at)) BETWEEN 0 AND ?
+                """,
+                (*user_ids, activation_window_days),
+            ).fetchall()
+            activated_ids.update(r["user_id"] for r in rows)
+
+        # Check kb_notes (create note)
+        if _table_exists(conn, "kb_notes"):
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT kn.user_id
+                FROM kb_notes kn
+                JOIN auth_users au ON au.id = kn.user_id
+                WHERE kn.user_id IN ({placeholders})
+                  AND (julianday(kn.created_at) - julianday(au.created_at)) BETWEEN 0 AND ?
+                """,
+                (*user_ids, activation_window_days),
+            ).fetchall()
+            activated_ids.update(r["user_id"] for r in rows)
+
+        # Check kb_annotations
+        if _table_exists(conn, "kb_annotations"):
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT ka.user_id
+                FROM kb_annotations ka
+                JOIN auth_users au ON au.id = ka.user_id
+                WHERE ka.user_id IN ({placeholders})
+                  AND (julianday(ka.created_at) - julianday(au.created_at)) BETWEEN 0 AND ?
+                """,
+                (*user_ids, activation_window_days),
+            ).fetchall()
+            activated_ids.update(r["user_id"] for r in rows)
+
+        # Check kb_compare_results
+        if _table_exists(conn, "kb_compare_results"):
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT kcr.user_id
+                FROM kb_compare_results kcr
+                JOIN auth_users au ON au.id = kcr.user_id
+                WHERE kcr.user_id IN ({placeholders})
+                  AND (julianday(kcr.created_at) - julianday(au.created_at)) BETWEEN 0 AND ?
+                """,
+                (*user_ids, activation_window_days),
+            ).fetchall()
+            activated_ids.update(r["user_id"] for r in rows)
+
+        # Build daily series
+        date_labels = []
+        for i in range(days):
+            d = (start_dt + timedelta(days=i + 1))
+            date_labels.append(d.strftime("%Y-%m-%d"))
+
+        daily_reg: dict[str, int] = {}
+        daily_act: dict[str, int] = {}
+        for u in users:
+            day = u["created_at"][:10]
+            daily_reg[day] = daily_reg.get(day, 0) + 1
+            if u["id"] in activated_ids:
+                daily_act[day] = daily_act.get(day, 0) + 1
+
+        # Classify users: activated / pending (registered within window) / not_activated
+        pending_cutoff = (now - timedelta(days=activation_window_days)).isoformat()
+        activated_count = len(activated_ids)
+        pending_users = [u for u in users if u["id"] not in activated_ids and u["created_at"] >= pending_cutoff]
+        not_activated = [u for u in users if u["id"] not in activated_ids and u["created_at"] < pending_cutoff]
+
+        registered_count = len(users)
+        activation_rate = round(activated_count / registered_count * 100, 1) if registered_count > 0 else 0.0
+
+        recent_unactivated = sorted(
+            not_activated + pending_users,
+            key=lambda x: x["created_at"],
+            reverse=True,
+        )[:20]
+
+        # Tier breakdown of activation (only for the current tier filter scope)
+        tier_breakdown: dict[str, dict] = {}
+        for u in users:
+            t = u["tier"] or "free"
+            if t not in tier_breakdown:
+                tier_breakdown[t] = {"registered": 0, "activated": 0, "rate": 0.0}
+            tier_breakdown[t]["registered"] += 1
+            if u["id"] in activated_ids:
+                tier_breakdown[t]["activated"] += 1
+        for t, td in tier_breakdown.items():
+            td["rate"] = round(td["activated"] / td["registered"] * 100, 1) if td["registered"] > 0 else 0.0
+
+        return {
+            "activation_rate_overall": activation_rate,
+            "dates": date_labels,
+            "daily_registrations": [daily_reg.get(d, 0) for d in date_labels],
+            "daily_activations": [daily_act.get(d, 0) for d in date_labels],
+            "activation_funnel": {
+                "registered": registered_count,
+                "activated": activated_count,
+                "pending": len(pending_users),
+                "not_activated": len(not_activated),
+            },
+            "recent_unactivated": [
+                {
+                    "user_id": u["id"],
+                    "username": u["username"],
+                    "created_at": u["created_at"],
+                    "last_login_at": u["last_login_at"],
+                    "tier": u["tier"],
+                    "is_pending": u["created_at"] >= pending_cutoff,
+                }
+                for u in recent_unactivated
+            ],
+            "tier_breakdown": tier_breakdown,
+            "activation_definition": "save_note_annotation_compare",
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module B: Activated User Retention
+# ---------------------------------------------------------------------------
+
+def get_activated_retention(weeks: int = 8) -> dict:
+    """
+    Answers: "Are activated users coming back?"
+
+    Retention is computed only for users who were "activated" (performed at
+    least one key action). This gives a more honest signal than retention for
+    all registered users (many of whom may have just poked around).
+
+    Returns same cohort format as get_retention_data but scoped to activated users.
+    """
+    now = _now()
+    start = now - timedelta(weeks=weeks)
+    start_iso = start.isoformat()
+
+    conn = _connect_auth()
+    try:
+        # Step 1: find all activated user_ids — dismiss is excluded from activation definition
+        activated_ids: set[int] = set()
+        for table in ["kb_papers", "kb_notes", "kb_annotations", "kb_compare_results"]:
+            if _table_exists(conn, table):
+                rows = conn.execute(f"SELECT DISTINCT user_id FROM {table} WHERE user_id > 0").fetchall()
+                activated_ids.update(r["user_id"] for r in rows)
+
+        if not activated_ids:
+            return {"cohorts": [], "weeks": weeks, "total_activated": 0}
+
+        placeholders = ",".join("?" * len(activated_ids))
+        activated_list = list(activated_ids)
+
+        # Step 2: get these users' registration dates
+        users = conn.execute(
+            f"""
+            SELECT id, created_at FROM auth_users
+            WHERE id IN ({placeholders}) AND created_at >= ?
+            """,
+            (*activated_list, start_iso),
+        ).fetchall()
+
+        # Step 3: get session activity for these users
+        sessions = conn.execute(
+            f"""
+            SELECT user_id, last_seen_at FROM auth_sessions
+            WHERE user_id IN ({placeholders}) AND last_seen_at >= ?
+            """,
+            (*activated_list, start_iso),
+        ).fetchall()
+
+        # Build activity map
+        user_active_weeks: dict[int, set[int]] = defaultdict(set)
+        for s in sessions:
+            try:
+                seen = datetime.fromisoformat(s["last_seen_at"])
+                week_num = (seen - start).days // 7
+                user_active_weeks[s["user_id"]].add(week_num)
+            except Exception:
+                pass
+
+        # Build cohorts
+        cohorts = []
+        for w in range(weeks):
+            week_start = start + timedelta(weeks=w)
+            week_end = week_start + timedelta(weeks=1)
+
+            cohort_users = [
+                u["id"] for u in users
+                if week_start.isoformat() <= u["created_at"] < week_end.isoformat()
+            ]
+            cohort_size = len(cohort_users)
+            if cohort_size == 0:
+                cohorts.append({
+                    "week": week_start.strftime("%m/%d"),
+                    "cohort_size": 0,
+                    "retention": [],
+                })
+                continue
+
+            retention = []
+            for offset_week in range(w, weeks):
+                active_in_week = sum(
+                    1 for uid in cohort_users
+                    if offset_week in user_active_weeks.get(uid, set())
+                )
+                retention.append(round(active_in_week / cohort_size * 100, 1))
+
+            cohorts.append({
+                "week": week_start.strftime("%m/%d"),
+                "cohort_size": cohort_size,
+                "retention": retention,
+            })
+
+        return {
+            "cohorts": cohorts,
+            "weeks": weeks,
+            "total_activated": len(activated_ids),
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module C: Content & Feature Value (conversion funnel)
+# ---------------------------------------------------------------------------
+
+def get_content_funnel_stats(days: int = 30) -> dict:
+    """
+    Answers: "What content/features are actually driving value?"
+
+    Tracks:
+      - paper_views: from analytics_events
+      - key_actions: saves + notes + annotations + compares (from structural tables)
+      - overall conversion rate: key_actions / paper_views
+      - daily series for views vs actions
+      - top papers by save count with view-to-save ratio
+      - feature breakdown: which features are being used
+    """
+    now = _now()
+    start_dt = now - timedelta(days=days)
+    start_iso = start_dt.isoformat()
+
+    conn = _connect_auth()
+    try:
+        date_labels = []
+        for i in range(days):
+            d = (start_dt + timedelta(days=i + 1))
+            date_labels.append(d.strftime("%Y-%m-%d"))
+
+        # Paper views from analytics_events
+        daily_views: dict[str, int] = {}
+        total_paper_views = 0
+        if _table_exists(conn, "analytics_events"):
+            rows = conn.execute(
+                """
+                SELECT DATE(created_at) as day, COUNT(*) as cnt
+                FROM analytics_events
+                WHERE event_type = 'paper_view' AND created_at >= ?
+                GROUP BY DATE(created_at)
+                """,
+                (start_iso,),
+            ).fetchall()
+            for r in rows:
+                daily_views[r["day"]] = r["cnt"]
+                total_paper_views += r["cnt"]
+
+        # Key actions from structural tables
+        daily_saves: dict[str, int] = {}
+        daily_notes: dict[str, int] = {}
+        total_saves = 0
+        total_notes = 0
+        total_annotations = 0
+        total_compares = 0
+
+        if _table_exists(conn, "kb_papers"):
+            rows = conn.execute(
+                """
+                SELECT DATE(created_at) as day, COUNT(*) as cnt
+                FROM kb_papers WHERE created_at >= ?
+                GROUP BY DATE(created_at)
+                """,
+                (start_iso,),
+            ).fetchall()
+            for r in rows:
+                daily_saves[r["day"]] = r["cnt"]
+                total_saves += r["cnt"]
+
+        if _table_exists(conn, "kb_notes"):
+            rows = conn.execute(
+                """
+                SELECT DATE(created_at) as day, COUNT(*) as cnt
+                FROM kb_notes WHERE created_at >= ?
+                GROUP BY DATE(created_at)
+                """,
+                (start_iso,),
+            ).fetchall()
+            for r in rows:
+                daily_notes[r["day"]] = r["cnt"]
+                total_notes += r["cnt"]
+
+        if _table_exists(conn, "kb_annotations"):
+            total_annotations = conn.execute(
+                "SELECT COUNT(*) FROM kb_annotations WHERE created_at >= ?", (start_iso,)
+            ).fetchone()[0]
+
+        if _table_exists(conn, "kb_compare_results"):
+            total_compares = conn.execute(
+                "SELECT COUNT(*) FROM kb_compare_results WHERE created_at >= ?", (start_iso,)
+            ).fetchone()[0]
+
+        total_key_actions = total_saves + total_notes + total_annotations + total_compares
+        conversion_rate = round(total_key_actions / total_paper_views * 100, 1) if total_paper_views > 0 else 0.0
+
+        # Top papers by save count with view data
+        top_papers = []
+        if _table_exists(conn, "kb_papers"):
+            rows = conn.execute(
+                """
+                SELECT paper_id, COUNT(DISTINCT user_id) as save_count, MIN(paper_data) as paper_data
+                FROM kb_papers
+                WHERE created_at >= ?
+                GROUP BY paper_id
+                ORDER BY save_count DESC
+                LIMIT 15
+                """,
+                (start_iso,),
+            ).fetchall()
+            for r in rows:
+                paper_id = r["paper_id"]
+                view_count = 0
+                if _table_exists(conn, "analytics_events"):
+                    vc = conn.execute(
+                        "SELECT COUNT(*) FROM analytics_events WHERE target_type='paper' AND target_id=? AND event_type='paper_view' AND created_at >= ?",
+                        (paper_id, start_iso),
+                    ).fetchone()[0]
+                    view_count = vc
+                try:
+                    pd_data = json.loads(r["paper_data"])
+                    title = pd_data.get("📖标题") or pd_data.get("short_title") or paper_id
+                except Exception:
+                    title = paper_id
+                view_to_save = round(r["save_count"] / view_count * 100, 1) if view_count > 0 else None
+                top_papers.append({
+                    "paper_id": paper_id,
+                    "title": title,
+                    "save_count": r["save_count"],
+                    "view_count": view_count,
+                    "view_to_save_rate": view_to_save,
+                })
+
+        return {
+            "days": days,
+            "dates": date_labels,
+            "daily_paper_views": [daily_views.get(d, 0) for d in date_labels],
+            "daily_saves": [daily_saves.get(d, 0) for d in date_labels],
+            "daily_notes": [daily_notes.get(d, 0) for d in date_labels],
+            "totals": {
+                "paper_views": total_paper_views,
+                "saves": total_saves,
+                "notes": total_notes,
+                "annotations": total_annotations,
+                "compares": total_compares,
+                "key_actions": total_key_actions,
+            },
+            "conversion_rate": conversion_rate,
+            "top_papers": top_papers,
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module B (extended): Value-action weekly retention
+# ---------------------------------------------------------------------------
+
+def get_value_action_retention(weeks: int = 8) -> dict:
+    """
+    Answers: "Are activated users coming back to do value actions?"
+
+    Unlike get_activated_retention (which uses session presence = 'logged in'),
+    this measures whether activated users performed a structural value action
+    (save / note / annotation / compare) in each weekly cohort window.
+    More honest signal for product engagement.
+    """
+    now = _now()
+    start = now - timedelta(weeks=weeks)
+    start_iso = start.isoformat()
+
+    conn = _connect_auth()
+    try:
+        # Step 1: all activated users (same definition as get_activated_retention)
+        activated_ids: set[int] = set()
+        for table in ["kb_papers", "kb_notes", "kb_annotations", "kb_compare_results"]:
+            if _table_exists(conn, table):
+                rows = conn.execute(
+                    f"SELECT DISTINCT user_id FROM {table} WHERE user_id > 0"
+                ).fetchall()
+                activated_ids.update(r["user_id"] for r in rows)
+
+        if not activated_ids:
+            return {"cohorts": [], "weeks": weeks, "total_activated": 0, "definition": "value_action"}
+
+        placeholders = ",".join("?" * len(activated_ids))
+        activated_list = list(activated_ids)
+
+        # Step 2: registration dates of recently-registered activated users
+        users = conn.execute(
+            f"""
+            SELECT id, created_at FROM auth_users
+            WHERE id IN ({placeholders}) AND created_at >= ?
+            """,
+            (*activated_list, start_iso),
+        ).fetchall()
+
+        # Step 3: collect value-action timestamps per user -> week number
+        user_value_weeks: dict[int, set[int]] = defaultdict(set)
+        for table in ["kb_papers", "kb_notes", "kb_annotations", "kb_compare_results"]:
+            if _table_exists(conn, table):
+                rows = conn.execute(
+                    f"""
+                    SELECT user_id, created_at FROM {table}
+                    WHERE user_id IN ({placeholders}) AND created_at >= ?
+                    """,
+                    (*activated_list, start_iso),
+                ).fetchall()
+                for r in rows:
+                    try:
+                        dt = datetime.fromisoformat(r["created_at"])
+                        week_num = (dt - start).days // 7
+                        if 0 <= week_num < weeks:
+                            user_value_weeks[r["user_id"]].add(week_num)
+                    except Exception:
+                        pass
+
+        # Build cohorts
+        cohorts = []
+        for w in range(weeks):
+            week_start = start + timedelta(weeks=w)
+            week_end = week_start + timedelta(weeks=1)
+
+            cohort_users = [
+                u["id"] for u in users
+                if week_start.isoformat() <= u["created_at"] < week_end.isoformat()
+            ]
+            cohort_size = len(cohort_users)
+            if cohort_size == 0:
+                cohorts.append({
+                    "week": week_start.strftime("%m/%d"),
+                    "cohort_size": 0,
+                    "retention": [],
+                })
+                continue
+
+            retention = []
+            for offset_week in range(w, weeks):
+                active_in_week = sum(
+                    1 for uid in cohort_users
+                    if offset_week in user_value_weeks.get(uid, set())
+                )
+                retention.append(round(active_in_week / cohort_size * 100, 1))
+
+            cohorts.append({
+                "week": week_start.strftime("%m/%d"),
+                "cohort_size": cohort_size,
+                "retention": retention,
+            })
+
+        return {
+            "cohorts": cohorts,
+            "weeks": weeks,
+            "total_activated": len(activated_ids),
+            "definition": "value_action",
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module C (step funnel): card_view -> paper_view -> save -> deep_action
+# ---------------------------------------------------------------------------
+
+def get_content_step_funnel(days: int = 30) -> dict:
+    """
+    Answers: "Where in the discovery-to-engagement funnel are users dropping off?"
+
+    Returns distinct-user counts at each step:
+      Step 1: paper_card_view  – saw a paper card in the recommendation list
+      Step 2: paper_view       – opened paper detail page
+      Step 3: save             – saved paper to knowledge base
+      Step 4: deep_action      – note / annotation / compare
+
+    Also surfaces high-view-low-save anomaly papers for drill-down.
+    NOTE: card_view events require frontend tracking to accumulate; until then
+          step 1 will show 0 and a note is included in the response.
+    """
+    now = _now()
+    start_dt = now - timedelta(days=days)
+    start_iso = start_dt.isoformat()
+
+    conn = _connect_auth()
+    try:
+        # Step 1: distinct users who viewed a paper card
+        s1_users = 0
+        if _table_exists(conn, "analytics_events"):
+            s1_users = conn.execute(
+                """
+                SELECT COUNT(DISTINCT user_id) FROM analytics_events
+                WHERE event_type = 'paper_card_view' AND created_at >= ? AND user_id > 0
+                """,
+                (start_iso,),
+            ).fetchone()[0]
+
+        # Step 2: distinct users who opened a paper detail
+        s2_users = 0
+        if _table_exists(conn, "analytics_events"):
+            s2_users = conn.execute(
+                """
+                SELECT COUNT(DISTINCT user_id) FROM analytics_events
+                WHERE event_type = 'paper_view' AND created_at >= ? AND user_id > 0
+                """,
+                (start_iso,),
+            ).fetchone()[0]
+
+        # Step 3: distinct users who saved a paper (structural table — always reliable)
+        s3_users = 0
+        if _table_exists(conn, "kb_papers"):
+            s3_users = conn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM kb_papers WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+
+        # Step 4: distinct users who did deep actions
+        s4_ids: set[int] = set()
+        for tbl in ["kb_notes", "kb_annotations", "kb_compare_results"]:
+            if _table_exists(conn, tbl):
+                rows = conn.execute(
+                    f"SELECT DISTINCT user_id FROM {tbl} WHERE created_at >= ? AND user_id > 0",
+                    (start_iso,),
+                ).fetchall()
+                s4_ids.update(r["user_id"] for r in rows)
+        s4_users = len(s4_ids)
+
+        # Anomaly: papers with high views but low save rate (drill-down)
+        anomaly_papers = []
+        if _table_exists(conn, "analytics_events"):
+            view_rows = conn.execute(
+                """
+                SELECT target_id AS paper_id, COUNT(DISTINCT user_id) AS view_users
+                FROM analytics_events
+                WHERE event_type = 'paper_view' AND created_at >= ?
+                  AND target_id IS NOT NULL AND user_id > 0
+                GROUP BY target_id
+                HAVING view_users >= 2
+                ORDER BY view_users DESC
+                LIMIT 30
+                """,
+                (start_iso,),
+            ).fetchall()
+
+            for r in view_rows:
+                pid = r["paper_id"]
+                save_users = 0
+                if _table_exists(conn, "kb_papers"):
+                    save_users = conn.execute(
+                        "SELECT COUNT(DISTINCT user_id) FROM kb_papers"
+                        " WHERE paper_id = ? AND created_at >= ? AND user_id > 0",
+                        (pid, start_iso),
+                    ).fetchone()[0]
+                vu = r["view_users"]
+                save_rate = round(save_users / vu * 100, 1) if vu > 0 else 0.0
+                title = pid
+                if _table_exists(conn, "kb_papers"):
+                    pd_row = conn.execute(
+                        "SELECT paper_data FROM kb_papers WHERE paper_id = ? LIMIT 1",
+                        (pid,),
+                    ).fetchone()
+                    if pd_row:
+                        try:
+                            pd_data = json.loads(pd_row["paper_data"])
+                            title = pd_data.get("📖标题") or pd_data.get("short_title") or pid
+                        except Exception:
+                            pass
+                anomaly_papers.append({
+                    "paper_id": pid,
+                    "title": title,
+                    "view_users": vu,
+                    "save_users": save_users,
+                    "save_rate": save_rate,
+                })
+
+        # Keep only low-save-rate papers, sorted by most viewed
+        anomaly_papers = sorted(
+            [p for p in anomaly_papers if p["save_rate"] < 30],
+            key=lambda x: x["view_users"],
+            reverse=True,
+        )[:10]
+
+        return {
+            "days": days,
+            "funnel": [
+                {
+                    "step": "card_view",
+                    "label": "浏览推荐列表（论文卡片）",
+                    "users": s1_users,
+                    "note": "需前端埋点积累后才有数据" if s1_users == 0 else "",
+                },
+                {"step": "paper_view", "label": "打开论文详情", "users": s2_users, "note": ""},
+                {"step": "save", "label": "收藏论文", "users": s3_users, "note": "来自结构表，始终准确"},
+                {"step": "deep_action", "label": "深度行为（笔记/批注/对比）", "users": s4_users, "note": ""},
+            ],
+            "high_view_low_save": anomaly_papers,
+        }
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Module D: AI Feature Adoption
+# ---------------------------------------------------------------------------
+
+def get_ai_feature_stats(days: int = 30) -> dict:
+    """
+    Answers: "Are users adopting AI features? Which ones?"
+
+    Covers three high-value AI surfaces:
+      - Deep Research   → research_sessions table (paper_analysis.db)
+      - Paper Chat      → paper_chat_sessions + paper_chat_messages (paper_analysis.db)
+      - Idea Generation → idea_candidates (idea.db)
+
+    Returns:
+      - penetration_rate: % of activated users who used any AI feature in [days]
+      - per-feature: distinct users, total sessions/items, daily trend
+      - combined daily trend (any AI feature usage)
+    """
+    days = max(1, min(days, 180))
+    now = _now()
+    start_dt = now - timedelta(days=days)
+    start_iso = start_dt.isoformat()
+
+    date_labels = []
+    for i in range(days):
+        d = (start_dt + timedelta(days=i + 1))
+        date_labels.append(d.strftime("%Y-%m-%d"))
+
+    conn = _connect_auth()
+    try:
+        # --- Deep Research ---
+        research_users = 0
+        research_sessions_count = 0
+        research_daily: dict[str, int] = {}
+
+        if _table_exists(conn, "research_sessions"):
+            research_users = conn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM research_sessions"
+                " WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            research_sessions_count = conn.execute(
+                "SELECT COUNT(*) FROM research_sessions WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            rows = conn.execute(
+                "SELECT DATE(created_at) as day, COUNT(DISTINCT user_id) as cnt"
+                " FROM research_sessions WHERE created_at >= ? AND user_id > 0"
+                " GROUP BY DATE(created_at)",
+                (start_iso,),
+            ).fetchall()
+            research_daily = {r["day"]: r["cnt"] for r in rows}
+
+        # --- Paper Chat ---
+        chat_users = 0
+        chat_sessions_count = 0
+        chat_messages_count = 0
+        chat_daily: dict[str, int] = {}
+
+        if _table_exists(conn, "paper_chat_sessions"):
+            chat_users = conn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM paper_chat_sessions"
+                " WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            chat_sessions_count = conn.execute(
+                "SELECT COUNT(*) FROM paper_chat_sessions WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            if _table_exists(conn, "paper_chat_messages"):
+                chat_messages_count = conn.execute(
+                    "SELECT COUNT(*) FROM paper_chat_messages WHERE created_at >= ?",
+                    (start_iso,),
+                ).fetchone()[0]
+            rows = conn.execute(
+                "SELECT DATE(created_at) as day, COUNT(DISTINCT user_id) as cnt"
+                " FROM paper_chat_sessions WHERE created_at >= ? AND user_id > 0"
+                " GROUP BY DATE(created_at)",
+                (start_iso,),
+            ).fetchall()
+            chat_daily = {r["day"]: r["cnt"] for r in rows}
+
+        # --- Total activated users (for penetration rate) ---
+        total_activated = 0
+        activated_ids: set[int] = set()
+        for table in ["kb_papers", "kb_notes", "kb_annotations", "kb_compare_results"]:
+            if _table_exists(conn, table):
+                rows2 = conn.execute(
+                    f"SELECT DISTINCT user_id FROM {table} WHERE user_id > 0"
+                ).fetchall()
+                activated_ids.update(r["user_id"] for r in rows2)
+        total_activated = len(activated_ids)
+
+    finally:
+        conn.close()
+
+    # --- Idea Generation (from idea.db) ---
+    idea_users = 0
+    idea_count = 0
+    idea_daily: dict[str, int] = {}
+
+    try:
+        iconn = _connect_idea()
+        if _table_exists(iconn, "idea_candidates"):
+            idea_users = iconn.execute(
+                "SELECT COUNT(DISTINCT user_id) FROM idea_candidates"
+                " WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            idea_count = iconn.execute(
+                "SELECT COUNT(*) FROM idea_candidates WHERE created_at >= ? AND user_id > 0",
+                (start_iso,),
+            ).fetchone()[0]
+            rows3 = iconn.execute(
+                "SELECT DATE(created_at) as day, COUNT(DISTINCT user_id) as cnt"
+                " FROM idea_candidates WHERE created_at >= ? AND user_id > 0"
+                " GROUP BY DATE(created_at)",
+                (start_iso,),
+            ).fetchall()
+            idea_daily = {r["day"]: r["cnt"] for r in rows3}
+        iconn.close()
+    except Exception:
+        pass
+
+    # --- Combined any-AI-feature daily users (union via max per day) ---
+    all_ai_daily: dict[str, set] = defaultdict(set)
+    # For simplicity: per-day count = max of the three (rough upper bound union)
+    # We track by summing distinct users across features per day (may overcount, noted)
+    combined_daily = []
+    for d in date_labels:
+        combined_daily.append(max(
+            research_daily.get(d, 0),
+            chat_daily.get(d, 0),
+            idea_daily.get(d, 0),
+        ))
+
+    # Penetration rate = users who used any AI feature / total activated users
+    ai_users_set_approx = max(research_users, chat_users, idea_users)
+    penetration_rate = round(ai_users_set_approx / total_activated * 100, 1) if total_activated > 0 else 0.0
+
+    return {
+        "days": days,
+        "dates": date_labels,
+        "total_activated": total_activated,
+        "penetration_rate": penetration_rate,
+        "features": {
+            "research": {
+                "label": "深度研究",
+                "users": research_users,
+                "sessions": research_sessions_count,
+                "daily": [research_daily.get(d, 0) for d in date_labels],
+            },
+            "chat": {
+                "label": "论文聊天",
+                "users": chat_users,
+                "sessions": chat_sessions_count,
+                "messages": chat_messages_count,
+                "daily": [chat_daily.get(d, 0) for d in date_labels],
+            },
+            "idea": {
+                "label": "灵感生成",
+                "users": idea_users,
+                "generated": idea_count,
+                "daily": [idea_daily.get(d, 0) for d in date_labels],
+            },
+        },
+        "combined_daily": combined_daily,
+        "note": "penetration_rate = max(研究/聊天/灵感用户数) / 已激活用户总数，为保守估算（可能低估真实去重值）",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Engagement Depth: session duration + reading duration signals
+# ---------------------------------------------------------------------------
+
+def get_engagement_depth(days: int = 30) -> dict:
+    """
+    Answers: "How deeply are users engaging, not just how often?"
+
+    Uses analytics_events to compute:
+      - Daily avg session duration (session_duration events, in seconds)
+      - Daily avg paper reading duration (paper_view_duration events, in seconds)
+      - Distribution buckets for session duration (<30s / 30-120s / 2-10min / >10min)
+      - Window aggregate: overall avg + median approx for the period
+    """
+    days = max(1, min(days, 90))
+    now = _now()
+    start_dt = now - timedelta(days=days)
+    start_iso = start_dt.isoformat()
+
+    date_labels = []
+    for i in range(days):
+        d = (start_dt + timedelta(days=i + 1))
+        date_labels.append(d.strftime("%Y-%m-%d"))
+
+    conn = _connect_auth()
+    try:
+        if not _table_exists(conn, "analytics_events"):
+            return {
+                "days": days,
+                "dates": date_labels,
+                "avg_session_duration_by_day": [None] * days,
+                "avg_paper_read_duration_by_day": [None] * days,
+                "window_avg_session_seconds": None,
+                "window_avg_paper_read_seconds": None,
+                "session_duration_distribution": {
+                    "lt30s": 0, "s30_120": 0, "m2_10": 0, "gt10m": 0,
+                },
+                "data_available": False,
+            }
+
+        # Daily avg session duration
+        session_rows = conn.execute(
+            """
+            SELECT DATE(created_at) as day, AVG(value) as avg_val, COUNT(*) as cnt
+            FROM analytics_events
+            WHERE event_type = 'session_duration' AND value > 0 AND created_at >= ?
+            GROUP BY DATE(created_at)
+            """,
+            (start_iso,),
+        ).fetchall()
+        session_by_day = {r["day"]: round(r["avg_val"] or 0, 1) for r in session_rows}
+        session_daily = [session_by_day.get(d) for d in date_labels]
+
+        # Daily avg paper reading duration
+        read_rows = conn.execute(
+            """
+            SELECT DATE(created_at) as day, AVG(value) as avg_val
+            FROM analytics_events
+            WHERE event_type = 'paper_view_duration' AND value > 0 AND created_at >= ?
+            GROUP BY DATE(created_at)
+            """,
+            (start_iso,),
+        ).fetchall()
+        read_by_day = {r["day"]: round(r["avg_val"] or 0, 1) for r in read_rows}
+        read_daily = [read_by_day.get(d) for d in date_labels]
+
+        # Window aggregates
+        window_session = conn.execute(
+            "SELECT AVG(value) FROM analytics_events"
+            " WHERE event_type='session_duration' AND value > 0 AND created_at >= ?",
+            (start_iso,),
+        ).fetchone()[0]
+        window_read = conn.execute(
+            "SELECT AVG(value) FROM analytics_events"
+            " WHERE event_type='paper_view_duration' AND value > 0 AND created_at >= ?",
+            (start_iso,),
+        ).fetchone()[0]
+
+        # Session duration distribution (counts)
+        def _bucket(min_v, max_v):
+            if max_v is None:
+                return conn.execute(
+                    "SELECT COUNT(*) FROM analytics_events"
+                    " WHERE event_type='session_duration' AND value >= ? AND created_at >= ?",
+                    (min_v, start_iso),
+                ).fetchone()[0]
+            return conn.execute(
+                "SELECT COUNT(*) FROM analytics_events"
+                " WHERE event_type='session_duration' AND value >= ? AND value < ? AND created_at >= ?",
+                (min_v, max_v, start_iso),
+            ).fetchone()[0]
+
+        dist = {
+            "lt30s": _bucket(0, 30),
+            "s30_120": _bucket(30, 120),
+            "m2_10": _bucket(120, 600),
+            "gt10m": _bucket(600, None),
+        }
+
+        return {
+            "days": days,
+            "dates": date_labels,
+            "avg_session_duration_by_day": session_daily,
+            "avg_paper_read_duration_by_day": read_daily,
+            "window_avg_session_seconds": round(window_session, 1) if window_session else None,
+            "window_avg_paper_read_seconds": round(window_read, 1) if window_read else None,
+            "session_duration_distribution": dist,
+            "data_available": True,
+            "note": "session_duration/paper_view_duration 来自前端埋点；avg 为算术平均值",
+        }
+    finally:
+        conn.close()

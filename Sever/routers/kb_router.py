@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, compare_service, kb_pipeline_service, kb_service, translate_service
+from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, translate_service, auto_classify_service
 from routers._deps import _KB_FILES_DIR
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -23,55 +23,61 @@ router = APIRouter(prefix="/api/kb", tags=["kb"])
 # ---------------------------------------------------------------------------
 
 class CreateFolderBody(BaseModel):
-    name: str
+    name: str = Field(..., min_length=1, max_length=128)
     parent_id: Optional[int] = None
-    scope: str = "kb"
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class RenameFolderBody(BaseModel):
-    name: str
-    scope: str = "kb"
+    name: str = Field(..., min_length=1, max_length=128)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class AddPaperBody(BaseModel):
-    paper_id: str
+    paper_id: str = Field(..., min_length=1, max_length=64)
     paper_data: dict
     folder_id: Optional[int] = None
-    scope: str = "kb"
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class MoveFolderBody(BaseModel):
     target_parent_id: Optional[int] = None
-    scope: str = "kb"
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class MovePapersBody(BaseModel):
-    paper_ids: list[str]
+    paper_ids: list[str] = Field(..., max_length=100)
     target_folder_id: Optional[int] = None
-    scope: str = "kb"
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
+
+
+class RenamePaperBody(BaseModel):
+    title: str = Field(..., min_length=1, max_length=512)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class CreateNoteBody(BaseModel):
-    title: str = "未命名笔记"
-    content: str = ""
-    scope: str = "kb"
+    title: str = Field(default="未命名笔记", max_length=256)
+    content: str = Field(default="", max_length=500000)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class UpdateNoteBody(BaseModel):
-    title: Optional[str] = None
-    content: Optional[str] = None
+    title: Optional[str] = Field(None, max_length=256)
+    content: Optional[str] = Field(None, max_length=500000)
 
 
 class AddLinkBody(BaseModel):
-    title: str
-    url: str
-    scope: str = "kb"
+    title: str = Field(..., min_length=1, max_length=256)
+    url: str = Field(..., min_length=1, max_length=2048)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
 
 
 class ComparePapersBody(BaseModel):
-    paper_ids: list[str] = Field(default=[], min_length=0, max_length=5)
+    paper_ids: list[str] = Field(default=[], min_length=0, max_length=10)
     scope: str = "kb"
     compare_result_ids: list[int] = Field(default_factory=list)
+    reward_id: Optional[int] = Field(default=None, description="Engagement reward ID to apply a compare boost")
 
 
 class DismissPaperBody(BaseModel):
@@ -137,7 +143,9 @@ def _enrich_kb_paper(p: dict, user_id: int) -> dict:
         )
         p["zh_static_url"] = _kb_static(paths["zh"])
         p["bilingual_static_url"] = _kb_static(paths["bilingual"])
-    except Exception:
+    except Exception as _exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("KB paper enrichment failed for %s: %s", p.get("paper_id"), _exc)
         p["mineru_static_url"] = None
         p["zh_static_url"] = None
         p["bilingual_static_url"] = None
@@ -160,13 +168,47 @@ def _enrich_kb_tree(tree: dict, user_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# KB tree short-TTL cache (reduces O(N) filesystem I/O for large KBs)
+# ---------------------------------------------------------------------------
+
+import threading as _threading
+import time as _time
+
+_TREE_CACHE: dict = {}
+_TREE_CACHE_TTL = 15  # seconds — enough to absorb rapid successive loads
+_tree_cache_lock = _threading.Lock()
+
+
+def _get_tree_cached(user_id: int, scope: str) -> dict:
+    """Return cached enriched KB tree if fresh, else rebuild and cache it."""
+    key = (user_id, scope)
+    now = _time.monotonic()
+    with _tree_cache_lock:
+        entry = _TREE_CACHE.get(key)
+        if entry and (now - entry["ts"]) < _TREE_CACHE_TTL:
+            return entry["data"]
+    tree = kb_service.get_tree(user_id, scope=scope)
+    enriched = _enrich_kb_tree(tree, user_id)
+    with _tree_cache_lock:
+        _TREE_CACHE[key] = {"data": enriched, "ts": _time.monotonic()}
+    return enriched
+
+
+def _invalidate_tree_cache(user_id: int, scope: str = "kb") -> None:
+    """Call after any write that modifies the tree (add/remove paper, folder ops)."""
+    for s in (scope, "idea_library"):
+        key = (user_id, s)
+        with _tree_cache_lock:
+            _TREE_CACHE.pop(key, None)
+
+
+# ---------------------------------------------------------------------------
 # Tree / folders / papers
 # ---------------------------------------------------------------------------
 
 @router.get("/tree", summary="Get knowledge base tree")
-def api_kb_tree(scope: str = Query("kb"), _user=Depends(auth_service.require_user)):
-    tree = kb_service.get_tree(_user["id"], scope=scope)
-    return _enrich_kb_tree(tree, _user["id"])
+def api_kb_tree(scope: str = Query("kb", pattern="^(kb|idea_library)$"), _user=Depends(auth_service.require_user)):
+    return _get_tree_cached(_user["id"], scope)
 
 
 @router.get("/papers/{paper_id}/exists", summary="Check if paper is in KB")
@@ -180,7 +222,16 @@ def api_kb_paper_exists(
 
 @router.post("/folders", summary="Create folder")
 def api_kb_create_folder(body: CreateFolderBody, _user=Depends(auth_service.require_user)):
+    # Only enforce folder limit for the default "kb" scope
+    if body.scope == "kb":
+        limit_check = entitlement_service.check_kb_folder_limit(_user["id"])
+        if not limit_check["allowed"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"知识库文件夹已达上限（{limit_check['limit']} 个），请升级套餐以创建更多文件夹",
+            )
     folder = kb_service.create_folder(_user["id"], body.name, body.parent_id, scope=body.scope)
+    _invalidate_tree_cache(_user["id"], body.scope)
     return folder
 
 
@@ -189,6 +240,7 @@ def api_kb_rename_folder(folder_id: int, body: RenameFolderBody, _user=Depends(a
     folder = kb_service.rename_folder(_user["id"], folder_id, body.name, scope=body.scope)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
+    _invalidate_tree_cache(_user["id"], body.scope)
     return folder
 
 
@@ -197,6 +249,7 @@ def api_kb_move_folder(folder_id: int, body: MoveFolderBody, _user=Depends(auth_
     folder = kb_service.move_folder(_user["id"], folder_id, body.target_parent_id, scope=body.scope)
     if folder is None:
         raise HTTPException(status_code=404, detail="Folder not found")
+    _invalidate_tree_cache(_user["id"], body.scope)
     return folder
 
 
@@ -205,16 +258,34 @@ def api_kb_delete_folder(folder_id: int, scope: str = Query("kb"), _user=Depends
     ok = kb_service.delete_folder(_user["id"], folder_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=404, detail="Folder not found")
+    _invalidate_tree_cache(_user["id"], scope)
     return {"ok": True}
 
 
 @router.post("/papers", summary="Add paper to KB")
 def api_kb_add_paper(body: AddPaperBody, _user=Depends(auth_service.require_user)):
+    # Only enforce KB paper limit for the default "kb" scope
+    if body.scope == "kb":
+        limit_check = entitlement_service.check_kb_paper_limit(_user["id"])
+        if not limit_check["allowed"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"知识库论文已达上限（{limit_check['limit']} 篇），请升级套餐以保存更多论文",
+            )
     paper = kb_service.add_paper(_user["id"], body.paper_id, body.paper_data, body.folder_id, scope=body.scope)
+    _invalidate_tree_cache(_user["id"], body.scope)
     try:
         kb_service.auto_attach_pdf(_user["id"], body.paper_id, scope=body.scope)
-    except Exception:
-        pass
+    except Exception as _exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("auto_attach_pdf failed for %s: %s", body.paper_id, _exc)
+    # Trigger auto-classification when no explicit folder was given
+    if body.folder_id is None and body.scope == "kb":
+        try:
+            auto_classify_service.enqueue_classify(_user["id"], body.paper_id, scope=body.scope)
+        except Exception as _exc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("enqueue_classify failed for %s: %s", body.paper_id, _exc)
     return paper
 
 
@@ -223,12 +294,14 @@ def api_kb_remove_paper(paper_id: str, scope: str = Query("kb"), _user=Depends(a
     ok = kb_service.remove_paper(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    _invalidate_tree_cache(_user["id"], scope)
     return {"ok": True}
 
 
 @router.patch("/papers/move", summary="Batch move papers")
 def api_kb_move_papers(body: MovePapersBody, _user=Depends(auth_service.require_user)):
     count = kb_service.move_papers(_user["id"], body.paper_ids, body.target_folder_id, scope=body.scope)
+    _invalidate_tree_cache(_user["id"], body.scope)
     return {"ok": True, "moved": count}
 
 
@@ -246,6 +319,14 @@ def api_kb_list_notes(paper_id: str, scope: str = Query("kb"), _user=Depends(aut
 def api_kb_create_note(paper_id: str, body: CreateNoteBody, _user=Depends(auth_service.require_user)):
     if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=body.scope):
         raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    # Limit check: only enforce for the default "kb" scope
+    if body.scope == "kb":
+        limit_check = entitlement_service.check_kb_note_limit(_user["id"])
+        if not limit_check["allowed"]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"笔记数量已达上限（{limit_check['limit']}），请升级套餐以继续创建",
+            )
     note = kb_service.create_note(_user["id"], paper_id, body.title, body.content, scope=body.scope)
     return note
 
@@ -281,6 +362,9 @@ async def api_kb_upload_file(
     file: UploadFile = File(...),
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: note file attachment upload is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "note_file_upload"):
+        raise HTTPException(status_code=403, detail="笔记附件上传仅 Pro 及以上套餐可用，请升级以继续使用")
     if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=scope):
         raise HTTPException(status_code=404, detail="Paper not in knowledge base")
 
@@ -312,8 +396,37 @@ def api_kb_compare(body: ComparePapersBody, _user=Depends(auth_service.require_u
     total = len(body.paper_ids) + len(body.compare_result_ids)
     if total < 2:
         return JSONResponse(status_code=422, content={"detail": "At least 2 items required (paper_ids + compare_result_ids)"})
-    if total > 5:
-        return JSONResponse(status_code=422, content={"detail": "At most 5 items allowed (paper_ids + compare_result_ids)"})
+
+    # Compute tier-aware max_items baseline, then apply engagement boost on top
+    raw_boost: dict = {}
+    if body.reward_id is not None:
+        raw_boost = engagement_service.get_reward_boost(_user["id"], "compare", body.reward_id)
+
+    # get_effective_compare_max uses tier baseline + engagement delta
+    max_items = entitlement_service.get_effective_compare_max(_user["id"], raw_boost)
+
+    # Validate selection size BEFORE consuming quota to avoid wasting credits
+    if total > max_items:
+        detail = f"最多可对比 {max_items} 篇论文"
+        return JSONResponse(status_code=422, content={"detail": detail})
+
+    # Quota check: consume one compare session credit (Free: 3/month limit)
+    entitlement_service.consume_quota(_user["id"], "compare")
+
+    # Consume the reward only if the delta is actually meaningful
+    if body.reward_id is not None and raw_boost:
+        delta = entitlement_service.ENGAGEMENT_BOOST_DELTAS.get(
+            raw_boost.get("reward_code", ""), {}
+        ).get("compare_max_items_delta", 0)
+        if delta > 0:
+            try:
+                engagement_service.use_reward(
+                    _user["id"], body.reward_id,
+                    f"compare_{total}_items"
+                )
+            except ValueError:
+                pass  # Already used / expired — boost was already applied, proceed
+
     return StreamingResponse(
         compare_service.stream_compare(
             _user["id"], body.paper_ids, body.scope,
@@ -356,6 +469,13 @@ def api_kb_compare_results_tree(_user=Depends(auth_service.require_user)):
 
 @router.post("/compare-results", summary="Save compare result")
 def api_kb_save_compare_result(body: SaveCompareResultBody, _user=Depends(auth_service.require_user)):
+    # Limit check: max saved compare results per tier
+    limit_check = entitlement_service.check_kb_compare_result_limit(_user["id"])
+    if not limit_check["allowed"]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"保存的对比结果已达上限（{limit_check['limit']}），请升级套餐以继续保存",
+        )
     result = kb_service.add_compare_result(
         _user["id"], body.title, body.markdown, body.paper_ids, body.folder_id,
     )
@@ -472,6 +592,11 @@ def api_kb_paper_translate(
     scope: str = Query("kb"),
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: translation is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
+        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
+    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+    entitlement_service.consume_quota(_user["id"], "translate")
     ok, msg = translate_service.start_kb_translation(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
@@ -484,6 +609,11 @@ def api_kb_paper_retranslate(
     scope: str = Query("kb"),
     _user=Depends(auth_service.require_user),
 ):
+    # Gate check: translation is Pro/Pro+ only
+    if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
+        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
+    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+    entitlement_service.consume_quota(_user["id"], "translate")
     paths = translate_service.kb_paper_derivative_paths(_user["id"], paper_id)
     for key in ("zh", "bilingual"):
         p = paths[key]
@@ -568,3 +698,198 @@ def api_kb_paper_delete_derivative(
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Auto-classify endpoints
+# ---------------------------------------------------------------------------
+
+class AutoClassifySyncFoldersBody(BaseModel):
+    folders: list = []
+    scope: str = "kb"
+
+
+class AutoClassifyReclassifyBody(BaseModel):
+    scope: str = "kb"
+
+
+class UpdateReadStatusBody(BaseModel):
+    status: str  # 'unread' | 'reading' | 'read'
+    scope: str = "kb"
+
+
+@router.get("/auto-classify/pending-count", summary="待分类论文数量")
+def api_auto_classify_pending_count(
+    scope: str = Query("kb"),
+    _user=Depends(auth_service.require_user),
+):
+    count = kb_service.count_pending_classify(_user["id"], scope=scope)
+    return {"pending": count}
+
+
+@router.get("/auto-classify/unclassified-count", summary="「未分类」文件夹中的论文数量")
+def api_auto_classify_unclassified_count(
+    scope: str = Query("kb"),
+    _user=Depends(auth_service.require_user),
+):
+    count = kb_service.count_unclassified_papers(_user["id"], scope=scope)
+    return {"unclassified": count}
+
+@router.post("/auto-classify/sync-folders", summary="同步分类目录定义到实际 KB 文件夹")
+def api_auto_classify_sync_folders(
+    body: AutoClassifySyncFoldersBody,
+    _user=Depends(auth_service.require_user),
+):
+    """
+    Create missing KB folders from the user's auto-classify folder definition
+    and return the updated list with folder_id populated.
+    """
+    updated = auto_classify_service.sync_folders(_user["id"], body.folders, scope=body.scope)
+    return {"ok": True, "folders": updated}
+
+
+@router.post("/auto-classify/reclassify-all", summary="重新分类所有知识库论文")
+def api_auto_classify_reclassify_all(
+    body: AutoClassifyReclassifyBody,
+    _user=Depends(auth_service.require_user),
+):
+    count = auto_classify_service.enqueue_reclassify_all(_user["id"], scope=body.scope)
+    return {"ok": True, "enqueued": count}
+
+
+@router.post("/papers/{paper_id}/classify", summary="手动触发单篇论文分类")
+def api_kb_classify_paper(
+    paper_id: str,
+    scope: str = Query("kb"),
+    _user=Depends(auth_service.require_user),
+):
+    if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=scope):
+        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    enqueued = auto_classify_service.enqueue_classify(_user["id"], paper_id, scope=scope)
+    return {"ok": True, "enqueued": enqueued}
+
+
+@router.get("/papers/{paper_id}/classify-status", summary="获取论文分类状态")
+def api_kb_classify_status(
+    paper_id: str,
+    scope: str = Query("kb"),
+    _user=Depends(auth_service.require_user),
+):
+    paper = kb_service.get_kb_paper(_user["id"], paper_id, scope=scope)
+    if paper is None:
+        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    return {
+        "paper_id": paper_id,
+        "classify_status": paper.get("classify_status", "none"),
+        "classify_folder_id": paper.get("classify_folder_id"),
+        "classify_confidence": paper.get("classify_confidence"),
+        "classify_error": paper.get("classify_error", ""),
+        "busy": auto_classify_service.is_classifying(_user["id"], paper_id, scope),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Read-status endpoints
+# ---------------------------------------------------------------------------
+
+@router.patch("/papers/{paper_id}/read-status", summary="更新论文阅读状态")
+def api_kb_update_read_status(
+    paper_id: str,
+    body: UpdateReadStatusBody,
+    _user=Depends(auth_service.require_user),
+):
+    valid = {"unread", "reading", "read"}
+    if body.status not in valid:
+        raise HTTPException(status_code=400, detail=f"无效的 read_status，允许值: {valid}")
+    if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=body.scope):
+        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    kb_service.set_read_status(_user["id"], paper_id, body.status, scope=body.scope)
+    return {"ok": True, "paper_id": paper_id, "read_status": body.status}
+
+
+# ---------------------------------------------------------------------------
+# KB export (full portable archive as JSON)
+# ---------------------------------------------------------------------------
+
+@router.get("/export", summary="导出知识库为 JSON 归档（可携带备份）")
+def api_kb_export(
+    scope: str = Query("kb", pattern="^(kb|idea_library)$"),
+    _user=Depends(auth_service.require_user),
+):
+    """
+    Return a full export of the user's knowledge base as a structured JSON
+    document containing folders, papers (metadata only), and all notes.
+    This gives power users a portable backup they can store offline or
+    import into other tools.
+
+    The response is streamed as an attachment for direct browser download.
+    """
+    import json as _json
+
+    tree = kb_service.get_tree(_user["id"], scope=scope)
+    notes_by_paper: dict = {}
+
+    def _collect_papers(folder: dict) -> list:
+        result = []
+        for p in folder.get("papers") or []:
+            pid = p.get("paper_id", "")
+            # Collect notes once per paper
+            if pid and pid not in notes_by_paper:
+                try:
+                    notes_by_paper[pid] = kb_service.list_notes(_user["id"], pid, scope=scope)
+                except Exception:
+                    notes_by_paper[pid] = []
+            result.append({
+                "paper_id": pid,
+                "title": p.get("title") or p.get("short_title") or "",
+                "institution": p.get("institution") or "",
+                "year": p.get("year"),
+                "authors": p.get("authors") or [],
+                "abstract": p.get("abstract") or "",
+                "notes": notes_by_paper.get(pid) or [],
+                "folder_id": folder.get("id"),
+                "folder_name": folder.get("name"),
+            })
+        for child in folder.get("children") or []:
+            result.extend(_collect_papers(child))
+        return result
+
+    papers_flat: list = []
+    for p in tree.get("papers") or []:
+        pid = p.get("paper_id", "")
+        if pid and pid not in notes_by_paper:
+            try:
+                notes_by_paper[pid] = kb_service.list_notes(_user["id"], pid, scope=scope)
+            except Exception:
+                notes_by_paper[pid] = []
+        papers_flat.append({
+            "paper_id": pid,
+            "title": p.get("title") or p.get("short_title") or "",
+            "institution": p.get("institution") or "",
+            "year": p.get("year"),
+            "authors": p.get("authors") or [],
+            "abstract": p.get("abstract") or "",
+            "notes": notes_by_paper.get(pid) or [],
+            "folder_id": None,
+            "folder_name": None,
+        })
+
+    for folder in tree.get("folders") or []:
+        papers_flat.extend(_collect_papers(folder))
+
+    export_doc = {
+        "schema_version": 1,
+        "scope": scope,
+        "exported_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "folder_tree": tree.get("folders") or [],
+        "papers": papers_flat,
+    }
+
+    payload = _json.dumps(export_doc, ensure_ascii=False, indent=2)
+    from fastapi.responses import Response as _Response
+    return _Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="kb_export_{scope}.json"'},
+    )
+

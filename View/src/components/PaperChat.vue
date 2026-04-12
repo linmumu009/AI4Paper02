@@ -14,8 +14,15 @@ import {
   checkPaperInKb,
   addKbPaper,
   createNote,
+  fetchPaperDetail,
 } from '../api'
 import type { ChatMessage, PaperSummary, UserLlmPreset } from '../types/paper'
+import { useGlobalChat } from '../composables/useGlobalChat'
+import { useEntitlements } from '../composables/useEntitlements'
+import PaperPickerDialog from './PaperPickerDialog.vue'
+import PresetSelector from './PresetSelector.vue'
+import UpgradePrompt from './UpgradePrompt.vue'
+import QuotaWarningBanner from './QuotaWarningBanner.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -36,6 +43,69 @@ const emit = defineEmits<{
 }>()
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+
+const globalChat = useGlobalChat()
+
+// ---------------------------------------------------------------------------
+// Entitlements
+// ---------------------------------------------------------------------------
+const entitlements = useEntitlements()
+const chatFeature = computed(() => props.chatMode === 'general' ? 'general_chat_gate' : 'chat')
+const chatQuotaBlocked = computed(() => {
+  if (props.chatMode === 'general') {
+    return entitlements.isGated('general_chat')
+  }
+  return !entitlements.canUse('chat')
+})
+const chatQuotaSummary = computed(() => {
+  if (props.chatMode === 'general') return null
+  return entitlements.quotaSummary('chat')
+})
+const chatQuotaExhausted = computed(() => chatQuotaBlocked.value)
+
+// ---------------------------------------------------------------------------
+// Paper picker state (for 深度研究 / 对比分析 launch from chat)
+// ---------------------------------------------------------------------------
+type PickerMode = 'research' | 'compare'
+const showPicker = ref(false)
+const pickerMode = ref<PickerMode>('research')
+
+function openPicker(mode: PickerMode) {
+  pickerMode.value = mode
+  showPicker.value = true
+}
+
+function onPickerConfirm(paperIds: string[], titles: Record<string, string>) {
+  showPicker.value = false
+  if (pickerMode.value === 'research') {
+    globalChat.requestResearch(paperIds, titles, 'kb')
+  } else {
+    globalChat.requestCompare(paperIds, titles)
+  }
+}
+
+function handleResearchClick() {
+  openPicker('research')
+}
+
+function handleCompareClick() {
+  openPicker('compare')
+}
+
+// Preselected state for picker (paper mode: current paper is pre-locked for both research and compare)
+const pickerPreselectedIds = computed(() => {
+  if (props.chatMode === 'paper' && props.paperId) {
+    return [props.paperId]
+  }
+  return []
+})
+
+const pickerPreselectedTitles = computed(() => {
+  if (props.chatMode === 'paper' && props.paperId && props.paperTitle) {
+    return { [props.paperId]: props.paperTitle }
+  }
+  return {}
+})
 
 // ---------------------------------------------------------------------------
 // State
@@ -93,13 +163,6 @@ const allCopied = ref(false)
 
 const llmPresets = ref<UserLlmPreset[]>([])
 const selectedPresetId = ref<number | null>(null)
-const showModelPicker = ref(false)
-
-const selectedPresetName = computed(() => {
-  if (selectedPresetId.value == null) return '选择模型'
-  const preset = llmPresets.value.find(p => p.id === selectedPresetId.value)
-  return preset ? preset.name : '选择模型'
-})
 
 async function loadLlmPresets() {
   try {
@@ -112,12 +175,7 @@ async function loadLlmPresets() {
 
 async function selectPreset(id: number | null) {
   selectedPresetId.value = id
-  showModelPicker.value = false
   await _saveAllSettings()
-}
-
-function onModelPickerOverlayClick() {
-  showModelPicker.value = false
 }
 
 async function loadSettings() {
@@ -240,6 +298,7 @@ async function sendMessage() {
   streamingContent.value = ''
   phase.value = 'streaming'
   scrollToBottom()
+  globalChat.signalMessageSent()
 
   try {
     const response =
@@ -298,6 +357,11 @@ async function sendMessage() {
         ? await fetchGeneralChatHistory()
         : await fetchChatHistory(props.paperId!)
     if (fresh.length > 0) messages.value = fresh
+
+    // Refresh quota display after consuming a chat credit
+    if (props.chatMode !== 'general') {
+      void entitlements.refreshEntitlements(true)
+    }
 
   } catch (e: any) {
     streamingContent.value = ''
@@ -360,8 +424,17 @@ async function saveToNote(assistantMsg: ChatMessage) {
     const pid = props.paperId
     if (!pid) return
     const inKb = await checkPaperInKb(pid)
-    if (!inKb && props.paperSummary) {
-      await addKbPaper(pid, props.paperSummary)
+    if (!inKb) {
+      let summary = props.paperSummary
+      if (!summary) {
+        try {
+          const detail = await fetchPaperDetail(pid)
+          summary = detail?.summary
+        } catch { /* ignore */ }
+      }
+      if (summary) {
+        await addKbPaper(pid, summary)
+      }
     }
 
     // Render Markdown → HTML so Tiptap editor can display it as rich text
@@ -507,19 +580,54 @@ function renderMarkdown(content: string): string {
         </button>
       </div>
 
-      <!-- Empty state -->
-      <div v-else-if="messages.length === 0 && phase === 'idle'" class="flex flex-col items-center justify-center py-12 text-center gap-3">
-        <div class="w-12 h-12 rounded-full bg-tinder-pink/10 flex items-center justify-center text-2xl">
-          💬
+      <!-- Empty state: feature guide cards -->
+      <div v-else-if="messages.length === 0 && phase === 'idle'" class="flex flex-col items-start px-3 py-4 gap-2.5">
+        <!-- 深度研究 card -->
+        <button
+          type="button"
+          class="w-full text-left flex items-start gap-3 px-4 py-3 rounded-2xl border border-border bg-bg-elevated hover:bg-bg-hover hover:border-tinder-blue/40 cursor-pointer transition-all duration-150 group"
+          @click="handleResearchClick"
+        >
+          <span class="text-xl shrink-0 mt-0.5">🔍</span>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-text-primary group-hover:text-tinder-blue transition-colors">深度研究</p>
+            <p class="text-xs text-text-muted leading-relaxed mt-0.5">
+              <template v-if="chatMode === 'paper' && paperId">针对这篇论文深度问答，支持多轮提问</template>
+              <template v-else>选 1-20 篇论文，AI 深度分析并多轮问答</template>
+            </p>
+          </div>
+          <svg class="w-4 h-4 text-text-muted group-hover:text-tinder-blue shrink-0 mt-1 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+
+        <!-- 对比分析 card -->
+        <button
+          type="button"
+          class="w-full text-left flex items-start gap-3 px-4 py-3 rounded-2xl border border-border bg-bg-elevated hover:bg-bg-hover hover:border-tinder-purple/40 cursor-pointer transition-all duration-150 group"
+          @click="handleCompareClick"
+        >
+          <span class="text-xl shrink-0 mt-0.5">⚖️</span>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-text-primary group-hover:text-tinder-purple transition-colors">对比分析</p>
+            <p class="text-xs text-text-muted leading-relaxed mt-0.5">
+              <template v-if="chatMode === 'paper' && paperId">将此论文与其他论文做多维对比</template>
+              <template v-else>选 2-5 篇论文，AI 生成多维对比报告</template>
+            </p>
+          </div>
+          <svg class="w-4 h-4 text-text-muted group-hover:text-tinder-purple shrink-0 mt-1 transition-colors" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"/>
+          </svg>
+        </button>
+
+        <!-- 直接提问 hint -->
+        <div class="w-full flex items-center gap-3 px-4 py-2.5">
+          <span class="text-xl shrink-0">💬</span>
+          <p class="text-xs text-text-muted leading-relaxed">
+            <template v-if="chatMode === 'paper' && paperId">或直接在下方输入框提问</template>
+            <template v-else>或直接在下方输入框发起通用对话</template>
+          </p>
         </div>
-        <template v-if="chatMode === 'general'">
-          <p class="text-sm text-text-muted">有什么想问的？直接输入即可</p>
-          <p class="text-xs text-text-muted opacity-70">通用模式不绑定论文；需要针对某篇论文时请切换到论文问答</p>
-        </template>
-        <template v-else>
-          <p class="text-sm text-text-muted">对这篇论文有疑问？直接问吧！</p>
-          <p class="text-xs text-text-muted opacity-70">基于论文内容作答，未提及的内容会如实说明</p>
-        </template>
       </div>
 
       <!-- Message list -->
@@ -535,7 +643,7 @@ function renderMarkdown(content: string): string {
           <!-- Assistant avatar -->
           <div
             v-if="msg.role === 'assistant'"
-            class="shrink-0 w-7 h-7 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold mt-0.5"
+            class="shrink-0 w-8 h-8 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold mt-0.5 shadow-sm"
           >
             AI
           </div>
@@ -546,8 +654,8 @@ function renderMarkdown(content: string): string {
               :class="[
                 'rounded-2xl px-3.5 py-2.5 leading-relaxed',
                 msg.role === 'user'
-                  ? 'bg-tinder-pink text-white rounded-tr-sm'
-                  : 'bg-bg-elevated border border-border text-text-primary rounded-tl-sm',
+                  ? 'bg-brand-gradient text-white rounded-tr-sm'
+                  : 'bg-bg-elevated border border-border text-text-primary rounded-tl-sm shadow-sm',
               ]"
             >
               <div
@@ -612,10 +720,10 @@ function renderMarkdown(content: string): string {
 
         <!-- Streaming assistant reply -->
         <div v-if="streamingContent" class="flex gap-2 justify-start">
-          <div class="shrink-0 w-7 h-7 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold mt-0.5">
+          <div class="shrink-0 w-8 h-8 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold mt-0.5 shadow-sm">
             AI
           </div>
-          <div class="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 leading-relaxed bg-bg-elevated border border-border text-text-primary">
+          <div class="max-w-[80%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 leading-relaxed bg-bg-elevated border border-border text-text-primary shadow-sm">
             <div
               class="prose max-w-none break-words"
               v-html="renderMarkdown(streamingContent)"
@@ -626,10 +734,10 @@ function renderMarkdown(content: string): string {
 
         <!-- Thinking indicator -->
         <div v-else-if="isStreaming" class="flex gap-2 justify-start">
-          <div class="shrink-0 w-7 h-7 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold">
+          <div class="shrink-0 w-8 h-8 rounded-full bg-brand-gradient-br flex items-center justify-center text-white text-xs font-bold shadow-sm">
             AI
           </div>
-          <div class="rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-bg-elevated border border-border flex items-center gap-1">
+          <div class="rounded-2xl rounded-tl-sm px-3.5 py-2.5 bg-bg-elevated border border-border shadow-sm flex items-center gap-1">
             <span class="w-1.5 h-1.5 rounded-full bg-text-muted animate-bounce" style="animation-delay:0ms" />
             <span class="w-1.5 h-1.5 rounded-full bg-text-muted animate-bounce" style="animation-delay:150ms" />
             <span class="w-1.5 h-1.5 rounded-full bg-text-muted animate-bounce" style="animation-delay:300ms" />
@@ -644,77 +752,80 @@ function renderMarkdown(content: string): string {
     </div>
 
     <!-- Input area (toolbar + textarea) -->
-    <div class="shrink-0 border-t border-border">
+    <div class="shrink-0 border-t border-border bg-bg-card/80 backdrop-blur-sm">
       <!-- Toolbar row -->
-      <div class="px-2 pt-2 pb-1">
-        <div class="flex items-center gap-0.5 bg-bg-elevated/60 rounded-xl px-2 py-1 relative">
+      <div class="px-3 pt-1.5 pb-1">
+        <div class="flex items-center gap-1 relative">
 
         <!-- Settings button + upward dropdown -->
         <div class="relative">
           <button
             type="button"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-all duration-150 border-none"
+            class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none"
             :class="showSettings
-              ? 'bg-tinder-blue/12 text-tinder-blue'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'"
+              ? 'text-tinder-blue bg-tinder-blue/8'
+              : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
             title="对话设置"
             @click="showSettings = !showSettings"
           >
             <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
             </svg>
-            <span class="hidden sm:inline">{{ strategyLabel[contextStrategy] }}</span>
+            <span class="hidden sm:inline">设置</span>
           </button>
 
           <!-- Settings dropdown — expands UPWARD -->
           <Transition name="settings-pop">
             <div
               v-if="showSettings"
-              class="absolute left-0 bottom-full mb-2 z-50 w-72 bg-bg-card border border-border rounded-2xl shadow-xl p-4 flex flex-col gap-3"
+              class="absolute left-0 bottom-full mb-2 z-50 w-72 bg-bg-card border border-border rounded-2xl shadow-xl flex flex-col overflow-hidden"
             >
-              <!-- Context strategy -->
-              <div>
-                <p class="text-xs font-semibold text-text-secondary mb-2">上下文策略</p>
-                <div class="flex gap-1.5 flex-wrap">
-                  <button
-                    v-for="s in (['recent_k', 'summary', 'full'] as const)"
-                    :key="s"
-                    type="button"
-                    class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
-                    :class="contextStrategy === s
-                      ? 'bg-tinder-blue/10 border-tinder-blue/40 text-tinder-blue'
-                      : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
-                    @click="contextStrategy = s; persistSettings()"
-                  >
-                    {{ strategyLabel[s] }}
-                  </button>
+              <!-- Group 1: 对话上下文 -->
+              <div class="p-4 flex flex-col gap-3">
+                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">对话上下文</p>
+                <!-- Context strategy -->
+                <div>
+                  <p class="text-xs font-semibold text-text-secondary mb-2">上下文策略</p>
+                  <div class="flex gap-1.5 flex-wrap">
+                    <button
+                      v-for="s in (['recent_k', 'summary', 'full'] as const)"
+                      :key="s"
+                      type="button"
+                      class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
+                      :class="contextStrategy === s
+                        ? 'bg-tinder-blue/10 border-tinder-blue/40 text-tinder-blue'
+                        : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
+                      @click="contextStrategy = s; persistSettings()"
+                    >
+                      {{ strategyLabel[s] }}
+                    </button>
+                  </div>
+                  <p class="text-xs text-text-muted mt-1.5 leading-relaxed">
+                    <template v-if="contextStrategy === 'recent_k'">只传最近 K 轮历史，token 开销最小</template>
+                    <template v-else-if="contextStrategy === 'summary'">超过 K 轮时自动压缩旧对话为摘要</template>
+                    <template v-else>传完整历史，超限时从旧端截断</template>
+                  </p>
                 </div>
-                <p class="text-xs text-text-muted mt-1.5 leading-relaxed">
-                  <template v-if="contextStrategy === 'recent_k'">只传最近 K 轮历史，token 开销最小</template>
-                  <template v-else-if="contextStrategy === 'summary'">超过 K 轮时自动压缩旧对话为摘要</template>
-                  <template v-else>传完整历史，超限时从旧端截断</template>
-                </p>
+                <!-- K value (hidden for full) -->
+                <div v-if="contextStrategy !== 'full'">
+                  <p class="text-xs font-semibold text-text-secondary mb-2">K 值（轮数）</p>
+                  <div class="flex items-center gap-2">
+                    <input
+                      v-model.number="contextK"
+                      type="number"
+                      min="1"
+                      max="50"
+                      class="w-20 px-2 py-1 rounded-lg border border-border bg-bg-elevated text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-tinder-blue/50"
+                      @change="persistSettings"
+                    />
+                    <span class="text-xs text-text-muted">轮 = {{ contextK * 2 }} 条消息</span>
+                  </div>
+                </div>
               </div>
 
-              <!-- K value (hidden for full) -->
-              <div v-if="contextStrategy !== 'full'">
-                <p class="text-xs font-semibold text-text-secondary mb-2">K 值（轮数）</p>
-                <div class="flex items-center gap-2">
-                  <input
-                    v-model.number="contextK"
-                    type="number"
-                    min="1"
-                    max="50"
-                    class="w-20 px-2 py-1 rounded-lg border border-border bg-bg-elevated text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-tinder-blue/50"
-                    @change="persistSettings"
-                  />
-                  <span class="text-xs text-text-muted">轮 = {{ contextK * 2 }} 条消息</span>
-                </div>
-              </div>
-
-              <!-- Data source -->
-              <div>
-                <p class="text-xs font-semibold text-text-secondary mb-2">论文数据源</p>
+              <!-- Group 2: 论文数据源 -->
+              <div class="border-t border-border/40 p-4 flex flex-col gap-2">
+                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">论文数据源</p>
                 <div class="flex gap-1.5 flex-wrap">
                   <button
                     v-for="src in (['summary', 'abstract', 'full_text'] as const)"
@@ -729,12 +840,37 @@ function renderMarkdown(content: string): string {
                     {{ dataSourceLabel[src] }}
                   </button>
                 </div>
-                <p class="text-xs text-text-muted mt-1.5 leading-relaxed">
+                <p class="text-xs text-text-muted leading-relaxed">
                   <template v-if="dataSource === 'summary'">AI 生成的中文结构化摘要（推荐）</template>
                   <template v-else-if="dataSource === 'abstract'">论文原文英文摘要</template>
                   <template v-else>MinerU 提取的全文（token 消耗大）</template>
                 </p>
-                <p class="text-xs text-amber-500/80 mt-1">切换数据源后建议清空历史以保持上下文一致</p>
+                <p class="text-xs text-amber-500/80">切换数据源后建议清空历史以保持上下文一致</p>
+              </div>
+
+              <!-- Group 3: 显示 -->
+              <div class="border-t border-border/40 p-4 flex flex-col gap-2">
+                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">显示</p>
+                <p class="text-xs font-semibold text-text-secondary">字体大小</p>
+                <div class="flex items-center gap-2.5">
+                  <svg class="w-3 h-3 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
+                    <text x="3" y="17" font-size="12" font-family="sans-serif">A</text>
+                  </svg>
+                  <input
+                    type="range"
+                    min="12"
+                    max="22"
+                    step="1"
+                    :value="chatFontSize"
+                    class="chat-font-slider flex-1 cursor-pointer"
+                    title="调整字体大小"
+                    @input="chatFontSize = Number(($event.target as HTMLInputElement).value); persistSettings()"
+                  />
+                  <svg class="w-4 h-4 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
+                    <text x="1" y="18" font-size="16" font-family="sans-serif">A</text>
+                  </svg>
+                  <span class="text-xs text-text-muted w-8 shrink-0 tabular-nums text-right">{{ chatFontSize }}px</span>
+                </div>
               </div>
             </div>
           </Transition>
@@ -747,177 +883,133 @@ function renderMarkdown(content: string): string {
           />
         </div>
 
-        <!-- Model picker button -->
-        <div class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-all duration-150 border-none max-w-[120px]"
-            :class="showModelPicker
-              ? 'bg-tinder-pink/12 text-tinder-pink'
-              : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'"
-            title="选择模型"
-            @click="showModelPicker = !showModelPicker"
-          >
-            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z"/><path d="M12 8v4l3 3"/>
-            </svg>
-            <span class="truncate hidden sm:inline">{{ selectedPresetName }}</span>
-          </button>
+        <!-- Model picker -->
+        <PresetSelector
+          :model-value="selectedPresetId"
+          :presets="llmPresets"
+          :none-option="{ label: '默认（全局配置）' }"
+          :show-model-hint="true"
+          accent-color="#ec4899"
+          placeholder="选择模型"
+          drop-direction="up"
+          @update:model-value="val => selectPreset(val == null ? null : Number(val))"
+        />
 
-          <!-- Model picker dropdown — expands UPWARD -->
-          <Transition name="settings-pop">
-            <div
-              v-if="showModelPicker"
-              class="absolute left-0 bottom-full mb-2 z-50 w-64 bg-bg-card border border-border rounded-2xl shadow-xl overflow-hidden"
-            >
-              <div class="px-3 pt-3 pb-1">
-                <p class="text-xs font-semibold text-text-secondary">选择模型预设</p>
-              </div>
+        <!-- Divider: config | features -->
+        <div class="w-px h-4 bg-border/60 shrink-0 mx-0.5" />
 
-              <!-- No presets -->
-              <div v-if="llmPresets.length === 0" class="px-3 py-3 text-xs text-text-muted">
-                暂无预设，请前往个人中心添加
-              </div>
-
-              <!-- Preset list -->
-              <div v-else class="max-h-48 overflow-y-auto">
-                <!-- None option -->
-                <button
-                  type="button"
-                  class="w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors"
-                  :class="selectedPresetId === null
-                    ? 'bg-bg-elevated text-text-primary'
-                    : 'text-text-muted hover:bg-bg-hover'"
-                  @click="selectPreset(null)"
-                >
-                  <span>默认（使用全局配置）</span>
-                  <svg v-if="selectedPresetId === null" class="w-3 h-3 shrink-0 text-tinder-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </button>
-                <button
-                  v-for="preset in llmPresets"
-                  :key="preset.id"
-                  type="button"
-                  class="w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors"
-                  :class="selectedPresetId === preset.id
-                    ? 'bg-bg-elevated text-text-primary'
-                    : 'text-text-muted hover:bg-bg-hover'"
-                  @click="selectPreset(preset.id)"
-                >
-                  <div class="min-w-0">
-                    <div class="font-medium truncate">{{ preset.name }}</div>
-                    <div class="text-text-muted truncate opacity-70">{{ preset.model || '未配置 model' }}</div>
-                  </div>
-                  <svg v-if="selectedPresetId === preset.id" class="w-3 h-3 shrink-0 text-tinder-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                </button>
-              </div>
-
-              <!-- Footer: go to settings -->
-              <div class="border-t border-border px-3 py-2">
-                <a
-                  href="/profile?tab=llm_presets"
-                  class="text-xs text-tinder-blue no-underline hover:underline"
-                  @click="showModelPicker = false"
-                >
-                  前往个人中心管理预设 →
-                </a>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- Click-outside overlay -->
-          <div
-            v-if="showModelPicker"
-            class="fixed inset-0 z-40"
-            @click="onModelPickerOverlayClick"
-          />
-        </div>
-
-        <!-- Divider -->
-        <div class="w-px h-3.5 bg-border mx-1 shrink-0" />
-
-        <!-- Font size slider -->
-        <div class="flex items-center gap-1.5 px-1">
-          <svg class="w-3 h-3 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
-            <text x="3" y="17" font-size="12" font-family="sans-serif">A</text>
-          </svg>
-          <input
-            type="range"
-            min="12"
-            max="22"
-            step="1"
-            :value="chatFontSize"
-            class="chat-font-slider w-16 cursor-pointer"
-            title="调整字体大小"
-            @input="chatFontSize = Number(($event.target as HTMLInputElement).value); persistSettings()"
-          />
-          <svg class="w-4 h-4 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
-            <text x="1" y="18" font-size="16" font-family="sans-serif">A</text>
-          </svg>
-          <span class="text-[10px] text-text-muted w-6 shrink-0 tabular-nums">{{ chatFontSize }}px</span>
-        </div>
-
-        <!-- Divider -->
-        <div class="w-px h-3.5 bg-border mx-1 shrink-0" />
-
-        <!-- Copy format toggle (single icon button) -->
+        <!-- 深度研究 shortcut -->
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-all duration-150 border-none"
-          :class="copyFormat === 'markdown'
-            ? 'text-tinder-purple bg-tinder-purple/10'
-            : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'"
-          :title="copyFormat === 'markdown' ? '当前：复制 Markdown（点击切换为纯文本）' : '当前：复制纯文本（点击切换为 Markdown）'"
-          @click="copyFormat = copyFormat === 'markdown' ? 'plain' : 'markdown'; persistSettings()"
+          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none text-text-muted hover:bg-tinder-blue/10 hover:text-tinder-blue"
+          title="深度研究"
+          @click="handleResearchClick"
         >
-          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path v-if="copyFormat === 'markdown'" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline v-if="copyFormat === 'markdown'" points="14 2 14 8 20 8"/><line v-if="copyFormat === 'markdown'" x1="16" y1="13" x2="8" y2="13"/><line v-if="copyFormat === 'markdown'" x1="16" y1="17" x2="8" y2="17"/><polyline v-if="copyFormat === 'markdown'" points="10 9 9 9 8 9"/>
-            <path v-if="copyFormat === 'plain'" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline v-if="copyFormat === 'plain'" points="14 2 14 8 20 8"/><line v-if="copyFormat === 'plain'" x1="16" y1="13" x2="8" y2="13"/><line v-if="copyFormat === 'plain'" x1="16" y1="17" x2="8" y2="17"/>
+          <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+            <path d="M11 8v3"/><path d="M8 11h6"/>
           </svg>
-          <span class="text-[10px] font-medium">{{ copyFormat === 'markdown' ? 'MD' : 'TXT' }}</span>
+          <span class="hidden sm:inline">深度研究</span>
+        </button>
+
+        <!-- 对比分析 shortcut -->
+        <button
+          type="button"
+          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none text-text-muted hover:bg-tinder-purple/10 hover:text-tinder-purple"
+          title="对比分析"
+          @click="handleCompareClick"
+        >
+          <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22V12"/><path d="m21 3-7 7-4-4-7 7"/>
+          </svg>
+          <span class="hidden sm:inline">对比分析</span>
         </button>
 
         <!-- Push right -->
         <div class="flex-1" />
 
-        <!-- Copy all button -->
+        <!-- Divider: features | session actions -->
+        <div class="w-px h-4 bg-border/60 shrink-0 mx-0.5" />
+
+        <!-- Copy format toggle (icon-only ghost) -->
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-all duration-150 border-none disabled:opacity-30"
+          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors"
+          :class="copyFormat === 'markdown'
+            ? 'text-tinder-purple bg-tinder-purple/8'
+            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
+          :title="copyFormat === 'markdown' ? '当前：复制 Markdown（点击切换为纯文本）' : '当前：复制纯文本（点击切换为 Markdown）'"
+          @click="copyFormat = copyFormat === 'markdown' ? 'plain' : 'markdown'; persistSettings()"
+        >
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+            <polyline v-if="copyFormat === 'markdown'" points="10 9 9 9 8 9"/>
+          </svg>
+        </button>
+
+        <!-- Copy all button (icon-only ghost) -->
+        <button
+          type="button"
+          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           :class="allCopied
-            ? 'text-tinder-green bg-tinder-green/10'
-            : 'text-text-muted hover:text-text-primary hover:bg-bg-hover'"
+            ? 'text-tinder-green bg-tinder-green/8'
+            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
           :disabled="messages.length === 0 || isStreaming"
-          title="复制全部对话"
+          :title="allCopied ? '已复制' : '复制全部对话'"
           @click="copyAllMessages"
         >
-          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline v-if="allCopied" points="20 6 9 17 4 12"/>
             <template v-else>
               <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </template>
           </svg>
-          <span class="hidden sm:inline text-[10px]">{{ allCopied ? '已复制' : '全部' }}</span>
         </button>
 
-        <!-- Clear button -->
+        <!-- Clear button (icon-only ghost) -->
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-all duration-150 border-none disabled:opacity-30 text-text-muted hover:text-tinder-pink hover:bg-tinder-pink/8"
+          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-text-muted hover:bg-tinder-pink/8 hover:text-tinder-pink"
           :disabled="clearing || isStreaming"
           title="清空对话记录"
           @click="handleClear"
         >
-          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
           </svg>
-          <span class="hidden sm:inline text-[10px]">清空</span>
         </button>
 
         </div>
+      </div>
+
+      <!-- Quota / gate upgrade prompt -->
+      <div v-if="chatQuotaExhausted && entitlements.loaded.value" class="px-3 pb-2">
+        <UpgradePrompt
+          :feature="props.chatMode === 'general' ? 'general_chat' : 'chat'"
+          :inline="true"
+        />
+      </div>
+
+      <!-- Chat near-limit warning (paper chat only) -->
+      <div
+        v-else-if="props.chatMode !== 'general' && entitlements.loaded.value"
+        class="px-3 pb-1"
+      >
+        <QuotaWarningBanner feature="chat" :compact="true" />
+      </div>
+
+      <!-- Chat daily quota indicator (paper chat, Free tier only) -->
+      <div
+        v-else-if="chatQuotaSummary && entitlements.loaded.value"
+        class="px-3 pb-1 flex items-center justify-end gap-1 text-[11px] text-text-muted"
+      >
+        <span>今日问答：</span>
+        <span :class="(entitlements.remaining('chat') ?? 1) <= 2 ? 'text-amber-400 font-semibold' : ''">
+          {{ chatQuotaSummary }}
+        </span>
       </div>
 
       <!-- Textarea + send button -->
@@ -927,16 +1019,16 @@ function renderMarkdown(content: string): string {
           rows="3"
           placeholder="输入问题…（Enter 发送，Shift+Enter 换行）"
           class="flex-1 resize-none rounded-2xl border border-border bg-bg-elevated text-[15px] text-text-primary placeholder:text-text-muted px-4 py-3 focus:outline-none focus:ring-1 focus:ring-tinder-pink/50 transition-colors disabled:opacity-50"
-          :disabled="isStreaming"
+          :disabled="isStreaming || chatQuotaExhausted"
           @keydown="onKeydown"
         />
         <button
           type="button"
           class="shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors border-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          :class="inputText.trim() && !isStreaming
-            ? 'bg-tinder-pink text-white hover:bg-[#e01f6e]'
+          :class="inputText.trim() && !isStreaming && !chatQuotaExhausted
+            ? 'bg-brand-gradient text-white hover:opacity-90'
             : 'bg-bg-elevated border border-border text-text-muted'"
-          :disabled="!inputText.trim() || isStreaming"
+          :disabled="!inputText.trim() || isStreaming || chatQuotaExhausted"
           title="发送"
           @click="sendMessage"
         >
@@ -948,6 +1040,16 @@ function renderMarkdown(content: string): string {
       </div>
     </div>
   </div>
+
+  <!-- Paper picker dialog for 深度研究 / 对比分析 -->
+  <PaperPickerDialog
+    v-if="showPicker"
+    :mode="pickerMode"
+    :preselected-ids="pickerPreselectedIds"
+    :preselected-titles="pickerPreselectedTitles"
+    @confirm="onPickerConfirm"
+    @cancel="showPicker = false"
+  />
 </template>
 
 <style scoped>
@@ -1023,12 +1125,13 @@ function renderMarkdown(content: string): string {
 
 /* Inline code — adapt to theme colors instead of hardcoded gray */
 :deep(.prose code:not(pre code)) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  background: var(--color-bg-elevated);
+  color: var(--color-tinder-pink);
   border: 1px solid var(--color-border);
   border-radius: 0.3em;
   padding: 0.1em 0.35em;
   font-size: 0.82em;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
 }
 /* Remove the prose default backtick pseudo-elements */
 :deep(.prose code:not(pre code))::before,
@@ -1038,19 +1141,21 @@ function renderMarkdown(content: string): string {
 
 /* Code block */
 :deep(.prose pre) {
-  background: var(--color-bg-card);
+  background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: 0.6rem;
   padding: 0.75em 1em;
   overflow-x: auto;
   margin-top: 0.5em;
   margin-bottom: 0.5em;
+  font-family: "JetBrains Mono", "Fira Code", "Consolas", monospace;
 }
 :deep(.prose pre code) {
   background: transparent;
   border: none;
   padding: 0;
   font-size: 0.82em;
+  font-family: inherit;
   color: var(--color-text-primary);
 }
 

@@ -9,18 +9,28 @@ import ContentLayout from '../components/ContentLayout.vue'
 import type { ContentLayoutContext } from '../components/ContentLayout.vue'
 import PdfPanel from '../components/panels/PdfPanel.vue'
 import UserPaperUploadDialog from '../components/UserPaperUploadDialog.vue'
+import LoadingSpinner from '../components/LoadingSpinner.vue'
+import EmptyState from '../components/EmptyState.vue'
+import ErrorState from '../components/ErrorState.vue'
+import SidebarPageLayout from '../components/SidebarPageLayout.vue'
+import UpgradePrompt from '../components/UpgradePrompt.vue'
 import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } from '../composables/usePanelLayout'
-import { fetchDates, fetchDigest, addKbPaper, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperDetail, fetchPaperDetail, processUserPaper, userPaperStepLabel, API_ORIGIN } from '../api'
+import { fetchDates, fetchDigest, addKbPaper, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperInstitutions, fetchUserPaperDetail, fetchPaperDetail, processUserPaper, userPaperStepLabel, API_ORIGIN, saveResearchSession } from '../api'
 import { openExternal } from '../utils/openExternal'
 import type { KbScope } from '../api'
 import type { PaperSummary, UserPaper, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useKbSidebarState } from '../composables/useKbSidebarState'
+import { useEngagement } from '../composables/useEngagement'
+import { trackKbAction, trackPaperCardView } from '../composables/useAnalytics'
+import { useToast } from '../composables/useToast'
 
 const router = useRouter()
 const route = useRoute()
 const globalChat = useGlobalChat()
+const engagement = useEngagement()
+const { showError } = useToast()
 
 // Data
 const dates = ref<string[]>([])
@@ -39,10 +49,15 @@ const cardAnimClass = ref('card-enter')
 const history = ref<number[]>([])
 
 // Knowledge base + sidebar shared state
-const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile } = useKbSidebarState()
+const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState()
 
 const currentPaper = computed(() => papers.value[currentIndex.value] ?? null)
 const remaining = computed(() => papers.value.length - currentIndex.value)
+
+// Track paper card views for funnel analytics
+watch(currentPaper, (paper) => {
+  if (paper?.paper_id) trackPaperCardView(paper.paper_id)
+})
 const allSwiped = computed(() => papers.value.length > 0 && currentIndex.value >= papers.value.length)
 const isActuallyLimited = computed(() => {
   if (quotaLimit.value === null) return false
@@ -91,6 +106,7 @@ onMounted(async () => {
   if (isAuthenticated.value) {
     await loadKbTree()
     await loadCompareTree()
+    await engagement.loadStatus(true)
   }
 
   // Handle ?tab=mypapers redirect from /my-papers
@@ -100,14 +116,56 @@ onMounted(async () => {
   }
 })
 
+// Collapse KB sidebar when chat drawer opens on narrow viewports (< 1280px)
+watch(
+  () => globalChat.collapseSidebarSignal.value,
+  () => { showSidebar.value = false },
+)
+
+// Watch global chat research/compare signals from PaperChat shortcuts
+watch(
+  () => globalChat.researchRequest.value,
+  (req) => {
+    if (!req) return
+    handleResearch(req.paperIds, req.titles, req.scope)
+    globalChat.consumeResearchRequest()
+  },
+)
+
+watch(
+  () => globalChat.compareRequest.value,
+  (req) => {
+    if (!req) return
+    handleCompare(req.paperIds)
+    globalChat.consumeCompareRequest()
+  },
+)
+
+// Record analyze when user sends a message in the global chat drawer
+watch(
+  () => globalChat.messageSentSignal.value,
+  (n, old) => {
+    if (n > 0 && n !== old && isAuthenticated.value) {
+      void engagement.record('analyze', 'daily-digest-chat', '')
+    }
+  },
+)
+
 // Notice shown when pipeline ran but produced 0 papers
 const dateNotice = ref<{ type: string; message: string } | null>(null)
+
+// Fallback tracking: when the requested date has no unread papers, the backend
+// returns papers from an earlier date and sets is_fallback + effective_date.
+const effectiveDate = ref<string | null>(null)
+const isFallback = ref(false)
 
 async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.value) {
   loading.value = true
   error.value = ''
   errorType.value = 'unknown'
   dateNotice.value = null
+  isFallback.value = false
+  effectiveDate.value = null
   try {
     const res = await fetchDigest(date)
     const fetchedPapers = Array.isArray(res.papers) ? res.papers : []
@@ -116,12 +174,23 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
     quotaLimit.value = res.quota_limit ?? null
     responseTier.value = res.tier ?? (fallbackAuthed ? currentTier.value : 'anonymous')
     dateNotice.value = res.notice ?? null
+    // Fallback metadata from backend
+    effectiveDate.value = (res.effective_date as string | undefined) ?? date
+    isFallback.value = (res.is_fallback as boolean | undefined) ?? false
     currentIndex.value = 0
     history.value = []
     cardAnimClass.value = 'card-enter'
+    // When the backend fell back to an earlier date, sync the date selector so
+    // that auto-advance (watch allSwiped) can navigate from the correct position.
+    // The watcher below skips reloading when it detects this programmatic sync.
+    if (isFallback.value && effectiveDate.value && effectiveDate.value !== date) {
+      selectedDate.value = effectiveDate.value
+    }
     if (import.meta.env.DEV) {
       console.debug('[DailyDigest] digest loaded', {
         date,
+        effectiveDate: effectiveDate.value,
+        isFallback: isFallback.value,
         papers: papers.value.length,
         totalAvailable: totalAvailable.value,
         quotaLimit: quotaLimit.value,
@@ -135,14 +204,21 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
     totalAvailable.value = 0
     quotaLimit.value = null
     responseTier.value = 'anonymous'
+    isFallback.value = false
+    effectiveDate.value = null
   } finally {
     loading.value = false
   }
 }
 
 // Load papers on date change
+// 在深度研究面板激活时跳过，避免日期切换时意外触发论文推荐卡片加载。
+// 当 loadDigestForDate 因 fallback 同步 selectedDate 时，跳过重复请求。
 watch(selectedDate, async (date) => {
   if (!date) return
+  if (researchPaperIds.value !== null) return
+  // Skip reload triggered by our own programmatic sync of selectedDate to effectiveDate
+  if (isFallback.value && date === effectiveDate.value) return
   await loadDigestForDate(date)
 })
 
@@ -198,10 +274,13 @@ watch(
     if (authed) {
       await loadKbTree()
       await loadCompareTree()
+      await engagement.loadStatus(true)
     } else {
       kbTree.value = { folders: [], papers: [] }
       compareTree.value = null
       activeFolderId.value = null
+      engagement.status.value = null
+      engagement.loaded.value = false
     }
     // Login/logout changes user-scoped filtering and quota.
     // Reload digest to avoid stale index/quota state from previous session.
@@ -243,6 +322,7 @@ function skip() {
   // 已登录用户：后台静默标记为"不感兴趣"，下次加载时不再展示
   if (paper && isAuthenticated.value) {
     dismissPaper(paper.paper_id).catch(() => {})
+    trackKbAction('dismiss', paper.paper_id)
   }
 }
 
@@ -256,9 +336,13 @@ function like() {
   // Animate card immediately for snappy UX
   next('right')
   // Fire API in background — don't block the animation
-  addKbPaper(paper.paper_id, paper, activeFolderId.value)
+  // Always pass null folder_id so the backend can trigger auto-classify.
+  // activeFolderId only controls the sidebar focus, not where new saves go.
+  addKbPaper(paper.paper_id, paper, null)
     .then(() => loadKbTree())
     .catch(() => {})
+  trackKbAction('save', paper.paper_id)
+  void engagement.record('collect', 'daily-digest-like', paper.paper_id)
 }
 
 function undo() {
@@ -269,15 +353,24 @@ function undo() {
 }
 
 function openDetail() {
-  if (currentPaper.value) {
-    sidebarPaperId.value = currentPaper.value.paper_id
-    collapseSidebarOnMobile()
-  }
+  const paper = currentPaper.value
+  if (!paper) return
+  sidebarPaperId.value = paper.paper_id
+  collapseSidebarOnMobile()
+  globalChat.setBrowsingContext({
+    paperId: paper.paper_id,
+    title: paper.short_title || paper['📖标题'] || paper.paper_id,
+    summary: paper,
+    source: 'paper-detail',
+  })
+  globalChat.applyBrowsingToPaperContext()
+  void engagement.record('view', 'daily-digest-detail', paper.paper_id)
 }
 
 function openPdf() {
   if (currentPaper.value) {
     openExternal(`https://arxiv.org/pdf/${currentPaper.value.paper_id}`)
+    void engagement.record('view', 'daily-digest-pdf', currentPaper.value.paper_id)
   }
 }
 
@@ -313,13 +406,63 @@ const viewingUserPaper = ref<UserPaper | null>(null)
 const userPaperLoading = ref(false)
 let _userPaperPollTimer: ReturnType<typeof setInterval> | null = null
 let _myPapersCenterPollTimer: ReturnType<typeof setInterval> | null = null
+let _processingTickTimer: ReturnType<typeof setInterval> | null = null
+const processingElapsedSeconds = ref(0)
 const showUploadDialog = ref(false)
 
-async function loadMyPapersCenter() {
+// 我的论文：搜索 / 筛选 / 排序 / 视图模式 / 分页
+const myPapersSearch = ref('')
+const myPapersSourceFilter = ref('')
+const myPapersInstitutionFilter = ref('')
+const myPapersInstitutions = ref<string[]>([])
+const myPapersSort = ref<'date_desc' | 'date_asc' | 'title_asc'>('date_desc')
+const myPapersViewMode = ref<'card' | 'compact'>('card')
+const myPapersTotal = ref(0)
+const myPapersPageSize = 20
+const myPapersHasMore = ref(false)
+let _myPapersSearchDebounce: ReturnType<typeof setTimeout> | null = null
+
+async function loadMyPapersInstitutions() {
+  try {
+    myPapersInstitutions.value = await fetchUserPaperInstitutions()
+  } catch (e) {
+    console.warn('[MyPapers] 加载机构列表失败', e)
+  }
+}
+
+// sorted view of the currently loaded page(s)
+const myPapersCenterSorted = computed(() => {
+  const list = myPapersCenter.value
+  if (myPapersSort.value === 'title_asc') {
+    return [...list].sort((a, b) =>
+      (a.title || '').localeCompare(b.title || '', 'zh-CN')
+    )
+  }
+  if (myPapersSort.value === 'date_asc') {
+    return [...list].sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }
+  return list // date_desc — default from backend
+})
+
+async function loadMyPapersCenter(opts?: { append?: boolean }) {
   myPapersCenterLoading.value = true
   try {
-    const res = await fetchUserPapers({ limit: 200 })
-    myPapersCenter.value = res.papers
+    const offset = opts?.append ? myPapersCenter.value.length : 0
+    const res = await fetchUserPapers({
+      limit: myPapersPageSize,
+      offset,
+      search: myPapersSearch.value.trim() || undefined,
+      source_type: myPapersSourceFilter.value || undefined,
+      institution: myPapersInstitutionFilter.value || undefined,
+    })
+    if (opts?.append) {
+      myPapersCenter.value = [...myPapersCenter.value, ...res.papers]
+    } else {
+      myPapersCenter.value = res.papers
+    }
+    myPapersTotal.value = res.total
+    // "has more" = we got a full page (filtered count unknown from backend)
+    myPapersHasMore.value = res.papers.length >= myPapersPageSize
     // 若有处理中的论文，启动轮询刷新
     const hasProcessing = res.papers.some(
       p => p.process_status === 'processing' || p.process_status === 'pending'
@@ -329,18 +472,44 @@ async function loadMyPapersCenter() {
     } else {
       _stopMyPapersCenterPoll()
     }
-  } catch {}
-  finally {
+  } catch (e) {
+    showError('加载上传论文列表失败，请稍后重试')
+    console.error('[MyPapers] loadMyPapersCenter 失败', e)
+  } finally {
     myPapersCenterLoading.value = false
   }
 }
+
+function loadMoreMyPapers() {
+  loadMyPapersCenter({ append: true })
+}
+
+// debounced reload when search / filter changes
+watch([myPapersSearch, myPapersSourceFilter, myPapersInstitutionFilter], () => {
+  if (_myPapersSearchDebounce) clearTimeout(_myPapersSearchDebounce)
+  _myPapersSearchDebounce = setTimeout(() => {
+    myPapersCenter.value = []
+    loadMyPapersCenter()
+  }, 300)
+})
 
 function _startMyPapersCenterPoll() {
   if (_myPapersCenterPollTimer) return
   _myPapersCenterPollTimer = setInterval(async () => {
     try {
-      const res = await fetchUserPapers({ limit: 200 })
-      myPapersCenter.value = res.papers
+      const loadedCount = Math.max(myPapersCenter.value.length, myPapersPageSize)
+      const res = await fetchUserPapers({
+        limit: loadedCount,
+        offset: 0,
+        search: myPapersSearch.value.trim() || undefined,
+        source_type: myPapersSourceFilter.value || undefined,
+        institution: myPapersInstitutionFilter.value || undefined,
+      })
+      // Merge: update statuses in-place, preserve pagination state
+      const updatedMap = new Map(res.papers.map(p => [p.paper_id, p]))
+      myPapersCenter.value = myPapersCenter.value.map(p => updatedMap.get(p.paper_id) ?? p)
+      myPapersTotal.value = res.total
+      myPapersHasMore.value = res.papers.length >= loadedCount && myPapersCenter.value.length < res.total
       const hasProcessing = res.papers.some(
         p => p.process_status === 'processing' || p.process_status === 'pending'
       )
@@ -358,8 +527,9 @@ function _stopMyPapersCenterPoll() {
 
 function handleTabChanged(tab: string) {
   if (tab === 'mypapers') {
+    // 切换到其他 Tab 时关闭研究面板（无论是否有活跃论文）
+    researchPaperIds.value = null
     myPapersMode.value = true
-    // 切换到我的论文 Tab 时，清空当前推荐卡片相关状态
     sidebarPaperId.value = null
     viewingPdf.value = null
     viewingMd.value = null
@@ -370,7 +540,24 @@ function handleTabChanged(tab: string) {
     _stopUserPaperPoll()
     globalChat.clearBrowsingContext()
     loadMyPapersCenter()
+    loadMyPapersInstitutions()
+  } else if (tab === 'research') {
+    myPapersMode.value = false
+    sidebarPaperId.value = null
+    viewingPdf.value = null
+    viewingMd.value = null
+    comparingPaperIds.value = null
+    viewingCompareResultId.value = null
+    editingNote.value = null
+    _stopMyPapersCenterPoll()
+    globalChat.clearBrowsingContext()
+    // 点击深度研究 Tab（含重复点击）时始终重置到空态首页
+    researchPaperIds.value = []
+    researchPaperTitles.value = {}
+    researchInitialSessionId.value = null
   } else {
+    // 切换到其他 Tab 时关闭研究面板（无论是否有活跃论文）
+    researchPaperIds.value = null
     myPapersMode.value = false
     viewingMd.value = null
     _stopMyPapersCenterPoll()
@@ -385,6 +572,7 @@ async function openUserPaper(paperId: string) {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   myPapersMode.value = true  // 保持在「我的论文」模式
   viewingUserPaperId.value = paperId
   await _loadUserPaper(paperId)
@@ -421,8 +609,10 @@ async function _loadUserPaper(paperId: string) {
     } else {
       _stopUserPaperPoll()
     }
-  } catch {}
-  finally {
+  } catch (e) {
+    showError('加载论文详情失败，请稍后重试')
+    console.error('[UserPaper] _loadUserPaper 失败', e)
+  } finally {
     userPaperLoading.value = false
   }
 }
@@ -440,12 +630,25 @@ function _startUserPaperPoll(paperId: string) {
       }
     } catch {}
   }, 3000)
+  // Elapsed timer: tick every second to drive the "已耗时" display
+  if (!_processingTickTimer) {
+    const p = viewingUserPaper.value
+    const startedAt = p?.process_started_at ? new Date(p.process_started_at).getTime() : Date.now()
+    _processingTickTimer = setInterval(() => {
+      processingElapsedSeconds.value = Math.floor((Date.now() - startedAt) / 1000)
+    }, 1000)
+  }
 }
 
 function _stopUserPaperPoll() {
   if (_userPaperPollTimer) {
     clearInterval(_userPaperPollTimer)
     _userPaperPollTimer = null
+  }
+  if (_processingTickTimer) {
+    clearInterval(_processingTickTimer)
+    _processingTickTimer = null
+    processingElapsedSeconds.value = 0
   }
 }
 
@@ -454,7 +657,10 @@ async function handleRetryUserPaper() {
   try {
     await processUserPaper(viewingUserPaperId.value)
     await _loadUserPaper(viewingUserPaperId.value)
-  } catch {}
+  } catch (e) {
+    showError('重新处理论文失败，请稍后重试')
+    console.error('[UserPaper] handleRetryUserPaper 失败', e)
+  }
 }
 
 async function handleUploadDialogUploaded(paperId: string) {
@@ -462,12 +668,16 @@ async function handleUploadDialogUploaded(paperId: string) {
   await openUserPaper(paperId)
   sidebarRef.value?.refreshMyPapers()
   // 也刷新中间区域的列表（如果正处于 myPapersMode）
-  if (myPapersMode.value) await loadMyPapersCenter()
+  if (myPapersMode.value) {
+    await loadMyPapersCenter()
+    loadMyPapersInstitutions()
+  }
 }
 
 onBeforeUnmount(() => {
   _stopUserPaperPoll()
   _stopMyPapersCenterPoll()
+  if (_myPapersSearchDebounce) clearTimeout(_myPapersSearchDebounce)
 })
 
 // 笔记编辑器组件引用，便于外部触发保存/检查是否为空
@@ -476,6 +686,74 @@ const digestContentLayoutRef = ref<InstanceType<typeof ContentLayout> | null>(nu
 
 function getDigestNoteEditor() {
   return digestContentLayoutRef.value?.getNoteEditor?.() ?? null
+}
+
+// 深度研究 Q&A
+const researchPaperIds = ref<string[] | null>(null)
+const researchPaperTitles = ref<Record<string, string>>({})
+const researchScope = ref<string>('kb')
+
+function handleResearch(paperIds: string[], paperTitles: Record<string, string>, scope?: string) {
+  editingNote.value = null
+  sidebarPaperId.value = null
+  viewingPdf.value = null
+  viewingMd.value = null
+  comparingPaperIds.value = null
+  viewingCompareResultId.value = null
+  researchInitialSessionId.value = null
+  researchPaperIds.value = paperIds
+  researchPaperTitles.value = paperTitles
+  researchScope.value = scope ?? 'kb'
+  globalChat.clearBrowsingContext()
+  collapseSidebarOnMobile()
+  void engagement.record('analyze', 'daily-digest-research', paperIds[0] || '')
+}
+
+async function handleOpenResearchSession(sessionId: number) {
+  const { fetchResearchSession: fetchSession } = await import('../api')
+  try {
+    const session = await fetchSession(sessionId)
+    editingNote.value = null
+    sidebarPaperId.value = null
+    viewingPdf.value = null
+    viewingMd.value = null
+    comparingPaperIds.value = null
+    viewingCompareResultId.value = null
+    researchPaperIds.value = session.paper_ids
+    researchPaperTitles.value = {}
+    researchScope.value = 'kb'
+    researchInitialSessionId.value = sessionId
+    globalChat.clearBrowsingContext()
+    collapseSidebarOnMobile()
+    void engagement.record('analyze', 'daily-digest-research-session', String(sessionId))
+  } catch (e) {
+    showError('打开深度研究会话失败，请稍后重试')
+    console.error('[Research] handleOpenResearchSession 失败', e)
+  }
+}
+
+function closeResearch() {
+  researchPaperIds.value = null
+  sidebarRef.value?.switchToPapersTab()
+}
+
+async function handleSaveToLibrary(sessionId: number) {
+  try {
+    await saveResearchSession(sessionId)
+  } catch (e) {
+    console.error('[Research] save failed', e)
+  }
+  sidebarRef.value?.switchToResearchTab()
+}
+
+function removeResearchPaper(paperId: string) {
+  if (!researchPaperIds.value) return
+  const next = researchPaperIds.value.filter((id) => id !== paperId)
+  // Keep the panel open with empty state so the user can pick different papers
+  researchPaperIds.value = next
+  const titles = { ...researchPaperTitles.value }
+  delete titles[paperId]
+  researchPaperTitles.value = titles
 }
 
 // 对比分析
@@ -514,11 +792,13 @@ function handleCompare(paperIds: string[], scope?: string, resultIds?: number[])
   viewingPdf.value = null
   viewingMd.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   comparingPaperIds.value = paperIds
   comparingResultIds.value = resultIds ?? []
   compareScope.value = (scope as KbScope) ?? 'kb'
   globalChat.clearBrowsingContext()
   collapseSidebarOnMobile()
+  void engagement.record('analyze', 'daily-digest-compare', paperIds[0] || '')
 }
 
 function closeCompare() {
@@ -538,6 +818,7 @@ function openCompareResult(resultId: number) {
   viewingCompareResultId.value = resultId
   globalChat.clearBrowsingContext()
   collapseSidebarOnMobile()
+  void engagement.record('analyze', 'daily-digest-compare-result', String(resultId))
 }
 
 function closeCompareResult() {
@@ -549,6 +830,7 @@ async function openPaperFromSidebar(paperId: string) {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   // 如果当前正在编辑笔记，优先处理笔记状态
   if (editingNote.value && getDigestNoteEditor()) {
     const isEmpty = getDigestNoteEditor().isEffectivelyEmpty()
@@ -580,6 +862,7 @@ async function openPaperFromSidebar(paperId: string) {
   sidebarPaperId.value = paperId
   // 移动端：自动收起侧边栏，让用户立刻看到内容
   collapseSidebarOnMobile()
+  void engagement.record('view', 'daily-digest-sidebar-paper', paperId)
 
   void (async () => {
     try {
@@ -606,6 +889,7 @@ async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
   viewingMd.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   // 如果当前正在编辑笔记，先判断是否为空
   if (editingNote.value && getDigestNoteEditor()) {
     const isEmpty = getDigestNoteEditor().isEffectivelyEmpty()
@@ -640,6 +924,7 @@ function openPdfFromSidebar(payload: { paperId: string; filePath: string; title:
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
   viewingMd.value = null
+  researchPaperIds.value = null
   viewingPdf.value = payload
   globalChat.setBrowsingContext({
     paperId: payload.paperId,
@@ -648,6 +933,7 @@ function openPdfFromSidebar(payload: { paperId: string; filePath: string; title:
   })
   globalChat.applyBrowsingToPaperContext()
   collapseSidebarOnMobile()
+  void engagement.record('view', 'daily-digest-sidebar-pdf', payload.paperId)
 }
 
 function openUserPaperViewMd(payload: UserPaperViewMdPayload) {
@@ -662,6 +948,7 @@ function openUserPaperViewMd(payload: UserPaperViewMdPayload) {
   viewingPdf.value = null
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
+  researchPaperIds.value = null
   viewingMd.value = payload
   myPapersMode.value = true
   viewingUserPaperId.value = null
@@ -770,6 +1057,33 @@ const compareLayoutContext = computed<ContentLayoutContext>(() => ({
   comparingResultIds: comparingResultIds.value,
   compareScope: compareScope.value,
   comparePaperTitles: comparePaperTitles.value,
+}))
+
+// Deep Research layout
+const researchLayoutKey = computed(() =>
+  researchPaperIds.value?.length
+    ? `digest-research-${researchPaperIds.value.join(',')}`
+    : 'digest-research',
+)
+
+const researchOnlyPanels = computed<PanelConfigItem[]>(() => [
+  { id: PANEL_IDS.RESEARCH, label: '深度研究', icon: '🔍', available: true },
+])
+
+const researchDefaultLayout = computed<LayoutState>(() => ({
+  mode: 'single',
+  leftPanel: PANEL_IDS.RESEARCH,
+  rightPanel: PANEL_IDS.RESEARCH,
+  splitRatio: 60,
+}))
+
+const researchInitialSessionId = ref<number | null>(null)
+
+const researchLayoutContext = computed<ContentLayoutContext>(() => ({
+  researchPaperIds: researchPaperIds.value || [],
+  researchPaperTitles: researchPaperTitles.value,
+  researchScope: researchScope.value,
+  researchInitialSessionId: researchInitialSessionId.value,
 }))
 
 const compareResultLayoutKey = computed(
@@ -902,6 +1216,7 @@ const mdLayoutContext = computed<ContentLayoutContext>(() => ({
   mdBilingualUrl: viewingMd.value?.bilingualUrl ?? undefined,
   paperId: viewingMd.value?.paperId,
   paperViewScope: viewingMd.value?.scope,
+  translateInProgress: viewingMd.value?.translateInProgress ?? false,
 }))
 
 const sidebarLayoutKey = computed(() =>
@@ -963,6 +1278,7 @@ const sidebarLayoutContext = computed<ContentLayoutContext>(() => {
     mdMineruUrl: mineruUrl,
     mdZhUrl: zhUrl,
     mdBilingualUrl: bilingualUrl,
+    translateInProgress: kbPaper?.translate_status === 'processing',
   }
 })
 
@@ -1011,6 +1327,7 @@ const userPaperLayoutContext = computed<ContentLayoutContext>(() => {
     mdMineruUrl: mineruUrl,
     mdZhUrl: zhUrl,
     mdBilingualUrl: bilingualUrl,
+    translateInProgress: p.translate_status === 'processing',
   }
 })
 
@@ -1042,6 +1359,8 @@ async function handleGoToDigestClick() {
   viewingPdf.value = null
   viewingMd.value = null
   comparingPaperIds.value = null
+  viewingCompareResultId.value = null
+  researchPaperIds.value = null
   viewingUserPaperId.value = null
   viewingUserPaper.value = null
   _stopUserPaperPoll()
@@ -1087,7 +1406,7 @@ function resetCards() {
   }
 }
 
-const STEP_ORDER = ['pdf_prepare', 'pdf_download', 'pdf_extract', 'pdf_info', 'paper_summary', 'summary_limit', 'paper_assets', 'done']
+const STEP_ORDER = ['pdf_prepare', 'pdf_download', 'pdf_extract', 'pdf_mineru', 'pdf_info', 'paper_summary', 'summary_limit', 'paper_assets', 'done']
 
 function isStepDone(step: string, currentStep: string): boolean {
   const currentIdx = STEP_ORDER.indexOf(currentStep)
@@ -1097,7 +1416,10 @@ function isStepDone(step: string, currentStep: string): boolean {
 
 function isStepCurrent(step: string, currentStep: string): boolean {
   if (currentStep === step) return true
-  if (step === 'pdf_prepare' && (currentStep === 'pdf_download' || currentStep === 'pdf_extract')) return true
+  // pdf_prepare covers all PDF-acquisition sub-steps
+  if (step === 'pdf_prepare' && (currentStep === 'pdf_download' || currentStep === 'pdf_extract' || currentStep === 'pdf_mineru')) return true
+  // During parallel layer 1 (paper_summary), pdf_info is also running → show as current
+  if (step === 'pdf_info' && currentStep === 'paper_summary') return true
   return false
 }
 
@@ -1125,11 +1447,34 @@ const isInPanelView = computed(() =>
   !!viewingMd.value ||
   !!sidebarPaperId.value ||
   myPapersMode.value ||
-  !!viewingUserPaperId.value,
+  !!viewingUserPaperId.value ||
+  !!researchPaperIds.value,
 )
 
 // 将面板视图状态同步到全局，供右下角浮动按钮感知
-watch(isInPanelView, (v) => { globalChat.setDigestInPanelView(v) }, { immediate: true })
+watch(isInPanelView, (v) => { globalChat.setPageInPanelView(v) }, { immediate: true })
+
+// 主卡片视图：将当前浏览的推荐论文自动同步到 AI 问答上下文
+// 面板视图时跳过（面板内会由 openPaperFromSidebar 等函数精确设置）
+watch(currentPaper, (paper) => {
+  if (isInPanelView.value) return
+  if (paper) {
+    globalChat.setBrowsingContext({
+      paperId: paper.paper_id,
+      title: paper.short_title || paper['📖标题'] || paper.paper_id,
+      summary: paper,
+      source: 'paper-detail',
+    })
+  } else {
+    globalChat.clearBrowsingContext()
+  }
+}, { immediate: true })
+
+// 全局 AI 问答存入笔记时刷新知识库侧栏
+watch(globalChat.noteSavedSignal, async () => {
+  await loadKbTree()
+  sidebarRef.value?.refreshAllExpandedNotes()
+})
 
 // 浮动按钮请求"回到推荐"时执行清理
 watch(globalChat.digestResetRequested, (requested) => {
@@ -1163,16 +1508,10 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 </script>
 
 <template>
-  <div class="h-full flex relative">
+  <SidebarPageLayout v-model:show-sidebar="showSidebar">
 
-    <!-- Sidebar overlay backdrop (mobile only, when sidebar is open) -->
-    <Transition name="fade">
-      <div
-        v-if="showSidebar"
-        class="fixed inset-0 z-20 bg-black/60 lg:hidden"
-        @click="showSidebar = false"
-      />
-    </Transition>
+    <!-- ===== Sidebar slot ===== -->
+    <template #sidebar>
 
     <!-- ===== Authenticated sidebar ===== -->
     <template v-if="isAuthenticated">
@@ -1197,6 +1536,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @open-note="openNoteFromSidebar"
             @open-pdf="openPdfFromSidebar"
             @compare="handleCompare"
+            @research="handleResearch"
             @refresh="loadKbTree"
             @open-compare-result="openCompareResult"
             @refresh-compare="loadCompareTree"
@@ -1205,6 +1545,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @open-upload-dialog="showUploadDialog = true"
             @tab-changed="handleTabChanged"
             @view-md="openUserPaperViewMd"
+            @open-research-session="handleOpenResearchSession"
+            @update-read-status="markPaperReadStatus"
             :active-user-paper-id="sidebarActiveUserPaperId"
             :active-view-md-key="sidebarActiveViewMdKey"
           />
@@ -1218,7 +1560,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <aside
           v-show="showSidebar"
           :class="[
-            'z-30 w-[80vw] max-w-[320px] lg:w-72 h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300 ease-in-out relative',
+            'z-30 w-[80vw] max-w-[340px] lg:w-[var(--sidebar-w)] h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300 ease-in-out relative',
             'fixed lg:relative inset-y-0 left-0',
             showSidebar ? 'translate-x-0' : '-translate-x-full lg:-translate-x-full'
           ]"
@@ -1275,22 +1617,10 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       </Transition>
     </template>
 
-    <!-- Universal "open sidebar" button — visible whenever sidebar is collapsed -->
-    <Transition name="fade">
-      <button
-        v-if="!showSidebar"
-        class="fixed top-[100px] left-0 z-10 flex items-center justify-center w-9 h-9 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
-        title="展开知识库"
-        @click="showSidebar = true"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="m14 9 3 3-3 3"/>
-        </svg>
-      </button>
-    </Transition>
+    </template>
+    <!-- End sidebar slot -->
 
-    <!-- Center content area -->
-    <div class="flex-1 flex flex-col relative overflow-hidden min-w-0">
+    <!-- ===== Default slot: center content area ===== -->
 
       <!-- 笔记 + 论文：统一 ContentLayout -->
       <ContentLayout
@@ -1303,6 +1633,18 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         :context="noteEditingContext"
         @note-saved="handleChatNoteSaved"
         @close-note="closeNoteEditor"
+      />
+
+      <ContentLayout
+        v-else-if="researchPaperIds"
+        class="flex-1 min-h-0 mt-3"
+        :context-key="researchLayoutKey"
+        :panel-configs="researchOnlyPanels"
+        :default-layout="researchDefaultLayout"
+        :context="researchLayoutContext"
+        @close-research="closeResearch"
+        @remove-research-paper="removeResearchPaper"
+        @save-to-library="handleSaveToLibrary"
       />
 
       <ContentLayout
@@ -1367,21 +1709,18 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         v-else-if="myPapersMode && !viewingUserPaperId"
         class="flex-1 overflow-y-auto px-2 sm:px-4 py-4"
       >
-        <!-- Loading -->
-        <div v-if="myPapersCenterLoading && myPapersCenter.length === 0"
+        <!-- Initial loading (no data yet) -->
+        <div v-if="myPapersCenterLoading && myPapersCenter.length === 0 && !myPapersSearch && !myPapersSourceFilter && !myPapersInstitutionFilter"
           class="flex items-center justify-center h-full"
         >
-          <svg class="animate-spin h-8 w-8 text-amber-500" viewBox="0 0 24 24" fill="none">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
+          <LoadingSpinner color="text-amber-500" />
         </div>
 
-        <!-- 空状态 -->
-        <div v-else-if="myPapersCenter.length === 0"
+        <!-- 空状态（真正没有论文，且无搜索词） -->
+        <div v-else-if="myPapersCenter.length === 0 && !myPapersSearch && !myPapersSourceFilter && !myPapersInstitutionFilter && !myPapersCenterLoading"
           class="flex flex-col items-center justify-center h-full gap-5 text-center px-8"
         >
-          <div class="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#f59e0b] to-[#ef4444] opacity-70 flex items-center justify-center">
+          <div class="w-20 h-20 rounded-2xl bg-mypapers-gradient-br opacity-70 flex items-center justify-center">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
@@ -1391,20 +1730,23 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             <p class="text-sm text-text-muted max-w-xs leading-relaxed">在左侧点击「上传 / 导入论文」，支持 PDF 上传或 arXiv ID 导入，自动生成结构化摘要</p>
           </div>
           <button
-            class="px-6 py-2.5 rounded-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
+            class="px-6 py-2.5 rounded-full bg-mypapers-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
             @click="showUploadDialog = true"
           >上传第一篇论文</button>
         </div>
 
-        <!-- 论文卡片列表 -->
-        <div v-else class="max-w-2xl mx-auto space-y-4">
-          <div class="flex items-center justify-between mb-2">
+        <!-- 论文列表区（有数据 OR 有搜索词） -->
+        <div v-else class="max-w-2xl mx-auto">
+          <!-- ── 顶部：标题行 + 上传按钮 ── -->
+          <div class="flex items-center justify-between mb-3">
             <h2 class="text-base font-semibold text-text-primary">
               我的论文
-              <span class="text-sm font-normal text-text-muted ml-1">({{ myPapersCenter.length }})</span>
+              <span class="text-sm font-normal text-text-muted ml-1">
+                ({{ myPapersTotal > 0 ? myPapersTotal : myPapersCenter.length }})
+              </span>
             </h2>
             <button
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white bg-gradient-to-r from-[#f59e0b] to-[#ef4444] border-none cursor-pointer hover:opacity-90 transition-opacity"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold text-white bg-mypapers-gradient border-none cursor-pointer hover:opacity-90 transition-opacity"
               @click="showUploadDialog = true"
             >
               <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1414,77 +1756,253 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             </button>
           </div>
 
+          <!-- ── 工具条：搜索 + 筛选 + 排序 + 视图切换 ── -->
+          <div class="flex flex-col sm:flex-row gap-2 mb-3">
+            <!-- 搜索框 -->
+            <div class="relative flex-1 min-w-0">
+              <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-muted pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+              </svg>
+              <input
+                v-model="myPapersSearch"
+                type="text"
+                placeholder="搜索标题、摘要、机构…"
+                class="w-full pl-8 pr-3 py-1.5 rounded-xl bg-bg-card border border-border text-xs text-text-primary placeholder-text-muted focus:outline-none focus:border-amber-500/60 transition-colors"
+              />
+              <button
+                v-if="myPapersSearch"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer p-0 leading-none"
+                @click="myPapersSearch = ''"
+              >✕</button>
+            </div>
+
+            <!-- 来源筛选 -->
+            <select
+              v-model="myPapersSourceFilter"
+              class="px-2.5 py-1.5 rounded-xl bg-bg-card border border-border text-xs text-text-primary focus:outline-none focus:border-amber-500/60 transition-colors cursor-pointer"
+            >
+              <option value="">全部来源</option>
+              <option value="pdf">PDF</option>
+              <option value="arxiv">arXiv</option>
+              <option value="manual">手动</option>
+            </select>
+
+            <!-- 机构筛选 -->
+            <select
+              v-if="myPapersInstitutions.length > 0"
+              v-model="myPapersInstitutionFilter"
+              class="px-2.5 py-1.5 rounded-xl bg-bg-card border border-border text-xs text-text-primary focus:outline-none focus:border-amber-500/60 transition-colors cursor-pointer max-w-[120px]"
+            >
+              <option value="">全部机构</option>
+              <option v-for="inst in myPapersInstitutions" :key="inst" :value="inst">{{ inst }}</option>
+            </select>
+
+            <!-- 排序 -->
+            <select
+              v-model="myPapersSort"
+              class="px-2.5 py-1.5 rounded-xl bg-bg-card border border-border text-xs text-text-primary focus:outline-none focus:border-amber-500/60 transition-colors cursor-pointer"
+            >
+              <option value="date_desc">最新优先</option>
+              <option value="date_asc">最早优先</option>
+              <option value="title_asc">标题 A→Z</option>
+            </select>
+
+            <!-- 视图切换 -->
+            <div class="flex rounded-xl overflow-hidden border border-border shrink-0">
+              <button
+                class="px-2.5 py-1.5 text-xs font-medium transition-colors border-none cursor-pointer"
+                :class="myPapersViewMode === 'card'
+                  ? 'bg-mypapers-gradient text-white'
+                  : 'bg-bg-card text-text-muted hover:text-text-primary'"
+                title="卡片视图"
+                @click="myPapersViewMode = 'card'"
+              >
+                <svg viewBox="0 0 16 16" class="w-3.5 h-3.5" fill="currentColor">
+                  <rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/>
+                  <rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/>
+                </svg>
+              </button>
+              <button
+                class="px-2.5 py-1.5 text-xs font-medium transition-colors border-none border-l border-border cursor-pointer"
+                :class="myPapersViewMode === 'compact'
+                  ? 'bg-mypapers-gradient text-white'
+                  : 'bg-bg-card text-text-muted hover:text-text-primary'"
+                title="列表视图"
+                @click="myPapersViewMode = 'compact'"
+              >
+                <svg viewBox="0 0 16 16" class="w-3.5 h-3.5" fill="currentColor">
+                  <rect x="1" y="2" width="14" height="2" rx="1"/><rect x="1" y="7" width="14" height="2" rx="1"/>
+                  <rect x="1" y="12" width="14" height="2" rx="1"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- 结果计数 / 搜索无结果提示 -->
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-[11px] text-text-muted">
+              <template v-if="myPapersSearch || myPapersSourceFilter || myPapersInstitutionFilter">
+                找到 {{ myPapersCenterSorted.length }} 篇
+                <template v-if="myPapersHasMore"> · 还有更多</template>
+              </template>
+              <template v-else>
+                已加载 {{ myPapersCenter.length }} 篇<template v-if="myPapersTotal > myPapersCenter.length"> · 共 {{ myPapersTotal }} 篇</template>
+              </template>
+            </span>
+            <!-- 搜索中加载指示 -->
+            <LoadingSpinner v-if="myPapersCenterLoading && myPapersCenter.length > 0" size="sm" color="text-amber-500" />
+          </div>
+
+          <!-- 搜索/筛选无结果 -->
           <div
-            v-for="paper in myPapersCenter"
-            :key="paper.paper_id"
-            class="bg-bg-card border border-border rounded-2xl p-4 sm:p-5 cursor-pointer hover:border-amber-500/40 hover:shadow-md transition-all"
-            @click="openUserPaper(paper.paper_id)"
+            v-if="myPapersCenterSorted.length === 0 && !myPapersCenterLoading"
+            class="flex flex-col items-center py-12 gap-2 text-center"
           >
-            <!-- Header row -->
-            <div class="flex items-start justify-between gap-3 mb-3">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white text-xs font-semibold">
-                  {{ paper.institution || '未知机构' }}
-                </span>
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-600 border border-amber-500/30">
-                  我的上传
-                </span>
-                <span class="text-[10px] text-text-muted px-2 py-0.5 rounded-full bg-bg-elevated border border-border">
-                  {{ paper.source_type === 'arxiv' ? 'arXiv' : paper.source_type === 'pdf' ? 'PDF' : '手动' }}
-                </span>
-              </div>
-              <!-- Status indicator -->
-              <div class="shrink-0 flex items-center gap-1.5">
-                <span
-                  v-if="paper.process_status === 'processing' || paper.process_status === 'pending'"
-                  class="w-5 h-5 flex items-center justify-center text-amber-500 text-sm animate-spin"
-                >⟳</span>
-                <span v-else-if="paper.process_status === 'completed'" class="text-green-500 text-sm">✅</span>
-                <span v-else-if="paper.process_status === 'failed'" class="text-red-500 text-sm">❌</span>
-                <span v-else class="text-text-muted text-sm">○</span>
-              </div>
-            </div>
+            <svg class="w-10 h-10 text-text-muted/40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <p class="text-sm text-text-muted">没有符合条件的论文</p>
+            <button
+              class="mt-1 text-xs text-amber-500 hover:text-amber-400 bg-transparent border-none cursor-pointer"
+              @click="myPapersSearch = ''; myPapersSourceFilter = ''; myPapersInstitutionFilter = ''"
+            >清除筛选</button>
+          </div>
 
-            <!-- Title -->
-            <h3 class="text-base font-bold text-text-primary leading-snug mb-1.5">
-              {{ paper.summary?.short_title || paper.title || '（未命名）' }}
-            </h3>
-            <p v-if="paper.summary?.['📖标题']" class="text-xs text-text-secondary mb-2 line-clamp-1">
-              {{ paper.summary['📖标题'] }}
-            </p>
-
-            <!-- Summary excerpt (completed) -->
-            <template v-if="paper.process_status === 'completed' && paper.summary">
-              <div class="text-xs text-text-muted space-y-1">
-                <div v-if="paper.summary['🛎️文章简介']?.['🔸研究问题']" class="line-clamp-2">
-                  <span class="font-medium text-text-secondary">研究问题：</span>{{ paper.summary['🛎️文章简介']['🔸研究问题'] }}
+          <!-- ══ 卡片视图 ══ -->
+          <div v-if="myPapersViewMode === 'card' && myPapersCenterSorted.length > 0" class="space-y-4">
+            <div
+              v-for="paper in myPapersCenterSorted"
+              :key="paper.paper_id"
+              class="bg-bg-card border border-border rounded-2xl p-4 sm:p-5 cursor-pointer hover:border-amber-500/40 hover:shadow-md transition-all"
+              @click="openUserPaper(paper.paper_id)"
+            >
+              <!-- Header row -->
+              <div class="flex items-start justify-between gap-3 mb-3">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="px-2.5 py-0.5 rounded-full bg-mypapers-gradient text-white text-xs font-semibold">
+                    {{ paper.institution || '未知机构' }}
+                  </span>
+                  <span class="text-[10px] text-text-muted px-2 py-0.5 rounded-full bg-bg-elevated border border-border">
+                    {{ paper.source_type === 'arxiv' ? 'arXiv' : paper.source_type === 'pdf' ? 'PDF' : '手动' }}
+                  </span>
                 </div>
-                <div v-if="paper.summary['🛎️文章简介']?.['🔸主要贡献']" class="line-clamp-2">
-                  <span class="font-medium text-text-secondary">主要贡献：</span>{{ paper.summary['🛎️文章简介']['🔸主要贡献'] }}
+                <!-- Status indicator -->
+                <div class="shrink-0 flex items-center gap-1.5">
+                  <span
+                    v-if="paper.process_status === 'processing' || paper.process_status === 'pending'"
+                    class="w-5 h-5 flex items-center justify-center text-amber-500 text-sm animate-spin"
+                  >⟳</span>
+                  <span v-else-if="paper.process_status === 'completed'" class="text-green-500 text-sm">✅</span>
+                  <span v-else-if="paper.process_status === 'failed'" class="text-red-500 text-sm">❌</span>
+                  <span v-else class="text-text-muted text-sm">○</span>
                 </div>
               </div>
-            </template>
-            <!-- Processing status (in progress) -->
-            <template v-else-if="paper.process_status === 'processing' || paper.process_status === 'pending'">
-              <p class="text-xs text-amber-500 flex items-center gap-1.5">
-                <span class="inline-block animate-spin">⟳</span>
-                {{ userPaperStepLabel(paper.process_step) }}
+
+              <!-- Title -->
+              <h3 class="text-base font-bold text-text-primary leading-snug mb-1.5">
+                {{ paper.summary?.short_title || paper.title || '（未命名）' }}
+              </h3>
+              <p v-if="paper.summary?.['📖标题']" class="text-xs text-text-secondary mb-2 line-clamp-1">
+                {{ paper.summary['📖标题'] }}
               </p>
-            </template>
-            <!-- Error (failed) -->
-            <template v-else-if="paper.process_status === 'failed'">
-              <p class="text-xs text-red-500 line-clamp-1">{{ paper.process_error || '处理失败' }}</p>
-            </template>
-            <!-- Not processed yet -->
-            <template v-else>
-              <p class="text-xs text-text-muted">尚未处理，点击查看并启动摘要生成</p>
-            </template>
 
-            <!-- Footer -->
-            <div class="mt-3 pt-3 border-t border-border/60 flex items-center justify-between">
-              <span class="text-[10px] text-text-muted">{{ new Date(paper.created_at).toLocaleDateString('zh-CN') }}</span>
-              <span class="text-xs text-amber-500 hover:text-amber-400 font-medium">查看详情 →</span>
+              <!-- Summary excerpt (completed) -->
+              <template v-if="paper.process_status === 'completed' && paper.summary">
+                <div class="text-xs text-text-muted space-y-1">
+                  <div v-if="paper.summary['🛎️文章简介']?.['🔸研究问题']" class="line-clamp-2">
+                    <span class="font-medium text-text-secondary">研究问题：</span>{{ paper.summary['🛎️文章简介']['🔸研究问题'] }}
+                  </div>
+                  <div v-if="paper.summary['🛎️文章简介']?.['🔸主要贡献']" class="line-clamp-2">
+                    <span class="font-medium text-text-secondary">主要贡献：</span>{{ paper.summary['🛎️文章简介']['🔸主要贡献'] }}
+                  </div>
+                </div>
+              </template>
+              <!-- Processing status (in progress) -->
+              <template v-else-if="paper.process_status === 'processing' || paper.process_status === 'pending'">
+                <p class="text-xs text-amber-500 flex items-center gap-1.5">
+                  <span class="inline-block animate-spin">⟳</span>
+                  {{ userPaperStepLabel(paper.process_step) }}
+                </p>
+              </template>
+              <!-- Error (failed) -->
+              <template v-else-if="paper.process_status === 'failed'">
+                <p class="text-xs text-red-500 line-clamp-1">{{ paper.process_error || '处理失败' }}</p>
+              </template>
+              <!-- Not processed yet -->
+              <template v-else>
+                <p class="text-xs text-text-muted">尚未处理，点击查看并启动摘要生成</p>
+              </template>
+
+              <!-- Footer -->
+              <div class="mt-3 pt-3 border-t border-border/60 flex items-center justify-between">
+                <span class="text-[10px] text-text-muted">{{ new Date(paper.created_at).toLocaleDateString('zh-CN') }}</span>
+                <span class="text-xs text-amber-500 hover:text-amber-400 font-medium">查看详情 →</span>
+              </div>
             </div>
+          </div>
+
+          <!-- ══ 紧凑列表视图 ══ -->
+          <div v-else-if="myPapersViewMode === 'compact' && myPapersCenterSorted.length > 0"
+            class="bg-bg-card border border-border rounded-2xl overflow-hidden"
+          >
+            <div
+              v-for="(paper, idx) in myPapersCenterSorted"
+              :key="paper.paper_id"
+              class="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-bg-elevated transition-colors"
+              :class="{ 'border-t border-border/50': idx > 0 }"
+              @click="openUserPaper(paper.paper_id)"
+            >
+              <!-- Status dot -->
+              <div class="shrink-0 w-5 text-center">
+                <span v-if="paper.process_status === 'processing' || paper.process_status === 'pending'" class="text-amber-500 text-xs animate-spin inline-block">⟳</span>
+                <span v-else-if="paper.process_status === 'completed'" class="text-green-500 text-xs">✓</span>
+                <span v-else-if="paper.process_status === 'failed'" class="text-red-500 text-xs">✕</span>
+                <span v-else class="text-text-muted/40 text-xs">○</span>
+              </div>
+
+              <!-- Title (main) -->
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-text-primary truncate leading-snug">
+                  {{ paper.summary?.short_title || paper.title || '（未命名）' }}
+                </p>
+                <p v-if="paper.institution" class="text-[10px] text-text-muted truncate mt-0.5">{{ paper.institution }}</p>
+              </div>
+
+              <!-- Source badge -->
+              <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded-md bg-bg-elevated border border-border text-text-muted">
+                {{ paper.source_type === 'arxiv' ? 'arXiv' : paper.source_type === 'pdf' ? 'PDF' : '手动' }}
+              </span>
+
+              <!-- Date -->
+              <span class="shrink-0 text-[10px] text-text-muted hidden sm:block">
+                {{ new Date(paper.created_at).toLocaleDateString('zh-CN') }}
+              </span>
+
+              <!-- Arrow -->
+              <svg class="shrink-0 w-3.5 h-3.5 text-text-muted/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="m9 18 6-6-6-6"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- ── 加载更多 ── -->
+          <div v-if="myPapersHasMore" class="mt-4 flex flex-col items-center gap-1">
+            <button
+              class="px-6 py-2 rounded-full border border-border bg-bg-card text-xs font-medium text-text-secondary hover:border-amber-500/40 hover:text-amber-500 transition-colors cursor-pointer disabled:opacity-50"
+              :disabled="myPapersCenterLoading"
+              @click="loadMoreMyPapers"
+            >
+              <span v-if="myPapersCenterLoading" class="flex items-center gap-1.5">
+                <LoadingSpinner size="sm" color="text-amber-500" />
+                加载中…
+              </span>
+              <span v-else>
+                <template v-if="!myPapersSearch && !myPapersSourceFilter && !myPapersInstitutionFilter && myPapersTotal > myPapersCenter.length">
+                  加载更多（还有 {{ myPapersTotal - myPapersCenter.length }} 篇）
+                </template>
+                <template v-else>加载更多</template>
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -1500,12 +2018,12 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           @click="closeUserPaperDetail"
         >← 返回我的论文</button>
 
-        <!-- 处理中进度面板 -->
+        <!-- 处理中进度面板（尚无摘要时才显示完整等待页） -->
         <div
-          v-if="viewingUserPaper && (viewingUserPaper.process_status === 'processing' || viewingUserPaper.process_status === 'pending')"
+          v-if="viewingUserPaper && (viewingUserPaper.process_status === 'processing' || viewingUserPaper.process_status === 'pending') && !viewingUserPaper.summary"
           class="flex flex-col items-center justify-center flex-1 gap-6 text-center"
         >
-          <div class="w-16 h-16 rounded-full bg-gradient-to-br from-[#f59e0b] to-[#ef4444] flex items-center justify-center animate-pulse">
+          <div class="w-16 h-16 rounded-full bg-mypapers-gradient-br flex items-center justify-center animate-pulse">
             <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
             </svg>
@@ -1534,16 +2052,25 @@ onBeforeRouteLeave(async (_to, _from, next) => {
                 <span v-else>{{ idx + 1 }}</span>
               </div>
               <span
-                class="text-sm"
+                class="text-sm flex-1 text-left"
                 :class="isStepCurrent(step, viewingUserPaper.process_step)
                   ? 'text-amber-500 font-medium'
                   : isStepDone(step, viewingUserPaper.process_step)
                     ? 'text-text-secondary'
                     : 'text-text-muted'"
               >{{ userPaperStepLabel(step) }}</span>
+              <span v-if="isStepCurrent(step, viewingUserPaper.process_step)" class="text-[10px] text-text-muted shrink-0">
+                {{ step === 'pdf_prepare' ? '~30-300s' : step === 'paper_summary' ? '~15-40s' : step === 'pdf_info' ? '~5-15s' : '~10-25s' }}
+              </span>
             </div>
           </div>
-          <p class="text-xs text-text-muted">预计需要 1.5–3 分钟，完成后自动更新</p>
+          <!-- Elapsed time + hint -->
+          <div class="flex flex-col items-center gap-1">
+            <p v-if="processingElapsedSeconds > 0" class="text-xs text-text-muted">
+              已耗时 {{ processingElapsedSeconds < 60 ? processingElapsedSeconds + ' 秒' : Math.floor(processingElapsedSeconds / 60) + ' 分 ' + (processingElapsedSeconds % 60) + ' 秒' }}
+            </p>
+            <p class="text-xs text-text-muted">预计需要 1–3 分钟，摘要生成后即可查看内容</p>
+          </div>
         </div>
 
         <!-- 处理失败 -->
@@ -1556,7 +2083,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           <p class="text-sm text-text-muted max-w-xs">{{ viewingUserPaper.process_error || '未知错误' }}</p>
           <div class="flex gap-3">
             <button
-              class="px-5 py-2 rounded-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
+              class="px-5 py-2 rounded-full bg-mypapers-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
               @click="handleRetryUserPaper"
             >重新处理</button>
             <button
@@ -1575,22 +2102,38 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           <h3 class="text-lg font-semibold text-text-primary">{{ viewingUserPaper?.title || '论文详情' }}</h3>
           <p class="text-sm text-text-muted">尚未处理，点击下方按钮开始生成摘要</p>
           <button
-            class="px-5 py-2 rounded-full bg-gradient-to-r from-[#f59e0b] to-[#ef4444] text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
+            class="px-5 py-2 rounded-full bg-mypapers-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
             @click="handleRetryUserPaper"
           >开始处理</button>
         </div>
 
-        <!-- 处理完成：统一布局 -->
-        <ContentLayout
-          v-else-if="viewingUserPaper && viewingUserPaper.process_status === 'completed' && viewingUserPaper.summary"
-          class="flex-1 min-h-0 overflow-hidden"
-          :key="viewingUserPaperId"
-          :context-key="userPaperLayoutKey"
-          :panel-configs="userPaperPanelConfigs"
-          :default-layout="userPaperDefaultLayout"
-          :context="userPaperLayoutContext"
-          @note-saved="handleChatNoteSaved"
-        />
+        <!-- 处理完成 或 处理中已有摘要可预览：统一布局 -->
+        <div
+          v-else-if="viewingUserPaper && viewingUserPaper.summary"
+          class="flex-1 flex flex-col min-h-0 overflow-hidden"
+        >
+          <!-- 分析仍在进行中时显示进度横幅 -->
+          <div
+            v-if="viewingUserPaper.process_status === 'processing' || viewingUserPaper.process_status === 'pending'"
+            class="flex items-center gap-2 px-3 py-2 mb-2 rounded-lg text-xs text-amber-500 bg-amber-500/10 border border-amber-500/20 shrink-0"
+          >
+            <span class="inline-block animate-spin">⟳</span>
+            <span class="font-medium">{{ userPaperStepLabel(viewingUserPaper.process_step) }}</span>
+            <span class="text-text-muted ml-1">· 分析仍在进行，已生成内容可直接查看</span>
+            <span v-if="processingElapsedSeconds > 0" class="ml-auto text-text-muted">
+              {{ processingElapsedSeconds < 60 ? processingElapsedSeconds + 's' : Math.floor(processingElapsedSeconds / 60) + 'm' + (processingElapsedSeconds % 60) + 's' }}
+            </span>
+          </div>
+          <ContentLayout
+            class="flex-1 min-h-0 overflow-hidden"
+            :key="viewingUserPaperId"
+            :context-key="userPaperLayoutKey"
+            :panel-configs="userPaperPanelConfigs"
+            :default-layout="userPaperDefaultLayout"
+            :context="userPaperLayoutContext"
+            @note-saved="handleChatNoteSaved"
+          />
+        </div>
       </div>
 
       <!-- 默认卡片刷刷模式 -->
@@ -1643,33 +2186,12 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </div>
         </Transition>
 
+
         <!-- Loading -->
-        <div v-if="loading" class="flex flex-col items-center gap-3">
-          <svg class="animate-spin h-8 w-8 text-tinder-pink" viewBox="0 0 24 24" fill="none">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-          </svg>
-          <span class="text-text-muted text-sm">
-            {{ selectedDate ? `正在加载 ${selectedDate} 的论文…` : '加载论文中…' }}
-          </span>
-        </div>
+        <LoadingSpinner v-if="loading" :text="selectedDate ? `正在加载 ${selectedDate} 的论文…` : '加载论文中…'" />
 
         <!-- Error -->
-        <div v-else-if="error" class="flex flex-col items-center gap-3 text-center px-8">
-          <span class="text-tinder-pink text-lg">{{ error }}</span>
-          <p v-if="errorType === 'proxy'" class="text-sm text-text-muted max-w-xs">
-            检测到系统代理可能未启动，请关闭代理程序（如 Clash / V2Ray）或确保代理正常运行后重试
-          </p>
-          <p v-else-if="errorType === 'server'" class="text-sm text-text-muted">
-            服务端出现异常，请稍后再试
-          </p>
-          <button
-            class="px-4 py-2 rounded-full bg-tinder-pink text-white text-sm font-medium cursor-pointer border-none hover:opacity-90 transition-opacity"
-            @click="retryLoad"
-          >
-            重试
-          </button>
-        </div>
+        <ErrorState v-else-if="error" :message="error" :type="errorType" @retry="retryLoad" />
 
         <!-- 超限提示（不显示卡片，显示背景文字） -->
         <div v-else-if="isQuotaExceeded && isActuallyLimited && quotaExceededMessage" class="flex flex-col items-center justify-center gap-4 text-center px-8 max-w-sm">
@@ -1701,46 +2223,69 @@ onBeforeRouteLeave(async (_to, _from, next) => {
               </button>
             </div>
           </template>
-          <!-- 已登录用户：提示升级 -->
+          <!-- 已登录用户：使用统一升级提示组件 -->
           <template v-else>
-            <p class="text-sm text-text-muted mt-2">
-              升级账号可查看更多论文
-            </p>
+            <UpgradePrompt feature="browse" class="w-full max-w-sm" />
           </template>
         </div>
 
         <!-- All dates exhausted (true end state) -->
-        <div v-else-if="allSwiped && allDatesExhausted" class="flex flex-col items-center gap-4 text-center px-8">
-          <div class="text-5xl mb-2">🎉</div>
-          <h2 class="text-xl font-bold text-text-primary">所有论文已全部浏览</h2>
-          <p class="text-sm text-text-muted">
-            知识库已收藏 {{ kbPaperCount }} 篇，新论文将在明天更新
-          </p>
+        <EmptyState
+          v-else-if="allSwiped && allDatesExhausted"
+          icon="🎉"
+          title="所有论文已全部浏览"
+          :description="`知识库已收藏 ${kbPaperCount} 篇，新论文将在明天更新`"
+        >
           <button
             class="px-6 py-2.5 rounded-full bg-brand-gradient text-white text-sm font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity"
             @click="resetCards"
-          >
-            重新浏览
-          </button>
-        </div>
+          >重新浏览</button>
+        </EmptyState>
 
         <!-- Card -->
         <template v-else-if="currentPaper">
           <!-- Counter pill with progress bar (hidden when total <= 5 to avoid "too few papers" signal) -->
-          <div v-if="papers.length > 5" class="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5">
-            <div class="flex items-center gap-2 px-3 py-1 rounded-full bg-bg-card/80 backdrop-blur-sm border border-border/60 shadow-sm">
+          <div v-if="papers.length > 5 || isActuallyLimited" class="absolute top-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1.5">
+            <div
+              class="flex items-center gap-2 px-3 py-1 rounded-full backdrop-blur-sm shadow-sm"
+              :class="isActuallyLimited
+                ? 'bg-amber-500/15 border border-amber-500/30'
+                : 'bg-bg-card/80 border border-border/60'"
+            >
               <span class="text-[11px] font-semibold text-text-primary tabular-nums">{{ currentIndex + 1 }}</span>
               <span class="text-[10px] text-text-muted">/</span>
-              <span class="text-[11px] text-text-muted tabular-nums">{{ papers.length }}</span>
+              <span class="text-[11px] tabular-nums" :class="isActuallyLimited ? 'text-amber-400 font-semibold' : 'text-text-muted'">
+                {{ papers.length }}
+              </span>
+              <!-- Show "共 N 篇" when more are hidden -->
+              <template v-if="isActuallyLimited && totalAvailable > papers.length">
+                <span class="text-[10px] text-amber-400/80">·</span>
+                <span class="text-[10px] text-amber-400/80 whitespace-nowrap">共 {{ totalAvailable }} 篇</span>
+                <span class="text-[9px] text-amber-400">🔒</span>
+              </template>
             </div>
             <!-- Mini progress bar -->
             <div class="w-16 h-0.5 rounded-full bg-border overflow-hidden">
               <div
-                class="h-full rounded-full bg-brand-gradient transition-all duration-300"
+                class="h-full rounded-full transition-all duration-300"
+                :class="isActuallyLimited ? 'bg-amber-400' : 'bg-brand-gradient'"
                 :style="{ width: `${((currentIndex + 1) / papers.length) * 100}%` }"
               />
             </div>
           </div>
+
+          <!-- Fallback banner: today has no unread papers, showing an earlier date -->
+          <Transition name="date-toast">
+            <div
+              v-if="isFallback && effectiveDate && !dateTransitionNotice"
+              class="absolute top-[52px] inset-x-0 z-20 pointer-events-none flex justify-center"
+            >
+              <div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-bg-card/90 backdrop-blur-sm border border-border/50 shadow-sm">
+                <span class="text-[11px]">📅</span>
+                <span class="text-[11px] text-text-muted whitespace-nowrap">今日暂无新论文 · 推荐 {{ effectiveDate }} 的未读内容</span>
+              </div>
+            </div>
+          </Transition>
 
           <!-- Date transition toast — shown briefly when auto-advancing to a previous day -->
           <Transition name="date-toast">
@@ -1758,7 +2303,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </Transition>
 
           <!-- The card — responsive width/height -->
-          <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(480px, calc(100dvh - 210px), 620px)">
+          <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
             <PaperCard
               :key="currentPaper.paper_id"
               :paper="currentPaper"
@@ -1776,7 +2321,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           />
         </template>
 
-        <!-- No data: with notice -->
+        <!-- No data: with pipeline notice (e.g. weekend, no matching papers) -->
         <div
           v-else-if="!loading && selectedDate && dateNotice"
           class="flex flex-col items-center gap-4 text-center px-8 max-w-sm"
@@ -1792,12 +2337,20 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           </p>
         </div>
 
-        <!-- No data: without notice -->
-        <div v-else-if="!loading && selectedDate" class="text-center text-text-muted text-sm">
-          该日期暂无论文
+        <!-- No data: all historical papers have been read / collected / dismissed -->
+        <div v-else-if="!loading && selectedDate" class="flex flex-col items-center gap-3 text-center px-8 max-w-sm">
+          <span class="text-5xl">✅</span>
+          <h2 class="text-base font-semibold text-text-primary">近期论文已全部浏览</h2>
+          <p class="text-sm text-text-secondary leading-relaxed">
+            已收藏或跳过所有可用论文，新内容将在每个工作日更新
+          </p>
+          <button
+            v-if="isAuthenticated"
+            class="mt-1 px-5 py-2 rounded-full bg-bg-secondary border border-border text-sm text-text-secondary cursor-pointer hover:bg-bg-card transition-colors"
+            @click="() => showSidebar = true"
+          >查看知识库</button>
         </div>
       </div>
-    </div>
 
   <!-- Upload dialog -->
   <UserPaperUploadDialog
@@ -1805,7 +2358,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
     @close="showUploadDialog = false"
     @uploaded="handleUploadDialogUploaded"
   />
-  </div>
+
+  </SidebarPageLayout>
 </template>
 
 <style scoped>
@@ -1820,15 +2374,6 @@ onBeforeRouteLeave(async (_to, _from, next) => {
   opacity: 0;
 }
 
-/* Fade transition for backdrop and open button */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
 
 /* Welcome banner slide-up transition */
 .banner-slide-enter-active,

@@ -28,7 +28,7 @@ const categories = [
 </script>
 
 <template>
-  <aside class="w-[80vw] max-w-[320px] lg:w-64 h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 relative">
+  <aside class="w-[80vw] max-w-[320px] lg:w-[clamp(200px,18vw,256px)] h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 relative">
     <!-- Header -->
     <div class="px-4 pt-5 pb-4 border-b border-border">
       <div class="flex items-center justify-between mb-3">

@@ -1,0 +1,1496 @@
+[
+  {
+    "block_id": "p0_b0",
+    "page_idx": 0,
+    "order": 0,
+    "type": "title",
+    "translatable": true,
+    "source_text": "When does AI pay off? AI-adoption intensity, complementary investments, and R&D strategy",
+    "zh_text": "# 人工智能何时产生回报？AI采纳强度、互补性投资与研发战略"
+  },
+  {
+    "block_id": "p0_b1",
+    "page_idx": 0,
+    "order": 1,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p0_b2",
+    "page_idx": 0,
+    "order": 2,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Yong Suk Lee a,\\*, Taekyun Kim b, Sukwooong Choi c, Wonjoon Kim d",
+    "zh_text": "李永锡<sup>a,\\*</sup>，金泰均<sup>b</sup>，崔硕宇<sup>c</sup>，金元俊<sup>d</sup>"
+  },
+  {
+    "block_id": "p0_b3",
+    "page_idx": 0,
+    "order": 3,
+    "type": "list",
+    "translatable": true,
+    "source_text": "a Keough School of Global Affairs, University of Notre Dame, USA\n<sup>b</sup> Graduate School of Innovation and Technology Management, KAIST, South Korea\nc Sloan School of Management, MIT, USA\n$^{d}$ School of Business and Technology Management, KAIST, South Korea",
+    "zh_text": "- <sup>a</sup> 美国圣母大学凯奥格全球事务学院  \n- <sup>b</sup> 韩国科学技术院（KAIST）创新与技术管理研究生院  \n- <sup>c</sup> 美国麻省理工学院斯隆管理学院  \n- <sup>d</sup> 韩国科学技术院（KAIST）商业与技术管理学院"
+  },
+  {
+    "block_id": "p0_b4",
+    "page_idx": 0,
+    "order": 4,
+    "type": "title",
+    "translatable": true,
+    "source_text": "ARTICLEINFO",
+    "zh_text": "# 文章信息"
+  },
+  {
+    "block_id": "p0_b5",
+    "page_idx": 0,
+    "order": 5,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Keywords:",
+    "zh_text": "关键词："
+  },
+  {
+    "block_id": "p0_b6",
+    "page_idx": 0,
+    "order": 6,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Artificial intelligence",
+    "zh_text": "人工智能"
+  },
+  {
+    "block_id": "p0_b7",
+    "page_idx": 0,
+    "order": 7,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "High-tech ventures",
+    "zh_text": "高科技新创企业"
+  },
+  {
+    "block_id": "p0_b8",
+    "page_idx": 0,
+    "order": 8,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Firm performance",
+    "zh_text": "企业绩效"
+  },
+  {
+    "block_id": "p0_b9",
+    "page_idx": 0,
+    "order": 9,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Complementary investment",
+    "zh_text": "互补性投资"
+  },
+  {
+    "block_id": "p0_b10",
+    "page_idx": 0,
+    "order": 10,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "R&D strategy",
+    "zh_text": "研发战略"
+  },
+  {
+    "block_id": "p0_b11",
+    "page_idx": 0,
+    "order": 11,
+    "type": "title",
+    "translatable": true,
+    "source_text": "ABSTRACT",
+    "zh_text": "# 摘要"
+  },
+  {
+    "block_id": "p0_b12",
+    "page_idx": 0,
+    "order": 12,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This paper examines how high-tech venture performance varies with AI-adoption intensity. We find that firm revenue increases only after sufficient investment in AI, and the benefits of AI adoption are greater at firms that also invest in complementary technologies and pursue internal R&D strategy. Specifically, AI adoption at low levels does not suggest significant revenue growth, but, as the intensity of AI adoption increases revenue growth occurs. We find that such performance gains from adoption is larger among firms that invest in complementary technologies such as cloud computing and database systems. Moreover, the positive relationship between AI adoption intensity and revenue growth is stronger among firms that pursue a more exclusive R&D strategy specific to the venture.",
+    "zh_text": "本文考察高科技新创企业的绩效如何随人工智能（AI）采纳强度的变化而变化。研究发现，企业收入仅在对AI投入达到充分水平后才出现增长；且当企业同时投资于互补性技术并采取内部化研发战略时，AI采纳所带来的收益更大。具体而言，低水平的AI采纳并未带来显著的收入增长，但随着AI采纳强度的提升，收入增长开始显现。我们进一步发现，在那些同时投资于云计算和数据库系统等互补性技术的企业中，由AI采纳所驱动的绩效提升更为明显。此外，对于更专注于自身特有研发战略的新创企业而言，AI采纳强度与收入增长之间的正向关系也更为显著。"
+  },
+  {
+    "block_id": "p0_b13",
+    "page_idx": 0,
+    "order": 13,
+    "type": "title",
+    "translatable": true,
+    "source_text": "1. Introduction",
+    "zh_text": "# 1. 引言"
+  },
+  {
+    "block_id": "p0_b14",
+    "page_idx": 0,
+    "order": 14,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Artificial intelligence (AI) is increasingly being adopted in firms around the world, with its prevalence only expected to increase further. In fact, AI is widely accepted as the newest general-purpose technology (GPT) (Goldfarb et al., 2020; Trajtenberg, 2019), following major technological innovations such as information technology (IT), computers, and electricity. Since AI was first established in computer science in the mid-twentieth century, the development and application of AI have rapidly expanded only in the past decade. Massive investments in AI have occurred recently, and organizations are in the midst of adopting and exploring the best ways to use AI for their purposes. Thus, AI has the potential to change the way we innovate, do business, and organize and to affect all aspects of the economy (Cockburn et al., 2019).",
+    "zh_text": "人工智能（AI）正日益被全球各类企业所采纳，其普及程度预计还将持续上升。事实上，AI已被广泛视为继信息技术（IT）、计算机和电力等重大技术创新之后的最新一代通用目的技术（General-Purpose Technology, GPT）（Goldfarb et al., 2020；Trajtenberg, 2019）。尽管AI自20世纪中叶起便已在计算机科学领域确立基础，但其发展与应用的迅猛扩张主要发生于过去十年间。近期，针对AI的大规模投资不断涌现，各类组织正处于积极采纳AI并探索其最优应用路径的过程中。因此，AI具备重塑创新方式、商业模式及组织形态的潜力，并将影响经济的方方面面（Cockburn et al., 2019）。"
+  },
+  {
+    "block_id": "p0_b15",
+    "page_idx": 0,
+    "order": 15,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "An increasing number of papers examine how AI could affect the economy (Acemoglu et al., 2020; Brynjolfsson et al., 2019, 2021; Chalmers et al., 2020; Farboodi et al., 2019; Mihet and Philippon, 2019). However, the lack of data is a major constraint in the literature and hence many studies have focused on the conceptual implications of AI (Brynjolfsson and Mitchell, 2017; Seamans and Raj, 2018). The few empirical papers on the topic have generally focused on three research streams: 1) the effect of AI on the labor market (Alekseeva et al., 2021; Webb, 2020), 2) whether AI has the features of a general purpose technology (Goldfarb et al., 2020), and 3) AI adoption and firm or industry level performance of listed firms (Seamans and Raj, 2018). Despite the importance of new ventures for economic growth (Lee, 2018), and technological innovation for entrepreneurial opportunities (Eckhardt and Shane, 2011), we still know surprisingly little about whether AI has made high-tech ventures more productive and, if so, when or why. Furthermore, given that complementary assets are critical to adopting and leveraging new technologies (Rothaermel, 2001; Thomke & Kuemmerle, 2002), less is known about how these complementary assets affect the relationship between the AI adoption of high-tech ventures and their performance (Kim et al., 2021).",
+    "zh_text": "越来越多的研究探讨AI可能对经济产生的影响（Acemoglu et al., 2020；Brynjolfsson et al., 2019, 2021；Chalmers et al., 2020；Farboodi et al., 2019；Mihet and Philippon, 2019）。然而，数据匮乏是该领域文献中的主要制约因素，因而许多研究聚焦于AI的概念性影响分析（Brynjolfsson and Mitchell, 2017；Seamans and Raj, 2018）。为数不多的经验研究则主要集中于三大方向：（1）AI对劳动力市场的影响（Alekseeva et al., 2021；Webb, 2020）；（2）AI是否具备通用目的技术的特征（Goldfarb et al., 2020）；以及（3）AI采纳与上市公司的企业或行业层面绩效之间的关系（Seamans and Raj, 2018）。尽管新创企业在经济增长中具有关键作用（Lee, 2018），而技术进步又为创业机会提供了重要基础（Eckhardt and Shane, 2011），但我们对AI是否提升了高科技新创企业的生产率，以及若确有提升，其发生时机与内在机制为何，仍知之甚少。此外，鉴于互补性资产对于新技术的成功采纳与价值实现至关重要（Rothaermel, 2001；Thomke & Kuemmerle, 2002），目前关于这些互补性资产如何调节高科技新创企业AI采纳与其绩效之间关系的研究仍十分有限（Kim et al., 2021）。"
+  },
+  {
+    "block_id": "p0_b17",
+    "page_idx": 0,
+    "order": 17,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This paper seeks to fill this gap by providing empirical evidence on the effects of AI adoption on high-tech venture performance. Specifically, we ask the following research questions: Is AI adoption positively associated with high-tech venture performance? If so, how do complementary technologies and research and development (R&D) strategy moderate this relationship? To answer these questions, we first theorize how AI adoption could improve firm performance, and we examine the relationship between the intensity of AI adoption in high-tech ventures and their performance. Given that complementary investments and organizational changes have been important in new technology's successful contribution to firm performance, complementary technologies and R&D strategy will likely be important for firms to reap the benefits from AI adoption (Felten et al., 2019). Accordingly, we examine whether a firm's investment in different AI related technologies and R&D strategy complement AI adoption.",
+    "zh_text": "本文旨在填补上述研究空白，通过实证证据揭示AI采纳对高科技新创企业绩效的影响。具体而言，本文提出以下研究问题：AI采纳是否与高科技新创企业绩效呈正向关联？若是，互补性技术与研发（R&D）战略又如何调节这一关系？为回答这些问题，我们首先从理论上阐释AI采纳可能提升企业绩效的机制，并实证检验高科技新创企业AI采纳强度与其绩效之间的关系。鉴于互补性投资与组织变革在新技术成功赋能企业绩效过程中发挥着关键作用，互补性技术与研发战略亦很可能成为企业充分获取AI采纳收益的重要前提（Felten et al., 2019）。据此，我们进一步检验企业对各类AI相关技术的投资及其研发战略是否与AI采纳形成协同效应。"
+  },
+  {
+    "block_id": "p1_b31",
+    "page_idx": 1,
+    "order": 31,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this study, we use a novel survey and administrative data on high-tech ventures in South Korea, where AI adoption has accelerated but with considerable variation across firms. We construct the extent of AI adoption based on the rate of natural language processing (NLP), computer vision (CV), and machine learning (ML) in the production or development of goods and services. Our survey also contains information on investment in various technologies, including database systems and cloud computing, as well as the firms' strategies and characteristics at the time of the survey (2019) and a base year.",
+    "zh_text": "本研究采用韩国高科技新创企业的新型调查数据与行政数据。在韩国，AI采纳进程正在加速，但不同企业间的采纳程度存在显著差异。我们基于自然语言处理（NLP）、计算机视觉（CV）和机器学习（ML）在产品或服务生产与开发过程中的应用比例，构建了AI采纳程度的测度指标。此外，我们的调查数据还涵盖了企业在数据库系统、云计算等各类技术上的投资情况，以及企业在调查时点（2019年）及基准年份的战略选择与企业特征信息。"
+  },
+  {
+    "block_id": "p1_b32",
+    "page_idx": 1,
+    "order": 32,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We find that AI adoption is associated with higher revenue growth but only at high levels of adoption. At low levels of adoption, whether firms are simply testing the technology or are at adoption levels below  $25\\%$, we do not find performance benefits from AI adoption. We also find that the positive relationship between higher levels of AI adoption and revenue growth is significant at firms that invest in complementary technologies, such as database systems and cloud computing. Compared with previous GPTs, AI is unique in that the technology is a software algorithm that analyzes data, and the utility of such an algorithm is inevitably tied to the amount of data and the ability to process the data. Hence, technologies such as database or cloud computing complement AI adoption. In addition, we find that the positive relationship between higher levels of AI adoption and revenue growth is significant at firms that pursue firm-specific internal R&D strategy. This finding suggests that firms benefit from AI-related R&D specifically tailored to each firm's unique business environment and needs.",
+    "zh_text": "我们发现，人工智能（AI）的采用与更高的收入增长率相关，但这种正向关系仅在采用程度较高时才显著。在采用程度较低的情况下——无论是企业仅处于技术试用阶段，还是采用率低于 $25\\%$——我们均未观测到AI采用对企业绩效的提升效应。此外，我们还发现，在那些同时投资于互补性技术（如数据库系统和云计算）的企业中，高水平AI采用与收入增长之间的正向关系具有统计显著性。与以往的通用目的技术（GPTs）不同，AI本质上是一种用于数据分析的软件算法，其效用不可避免地取决于数据规模以及处理数据的能力。因此，数据库或云计算等技术构成了AI采用的重要互补条件。此外，我们还发现，在采取企业专属型内部研发（R&D）战略的企业中，高水平AI采用与收入增长之间的正向关系同样显著。这一结果表明，企业可通过开展专门针对自身独特商业环境与实际需求的AI相关研发活动而获益。"
+  },
+  {
+    "block_id": "p1_b33",
+    "page_idx": 1,
+    "order": 33,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We believe that this paper provides initial empirical evidence consistent with the delayed performance benefits of AI. Though we can only measure the intensity of adoption, which doesn't necessarily imply timing of adoption, intensity and time of adoption are likely highly correlated since adoption intensity is generally low at earlier stages of adoption and tends to increase with time. Though studies have examined the delayed productivity benefits of new technologies such as electrification, automobiles, computers, IT, and robotics (Brynolfsson, 1993; David, 1990; Brynjolfsson et al., 2019; Chung and Lee, 2022), our paper is among the first to find a similar pattern for AI.",
+    "zh_text": "我们认为，本文提供了支持AI绩效收益存在滞后性的初步实证证据。尽管我们仅能测度AI采用的强度（intensity），而该指标未必直接反映采用的时间节点，但采用强度与采用时间很可能高度相关，因为AI采用通常在初期阶段强度较低，并随时间推移而逐步增强。尽管已有研究探讨过电力、汽车、计算机、信息技术及机器人等新技术所带来的生产率收益滞后现象（Brynolfsson, 1993；David, 1990；Brynjolfsson et al., 2019；Chung and Lee, 2022），但本文是最早揭示AI亦呈现类似滞后模式的研究之一。"
+  },
+  {
+    "block_id": "p1_b34",
+    "page_idx": 1,
+    "order": 34,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The paper proceeds as follows. In section 2, we provide the background of the relevant literature and develop our hypotheses regarding the potential benefits of AI adoption and complementary investments. Section 3 introduces the data, survey, variables and presents descriptive statistics. Section 4 discusses the empirical strategy, and section 5 presents our empirical results and examination of the potential mechanisms. Section 6 concludes with a discussion of the implications of results, limitations, and future research directions.",
+    "zh_text": "本文结构安排如下：第2节梳理相关文献并提出关于AI采用潜在效益及互补性投资的假设；第3节介绍所用数据、调查方法、变量定义及描述性统计结果；第4节阐述实证策略；第5节报告主要实证结果，并检验潜在的作用机制；第6节总结全文，讨论研究结论的理论与实践启示、研究局限性以及未来研究方向。"
+  },
+  {
+    "block_id": "p1_b35",
+    "page_idx": 1,
+    "order": 35,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2. Literature review and hypotheses",
+    "zh_text": "# 2. 文献综述与研究假设"
+  },
+  {
+    "block_id": "p1_b36",
+    "page_idx": 1,
+    "order": 36,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.1. AI adoption and firm performance",
+    "zh_text": "# 2.1 AI采用与企业绩效"
+  },
+  {
+    "block_id": "p1_b37",
+    "page_idx": 1,
+    "order": 37,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "AI describes a broad set of computing techniques with the capacity to perform functions that would ordinarily require human intelligence. These functions include the application of NLP, CV, and ML technologies, including but not limited to chatbots, text generation, object and facial recognition, autonomous driving, and recommendation engines. As Agrawal et al. (2018) highlight, the key feature of AI is that its predictions can be directly adopted and accepted by humans or, with some adjustments, into the organization's decision-making process. Accordingly, the potential benefits from AI are the automation of cognitive tasks such as categorization, perception, and problem solving, which have widespread applications in a variety of business and government settings. In addition, AI algorithms have the unique ability to self-improve their predictive power through repeated training and to ultimately perform highly cognitive tasks. For example, pharmaceutical firms have introduced AI techniques to assist in drug discovery in the early stages of R&D by suggesting possible molecular syntheses (Lou and Wu, 2020). Banks have applied AI techniques to better manage risks, by predicting fraud and the likelihood of loan defaults (Deloitte, 2018; Manser Payne et al., 2021). Consequently, AI could enhance productivity via at least three important mechanisms such as (1) liberating routine tasks, (2) reducing human errors and biases, and (3) helping discover new business opportunities.",
+    "zh_text": "人工智能（AI）是一类广泛计算技术的统称，其核心能力在于执行通常需依赖人类智能方可完成的任务。这些任务涵盖自然语言处理（NLP）、计算机视觉（CV）和机器学习（ML）等技术的具体应用，包括但不限于聊天机器人、文本生成、物体与人脸识别、自动驾驶以及推荐引擎。正如Agrawal等（2018）所强调，AI的关键特征在于其预测结果可被人类直接采纳并接受，或经适当调整后融入组织的决策流程。因此，AI的潜在效益主要体现为对分类、感知与问题求解等认知型任务的自动化，此类应用在各类工商与政府场景中具有广泛适用性。此外，AI算法具备通过反复训练不断提升自身预测能力的独特优势，最终可胜任高度复杂的认知任务。例如，制药企业已将AI技术引入早期药物研发环节，辅助提出可能的分子合成路径（Lou and Wu, 2020）；银行则运用AI技术改进风险管理，包括欺诈行为识别与贷款违约概率预测（Deloitte, 2018；Manser Payne et al., 2021）。由此，AI至少可通过以下三种重要机制提升企业生产率：（1）释放常规性任务负担；（2）降低人为错误与偏差；（3）助力发掘新的商业机会。"
+  },
+  {
+    "block_id": "p1_b39",
+    "page_idx": 1,
+    "order": 39,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "First, it can liberate workers from repetitive tasks and enable them to perform more productive, specialized, and new tasks. By performing repetitive cognitive tasks, AI can allow workers to focus on tasks in which people have a comparative advantage (Acemoglu and Restrepo, 2018). For example, chatbots and voicebots have replaced customer service workers in retail, banking, health care, and many other industries (Brynjolfsson et al., 2021; Cao, 2021; Chatterjee et al., 2020a,b; Deloitte, 2018; Manser Payne et al., 2021). In some cases, firms may even decide to substitute away from human labor to AI-based systems to mitigate labor costs and boost productivity. This displacement can enable firms to invest more in core competencies and potentially enhance firm competitiveness.",
+    "zh_text": "首先，AI可使劳动者摆脱重复性任务，转而从事更具生产力、更专业化及更具创新性的新任务。通过承担重复性的认知工作，AI有助于劳动者聚焦于人类具备比较优势的任务领域（Acemoglu and Restrepo, 2018）。例如，聊天机器人与语音机器人已在零售、银行、医疗保健及众多其他行业中替代了传统客服人员（Brynjolfsson et al., 2021；Cao, 2021；Chatterjee et al., 2020a,b；Deloitte, 2018；Manser Payne et al., 2021）。在某些情形下，企业甚至可能选择以AI系统全面替代人力，以控制劳动力成本并提升整体生产率。此类劳动力替代效应可促使企业将更多资源投入核心能力建设，从而潜在增强企业竞争力。"
+  },
+  {
+    "block_id": "p1_b40",
+    "page_idx": 1,
+    "order": 40,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Second, AI can reduce the error and bias that often accompany human judgement. Because errors and biases can negatively affect productivity, adopting AI can complement human judgement, thus, enhancing productivity (Tversky and Kahneman, 1974; Cowgill, 2019). For example, CV can diagnose certain diseases with less error than people and assist doctors in making accurate diagnoses and providing better prescriptions (Gulshan et al., 2016). Relatedly, AI-based systems are already improving the accuracy and efficiency of diagnosis and treatment across various specializations in the medical industry (Wang et al., 2019). Although the data that AI use may be biased because the data are themselves a product of human decision, Cowgill (2019) shows that when human decisions are sufficiently noisy and inconsistent, AI can offer less biased and better recommendations than people can.",
+    "zh_text": "其次，AI可减少人类判断过程中常伴有的错误与偏差。由于错误与偏差往往会对生产率产生负面影响，AI的引入可在一定程度上弥补人类判断的不足，进而提升生产率（Tversky and Kahneman, 1974；Cowgill, 2019）。例如，计算机视觉（CV）技术在诊断某些疾病时的误差率低于人类医生，可辅助医生做出更精准的诊断并提供更优治疗方案（Gulshan et al., 2016）。与此相关，基于AI的系统目前已在医学多个专科领域显著提升了诊疗的准确性与效率（Wang et al., 2019）。尽管AI所依赖的数据本身可能存在偏差（因其源于人类决策过程），Cowgill（2019）指出：当人类决策噪声较大且不一致时，AI反而能够提供比人类更少偏差、更优的决策建议。"
+  },
+  {
+    "block_id": "p1_b41",
+    "page_idx": 1,
+    "order": 41,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Lastly, by processing complex and large datasets, AI can provide novel ways to solve problems and new business opportunities. For example, trained with a large volume of player data, AlphaGo outperformed Go players by implementing new sequences, instead of the traditional sequences that people had considered superior for hundreds of years (Singh et al., 2017). In other words, AI can detect patterns from large volumes of structured and unstructured data, which would not be possible with heuristics alone, and ultimately enable decision-makers to discover new solutions (Choi et al.). Relatedly, retailers are using AI to provide personalized product recommendations, logistics companies are using ML algorithms to minimize product backlogs and speed up deliveries, and banks are using AI-based risk-assessment algorithms to expand lending to new customers (Chatterjee, 2020; Chatterjee et al., 2020a,b; Hentzen et al., 2021). Thus, AI's data-driven algorithms reduce the overhead costs of entering new markets (Aghion et al., 2019) and enable firms to expand more readily across different markets (Goldfarb et al., 2019; Klinger et al., 2018; Trajtenberg, 2019).",
+    "zh_text": "最后，通过处理复杂且庞大的数据集，人工智能（AI）能够提供解决难题的新方法，并催生新的商业机遇。例如，AlphaGo 在接受了海量棋手数据的训练后，通过实施全新的行棋序列，超越了人类棋手——而后者数百年来一直认为传统行棋序列更优（Singh 等，2017）。换言之，AI 能够从大量结构化与非结构化数据中识别出人类单凭启发式方法难以发现的模式，从而最终助力决策者发掘全新解决方案（Choi 等）。与此相关，零售商正利用 AI 提供个性化产品推荐；物流公司在使用机器学习（ML）算法以最小化库存积压并加快配送速度；银行则借助基于 AI 的风险评估算法，向新客户扩大信贷投放（Chatterjee，2020；Chatterjee 等，2020a,b；Hentzen 等，2021）。因此，AI 的数据驱动型算法降低了企业进入新市场的边际成本（Aghion 等，2019），并使其更易跨不同市场拓展业务（Goldfarb 等，2019；Klinger 等，2018；Trajtenberg，2019）。"
+  },
+  {
+    "block_id": "p1_b42",
+    "page_idx": 1,
+    "order": 42,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In short, AI can improve productivity through multiple mechanisms, such as enabling workers to focus more on core tasks, reducing error and bias, and discovering new business opportunities. Hence, we predict that AI adoption is positively associated with increases in firm performance.",
+    "zh_text": "简言之，AI 可通过多种机制提升生产率，例如使员工更专注于核心任务、减少错误与偏见，以及发掘新的商业机遇。因此，我们预测：AI 的采用与企业绩效的提升呈正相关关系。"
+  },
+  {
+    "block_id": "p1_b43",
+    "page_idx": 1,
+    "order": 43,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hypothesis 1a. AI adoption is positively associated with firm performance.",
+    "zh_text": "假设 1a：AI 的采用与企业绩效呈正相关关系。"
+  },
+  {
+    "block_id": "p1_b44",
+    "page_idx": 1,
+    "order": 44,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "However, merely introducing AI in existing businesses is unlikely to generate productivity gains. New technologies such as AI realize their productive market potential when both tangible investment (e.g., equipment, software, and infrastructure) and intangible investment (e.g., business and technology development processes, organizational restructuring, and worker training) are made (Brynjolfsson et al., 2019). Previous studies have found that industries experienced output declines due to various adjustment costs and learning delays after the introduction of GPTs (Atkeson and Kehoe, 1993; Hornstein and Krusell, 1996; Jovanovic and Nyarko, 1994; Greenwood and Yorukoglu, 1997;",
+    "zh_text": "然而，仅在现有业务中引入 AI 并不能自动带来生产率提升。诸如 AI 之类的新技术，只有在同时进行有形投资（如设备、软件和基础设施）与无形投资（如业务与技术研发流程、组织重构及员工培训）时，才能实现其潜在的市场生产力（Brynjolfsson 等，2019）。既有研究表明，在通用目的技术（GPTs）引入之后，各行业曾因各类调整成本与学习滞后而出现产出下降（Atkeson 和 Kehoe，1993；Hornstein 和 Krusell，1996；Jovanovic 和 Nyarko，1994；Greenwood 和 Yorukoglu，1997；"
+  },
+  {
+    "block_id": "p2_b48",
+    "page_idx": 2,
+    "order": 48,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Jovanovic and Rousseau, 2005). In the case of AI, significant research and time are required for a firm to identify AI opportunities in its business, operation, technology development, and production processes (McKinsey, 2017). Furthermore, firms that adopt AI require organizational adaptations or changes before they transform the core or peripheral parts of their businesses. For example, the process of using AI in business at firms requires frequent interaction between people and machines (Ransbotham et al., 2020), because most business processes involve complex tasks, and algorithms are therefore not readily available (Raisch and Krakowski, 2021). This iterative process of mutual learning demands significant efforts and resources to improve productivity gains from AI utilization.",
+    "zh_text": "Jovanovic 和 Rousseau，2005）。就 AI 而言，企业需投入大量研究时间，方能在自身业务、运营、技术研发及生产流程中识别出 AI 应用机会（McKinsey，2017）。此外，采用 AI 的企业须先完成组织层面的适应或变革，继而才能改造其业务的核心或外围环节。例如，企业在将 AI 应用于商业实践的过程中，需要人与机器之间频繁互动（Ransbotham 等，2020），因为多数商业流程涉及复杂任务，而现成可用的算法尚不充分（Raisch 和 Krakowski，2021）。这种人机协同学习的迭代过程，要求企业投入大量努力与资源，方能切实提升 AI 应用所带来的生产率增益。"
+  },
+  {
+    "block_id": "p2_b49",
+    "page_idx": 2,
+    "order": 49,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In addition, the market mismatch between the supply and demand of skilled workers can hinder productivity gains in the early stages of GPT adoption (Jovanovic and Rousseau, 2005). A long line of research has found that physical capital and skilled labor are more complementary than physical capital and unskilled labor (Griliches, 1969; Duffy et al., 2004; Goldin and Katz, 1998; Franck and Galor, 2017). New technologies increase the relative earnings of skilled workers, because demand outweighs supply in the early stages of adoption, as was the case for electrification (in 1890-1918) and IT (Jovanovic and Rousseau, 2005). In the case of AI, a key challenge that firms face today is the difficulty in finding skilled workers who can implement AI (McKinsey, 2017), and this mismatch between the demand and supply of skilled AI workers likely delays the productivity gains for firms.",
+    "zh_text": "此外，在 GPT 采纳初期，熟练劳动力供需之间的市场错配也可能阻碍生产率提升（Jovanovic 和 Rousseau，2005）。大量既有研究指出，物质资本与熟练劳动力之间的互补性，强于物质资本与非熟练劳动力之间的互补性（Griliches，1969；Duffy 等，2004；Goldin 和 Katz，1998；Franck 和 Galor，2017）。新技术会提高熟练劳动力的相对报酬，因为在采纳初期，其需求增长快于供给增长——电力化（1890–1918 年）与信息技术（IT）的发展历程即为此类例证（Jovanovic 和 Rousseau，2005）。就 AI 而言，当前企业面临的关键挑战之一，正是难以招募到具备 AI 实施能力的熟练人才（McKinsey，2017）；而 AI 领域熟练人才供需之间的错配，很可能延缓企业获得生产率收益的时间进程。"
+  },
+  {
+    "block_id": "p2_b50",
+    "page_idx": 2,
+    "order": 50,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hence, for the adoption of AI to become productive, it will require significant complementary investments in both tangible and intangible assets, including co-invention of new products and business models, and human capital investment. Productivity growth may initially be underestimated, and the productivity benefits will occur later when corresponding and necessary business transformations are made. This pattern emerged with prior GPTs (Bresnahan and Trajtenberg, 1996; Brynjolfsson, 1993; David, 1990), and similar patterns are expected to hold for AI as well (Brynolfsson et al., 2019). Thus, we hypothesize the following:",
+    "zh_text": "因此，要使 AI 的采用真正转化为生产力，企业必须在有形资产与无形资产两方面进行大量互补性投资，包括共同开发新产品与新型商业模式，以及人力资本投资。初期的生产率增长可能被低估，而相应的生产率收益将在必要且配套的业务转型完成后才逐步显现。这一现象曾在先前的通用目的技术演进过程中反复出现（Bresnahan 和 Trajtenberg，1996；Brynjolfsson，1993；David，1990），预计 AI 的发展也将遵循类似规律（Brynjolfsson 等，2019）。据此，我们提出如下假设："
+  },
+  {
+    "block_id": "p2_b51",
+    "page_idx": 2,
+    "order": 51,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hypothesis 1b. The positive association between the rate of AI adoption and firm performance occurs with some delay. That is, at the early stages of adoption, when adoption rates are low, AI may not provide productivity benefits. However, the benefits may start to accrue later, when adoption rates are higher.",
+    "zh_text": "假设 1b：AI 采用率与企业绩效之间的正向关联存在时滞效应。即，在采用初期，当采用率较低时，AI 可能尚未带来生产率收益；但随着采用率不断提高，相关收益将逐步显现。"
+  },
+  {
+    "block_id": "p2_b52",
+    "page_idx": 2,
+    "order": 52,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.2. AI adoption and investment in complementary technologies",
+    "zh_text": "# 2.2 AI 的采用与对互补技术的投资"
+  },
+  {
+    "block_id": "p2_b53",
+    "page_idx": 2,
+    "order": 53,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hitt and Brynjolfsson (1997) emphasized the importance of complementary assets in explanation for substantial variations in returns when firms adopt new innovations. They explain that firms with higher performance also adopt complementary technologies as well as organizational practices. In line with it, previous studies have documented productivity and performance premiums from the adoption of complementarities (Aral et al., 2012; Tambe et al., 2012). This notion that complementary assets are crucial to the adoption of new technologies is not new (Felten et al., 2019). But different types of technologies may require different complementarities.",
+    "zh_text": "Hitt 和 Brynjolfsson（1997）强调，互补性资产对于解释企业在采用新创新时所获回报的巨大差异具有关键意义。他们指出，绩效更高的企业不仅采纳新技术，同时也同步采用互补性技术及组织实践。与此一致，既有研究已证实，采纳互补性要素可带来生产率与绩效溢价（Aral 等，2012；Tambe 等，2012）。互补性资产对新技术采纳至关重要这一观点并非新论（Felten 等，2019）。但不同类型的技术，可能要求不同类型的互补性要素。"
+  },
+  {
+    "block_id": "p2_b54",
+    "page_idx": 2,
+    "order": 54,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "IT has been found to be complementary in demand across different technological components (Arora et al., 2010), and this technological complementarity shapes firms' strategies and increases barriers to entry (Bresnahan and Greenstein, 1999). For example, complementarity between operating systems and enterprise software (Kretschmer, 2005), routers and switches (Chen and Forman, 2006),  $56\\mathrm{K}$ models by internet service providers (ISPs) and integrated services digital network (ISDN) adoption (Augereau and Greenstein, 2001), word processing and spreadsheet software (Scott, 1997), and IT infrastructure and e-commerce capability (Zhu, 2004) have shown that the use of one IT technology affects the returns to investment for another (Arora et al., 2010). One IT technology enables the effective use of the other technology by coordinating the flow of information and resources within the integrated system, which in turn affects the firm's market performance. In other words, technological complementarities can affect a firm's ability to adjust or enhance the use of innovative techniques and eventually the firm's market performance. Likewise, firms that are slow to adopt complementary products or technologies will fall behind the frontier in terms of technology adoption and implementation (David, 1991).",
+    "zh_text": "信息技术（IT）已被发现，在不同技术组件之间存在需求上的互补性（Arora 等，2010），而这种技术互补性塑造了企业的战略选择，并提高了市场进入壁垒（Bresnahan 和 Greenstein，1999）。例如，操作系统与企业软件之间的互补性（Kretschmer，2005）、路由器与交换机之间的互补性（Chen 和 Forman，2006）、互联网服务提供商（ISP）推出的 $56\\mathrm{K}$ 模型与综合业务数字网（ISDN）采用之间的互补性（Augereau 和 Greenstein，2001）、文字处理软件与电子表格软件之间的互补性（Scott，1997），以及 IT 基础设施与电子商务能力之间的互补性（Zhu，2004），均表明：某项 IT 技术的使用会影响另一项 IT 技术投资的回报率（Arora 等，2010）。其中一项 IT 技术通过协调集成系统内部的信息流与资源流，从而促进另一项技术的有效应用，进而影响企业的市场绩效。换言之，技术互补性可影响企业调整或增强创新技术使用的能力，并最终影响其市场绩效。同样地，那些在采纳互补性产品或技术方面行动迟缓的企业，将在技术采纳与实施方面落后于前沿水平（David，1991）。"
+  },
+  {
+    "block_id": "p2_b56",
+    "page_idx": 2,
+    "order": 56,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this regard, because AI is an algorithm based on training data in large databases, the quality of outcomes generated by AI is closely tied to data collection, data management, and computing capabilities. New and large datasets can vitalize new AI businesses. For example, commercial AI facial-recognition software was developed when the government released data on images of people (Beraja et al., 2020). Many high-tech companies also use cloud-computing resources such as Amazon Web Services (AWS), IBM Cloud, and Microsoft Azure to access high computational power that can handle big data and run AI algorithms. Thus, the application of AI needs complementary technological investments (Brynjolfsson et al., 2019), and the level and quality of complementary technology investments influences the firms' productivity benefits from adopting AI. If a firm has access to large amounts of data and high-power computing systems for its AI application, that firm could more effectively benefit from adopting AI.",
+    "zh_text": "在此背景下，由于人工智能（AI）本质上是基于大型数据库中训练数据所构建的算法，其输出结果的质量高度依赖于数据采集、数据管理及计算能力。新颖且规模庞大的数据集能够催生新型 AI 业务。例如，当政府公开发布包含人物图像的数据集后，商用 AI 人脸识别软件得以开发（Beraja 等，2020）。许多高科技公司亦借助亚马逊云服务（AWS）、IBM Cloud 和微软 Azure 等云计算资源，获取足以处理大数据并运行 AI 算法的高性能计算能力。因此，AI 的实际应用需要配套的技术投资（Brynjolfsson 等，2019），而配套技术投资的水平与质量，将直接影响企业从 AI 采纳中获得的生产率收益。若一家企业为其 AI 应用配备了海量数据及高性能计算系统，则其更有可能高效地从 AI 采纳中获益。"
+  },
+  {
+    "block_id": "p2_b57",
+    "page_idx": 2,
+    "order": 57,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hypothesis 2. The positive relationship between AI adoption and firm productivity is stronger when firms invest in complementary technologies, especially technologies related to big-data processing and high-power computing.",
+    "zh_text": "假设 2：AI 采纳与企业生产率之间的正向关系，在企业对互补性技术（尤其是与大数据处理和高性能计算相关技术）进行投资时更为显著。"
+  },
+  {
+    "block_id": "p2_b58",
+    "page_idx": 2,
+    "order": 58,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2.3. AI adoption and R&D strategy",
+    "zh_text": "# 2.3. AI 采纳与研发（R&D）战略"
+  },
+  {
+    "block_id": "p2_b59",
+    "page_idx": 2,
+    "order": 59,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "R&D is fundamental to the adoption and utilization of new technologies. Some firms pursue in-house R&D by hiring researchers and investing in the capital needed to conduct R&D. Other firms collaborate with research institutes or universities to conduct R&D activity or even outsource their R&D. Which R&D strategy a firm chooses represents the nature of the firm's business strategy and directly affects firm performance. While it is well known that internal and external R&D are complementary (Cassiman and Veugelers, 2006), focusing on internal R&D can especially build the firm's original know-how and help accumulate knowledge and intellectual property. Cohen and Levinthal (1989), in their theory of \"absorptive capacity,\" emphasize the importance of the accumulation of internal knowledge within the firm to effectively scan, screen, and absorb external know-how (Griffith et al., 2004). In short, pursuing internal R&D can create sufficient absorptive capacity and thus can increase the margin to adopt external technologies or knowledge, which is important for firms to maintain privacy and secrecy and protect proprietary algorithms.",
+    "zh_text": "研发（R&D）是新技术采纳与应用的基础。部分企业通过聘用研究人员并投资开展研发所需的资本，来推进内部自主研发；另一些企业则选择与科研院所或高校合作开展研发活动，甚至将研发工作外包。企业所采取的研发战略，体现了其整体业务战略的性质，并直接影响企业绩效。尽管学界普遍认为内部研发与外部研发具有互补性（Cassiman 和 Veugelers，2006），但侧重内部研发尤其有助于构建企业独有的专业知识体系，并促进知识与知识产权的持续积累。Cohen 与 Levinthal（1989）在其“吸收能力”理论中强调：企业内部知识的持续积累，对于有效识别、筛选并吸收外部知识至关重要（Griffith 等，2004）。简言之，开展内部研发可形成充足的吸收能力，从而扩大企业采纳外部技术或知识的空间；这对企业维护数据隐私与商业机密、保护专有算法而言尤为关键。"
+  },
+  {
+    "block_id": "p2_b60",
+    "page_idx": 2,
+    "order": 60,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "However, AI is still at a relatively early stage in terms of how the technology is developed and embedded in the firm's business, organizational, operational, and production processes. As such, firm-specific internal resources and capabilities may not yet be mature enough to generate complementarity with the external outsourcing of AI knowledge. The McKinsey Global Institute (2018) finds only  $21\\%$ of responding companies report that AI is embedded in their business units or functions, and many still lack the fundamental strategies to map AI to opportunities, data sourcing, and skilled AI workers.",
+    "zh_text": "然而，就技术发展及其在企业业务、组织、运营与生产流程中的嵌入程度而言，AI 目前仍处于相对早期阶段。因此，企业特有的内部资源与能力可能尚不成熟，尚不足以与外部 AI 知识外包形成有效互补。麦肯锡全球研究院（2018）调查发现，仅有 $21\\%$ 的受访企业表示 AI 已嵌入其业务部门或职能单元，而许多企业仍缺乏将 AI 映射至具体商业机会、数据来源及具备 AI 技能人才等基础性战略。"
+  },
+  {
+    "block_id": "p2_b61",
+    "page_idx": 2,
+    "order": 61,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "When firms introduce a new technology, such as AI, the nature of the technology influences the mode of R&D. As noted above, the successful introduction of AI depends not only on maintaining large datasets but also on having high computational power that can analyze such data. Firms might seek to implement AI and train their own databases and enhance their internal processes (e.g., marketing and sales and IT operations). The use of internal data by a firm often raises issues about privacy and secrecy, particularly when the data can be accessed by other firms or institutes (Chatterjee and Sreenivasulu, 2019; Tucker, 2019). Accordingly, the firms are unlikely to risk exposing their database to and sharing it with external organizations and might choose to analyze it internally.",
+    "zh_text": "当企业引入 AI 等新兴技术时，该技术本身的特性将影响其研发模式的选择。如前所述，AI 的成功落地不仅依赖于持续维护大规模数据集，还需具备分析此类数据的高性能计算能力。企业可能倾向于自主部署 AI，自行构建训练数据库，并优化其内部流程（例如市场营销与销售、IT 运维等）。企业使用自有数据往往引发隐私与保密问题，尤其当这些数据可能被其他企业或机构访问时（Chatterjee 和 Sreenivasulu，2019；Tucker，2019）。因此，企业通常不愿将自身数据库暴露给外部组织，亦不愿与其共享，而更倾向于在内部完成数据分析。"
+  },
+  {
+    "block_id": "p3_b66",
+    "page_idx": 3,
+    "order": 66,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Moreover, protecting algorithms that build the company's AI systems through patents and copyrights is difficult (Trippe, 2020), whereas copying them is relatively easy. Hence, firms that develop their own AI systems tend to be reluctant to disclose proprietary information and share or expose how their algorithms work. Thus, firms that have the capacity to do so prefer to hire talented AI experts and scientists to conduct R&D internally. Indeed, McKinsey (2017) indicates that large technology companies, such as Amazon, Apple, Baidu, and Google, spent  $90\\%$ of their AI-related budget on internal R&D and recruiting AI talents and only  $10\\%$ on AI acquisitions. Thus, we argue that pursuing a firm-specific internal R&D strategy, rather than a collaborative and external R&D strategy, can more effectively create productivity benefits from AI adoption.",
+    "zh_text": "此外，通过专利与版权对支撑企业 AI 系统的算法加以保护十分困难（Trippe，2020），而复制这些算法却相对容易。因此，自主开发 AI 系统的企业往往不愿披露专有信息，也不愿分享或公开其算法的具体运作机制。故而，具备相应能力的企业更倾向于招聘优秀的 AI 专家与科学家，以开展内部研发。事实上，麦肯锡（2017）指出，亚马逊、苹果、百度与谷歌等大型科技公司，将其 AI 相关预算的 $90\\%$ 投入于内部研发及 AI 人才引进，仅 $10\\%$ 用于 AI 相关并购。因此我们认为，相较于协作式或外部化的研发战略，企业专属的内部研发战略更能有效提升 AI 采纳所带来的生产率收益。"
+  },
+  {
+    "block_id": "p3_b67",
+    "page_idx": 3,
+    "order": 67,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Hypothesis 3. The positive relationship between AI adoption and firm productivity is stronger when a firm pursues an internal R&D strategy.",
+    "zh_text": "假设3：当企业采取内部研发战略时，人工智能采用与企业生产率之间的正向关系更强。"
+  },
+  {
+    "block_id": "p3_b68",
+    "page_idx": 3,
+    "order": 68,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3. The data",
+    "zh_text": "# 3. 数据"
+  },
+  {
+    "block_id": "p3_b69",
+    "page_idx": 3,
+    "order": 69,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.1. Data and sample",
+    "zh_text": "# 3.1. 数据与样本"
+  },
+  {
+    "block_id": "p3_b70",
+    "page_idx": 3,
+    "order": 70,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We conducted a survey of high-tech ventures based on a list of 1248 companies that were randomly selected and given to us by the Ministry of SMEs and Startups. We sent out surveys to all companies in the list and over three months in 2019, we collected 300 responses (i.e., a response rate of approximately  $24\\%$). The geographic distribution of the respondent firms was representative of all high-tech ventures, according to data from the Ministry of SMEs and Startups. In addition, the respondent firms in the sample were representative of all high-tech ventures with respect to their revenue across regions, in accordance with statistics from the Korean Statistical Information Service (KOSIS).",
+    "zh_text": "我们基于中小企业和初创企业部提供的一个由1248家企业组成的随机抽样名单，对高科技初创企业开展了一项问卷调查。我们向名单中的所有企业发放了问卷，并于2019年历时三个月共回收300份有效问卷（即应答率约为 $24\\%$）。根据中小企业和初创企业部的数据，受访企业的地理分布具有全国高科技初创企业的代表性。此外，依据韩国统计信息服务中心（KOSIS）的统计数据，本样本中受访企业在各地区营业收入方面的分布也具有全国高科技初创企业的代表性。"
+  },
+  {
+    "block_id": "p3_b71",
+    "page_idx": 3,
+    "order": 71,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The survey examines various aspects of firms' AI adoption and business strategies divided into six sections: (1) firm profile, (2) business strategy, (3) innovation and technology adoption, (4) AI adoption, (5) financing, and (6) demographics of the owners. In particular, the survey covers the extent to which firms adopted AI technologies in the production or development of their goods and services, which has been difficult to obtain in most other data sources. The survey also asks about the level of AI adoption in terms of NLP, CV, and ML, and the level of prior technology adoption, such as database systems and cloud computing. Moreover, the survey also asks a set of questions that evaluate how firms perceive the benefits from adopting AI in various aspects of their business processes, including development, marketing, and customer service. Another valuable component of the survey is information on firm R&D strategy, where we asked respondents to rate the degree to which their firm pursues an internal development versus a collaboration strategy.",
+    "zh_text": "该问卷涵盖企业人工智能采用情况及商业战略的多个维度，共分为六个部分：（1）企业概况；（2）商业战略；（3）创新与技术采用；（4）人工智能采用；（5）融资状况；（6）企业所有者的人口统计特征。尤其值得注意的是，该问卷详细考察了企业在产品与服务的生产或开发过程中采用人工智能技术的程度——这一信息在大多数其他数据来源中难以获取。问卷还进一步询问了企业在自然语言处理（NLP）、计算机视觉（CV）和机器学习（ML）三类人工智能技术上的采用程度，以及企业在数据库系统、云计算等前期信息技术上的采用水平。此外，问卷还设置了一系列问题，用以评估企业对人工智能在研发、市场营销及客户服务等各类业务流程中所带来效益的主观认知。另一项极具价值的内容是关于企业研发战略的信息：我们请受访者对其企业更倾向于采用内部自主研发策略还是外部协作策略的程度进行评分。"
+  },
+  {
+    "block_id": "p3_b72",
+    "page_idx": 3,
+    "order": 72,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Among the 300 firms, our core empirical sample focuses on firms that were created in 2015 or before. We include this restriction because we only observe the intensity of AI adoption in 2019 (the survey year), and firms generally started adopting AI after 2015, so we assume that AI adoption in 2015 was  $0\\%$. According to the Ministry of SMEs and",
+    "zh_text": "在全部300家企业中，我们的核心实证样本聚焦于2015年及以前成立的企业。我们施加这一限制，是因为仅能观测到2019年（即问卷调查年份）的人工智能采用强度，而企业普遍自2015年起才开始采用人工智能技术，因此我们假定其2015年的人工智能采用率为 $0\\%$。据中小企业和初创企业部数据显示，"
+  },
+  {
+    "block_id": "p3_b73",
+    "page_idx": 3,
+    "order": 73,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Startups, among all startups, AI and big data startups accounted for only 432 ventures (1.6% of all high-tech startups) in 2013–2016, but then explosively increased to 2376 ventures (8.8% of all high-tech startups) in 2017–2020. Similarly, venture capital investment in AI startups increased from 1.7% ($40 million) of total investments in 2017 to 18.5% ($316 million) of total investment in 2020. This increase was in line with the Korean government's decision to invest $940 million in the field of AI and related IT technologies in 2016 (OECD, 2019).<sup>3</sup> Also, Stanford AI index report 2021 shows that global demand for AI labor has grown significantly since 2016 (Zhang et al., 2021). These trends suggest that the assumption that AI adoption in 2015 was at zero may be a reasonable approximation. However, we also perform analyses without this restriction in our robustness check.",
+    "zh_text": "在全部初创企业中，人工智能与大数据类初创企业在2013–2016年间仅占432家（占全部高科技初创企业的1.6%），但随后在2017–2020年间激增至2376家（占全部高科技初创企业的8.8%）。类似地，风险资本对人工智能初创企业的投资占比亦从2017年的1.7%（4000万美元）上升至2020年的18.5%（3.16亿美元）。这一增长趋势与韩国政府于2016年决定投入9.4亿美元发展人工智能及相关信息技术的战略决策相一致（OECD，2019）<sup>3</sup>。此外，《斯坦福人工智能指数报告2021》指出，自2016年以来，全球对人工智能领域劳动力的需求显著增长（Zhang et al., 2021）。上述趋势表明，将2015年人工智能采用率设定为零的假设是一个合理的近似。不过，在稳健性检验中，我们也进行了不施加该限制的分析。"
+  },
+  {
+    "block_id": "p3_b74",
+    "page_idx": 3,
+    "order": 74,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Focusing on firms created in 2015 or before reduces the sample to 211 firms, and we drop 37 observations because of missing responses to questions on firm characteristics such as firm valuation and AI intensity. In addition to the survey data, we also collected the venture's financial data including revenue data from the Small Business Status Information System, known as SMINFO (http://sminfo.mss.go.kr) run by the Ministry of SMEs and Startups. This government database provides data on industry classification, establishment year, CEO information, location, history of certifications, as well as recent five years of financial data such as revenue, current asset, and debt. Thus, this data enables us to accurately measure financial performance and also cross-check the basic information with our survey. We drop 14 ventures whose revenues were not observable in SMINFO because of business closure. Based on these restrictions, our final sample includes 160 firms. To ensure the representativeness of our final sample, we use the Kolmogorov-Smirnov (K-S) two-sample test to compare the sample of 160 and the full sample (Westphal and Bednar, 2005; Petrenko et al., 2019). The test results indicate no statistically significant differences in terms of firm-level (e.g., revenue growth, firm age, business stage, valuation, funding) and CEO-level variables (e.g., age, gender, prior experience) or industry and region.",
+    "zh_text": "将样本限定为2015年及以前成立的企业后，样本规模缩减至211家；随后又因部分企业未回答有关企业特征（如企业估值、人工智能采用强度）的问题，剔除37个观测值。除问卷数据外，我们还从中小企业现状信息系统（SMINFO，http://sminfo.mss.go.kr）——由中小企业和初创企业部运营的政府数据库——收集了相关企业的财务数据，包括营业收入数据。该数据库提供行业分类、成立年份、首席执行官信息、所在地、认证历史，以及最近五年来的财务数据（如营业收入、流动资产、负债等）。因此，该数据不仅有助于我们准确衡量企业财务绩效，还可用于交叉核验问卷中提供的基本信息。我们进一步剔除了14家因已停业而在SMINFO中无法查得营业收入数据的企业。经上述筛选后，最终样本包含160家企业。为确保最终样本的代表性，我们采用柯尔莫哥洛夫-斯米尔诺夫（K-S）双样本检验方法，将该160家企业的样本与全样本进行比较（Westphal and Bednar, 2005; Petrenko et al., 2019）。检验结果表明，两组样本在企业层面变量（如营收增长率、企业年龄、发展阶段、估值、融资额）和首席执行官层面变量（如年龄、性别、先前从业经验），以及行业与地区分布方面均无统计上显著差异。"
+  },
+  {
+    "block_id": "p3_b75",
+    "page_idx": 3,
+    "order": 75,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2. Variable description",
+    "zh_text": "# 3.2. 变量说明"
+  },
+  {
+    "block_id": "p3_b76",
+    "page_idx": 3,
+    "order": 76,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Table 1 presents the summary statistics of the key variables. In terms of industry distribution, about  $26\\%$ of the ventures are in the software industry,  $17\\%$ are in the pharmaceutical industry, including medical devices, and  $10\\%$ are in the mobile IT industry. These ventures together account for more than  $50\\%$ of the full sample. The average firm age is about 3.6 years, and in general, their current business stage is between early profit generation and growth. Approximately  $54\\%$ of the firms have adopted some type of AI technology, whether NLP, CV, or ML.",
+    "zh_text": "表1列示了关键变量的描述性统计结果。就行业分布而言，约 $26\\%$ 的企业属于软件行业，$17\\%$ 属于制药行业（含医疗器械），$10\\%$ 属于移动信息技术行业。这三类企业合计占全部样本的 $50\\%$ 以上。企业平均年龄约为3.6年，总体处于“早期盈利阶段”与“成长阶段”之间。约 $54\\%$ 的企业已采用至少一种人工智能技术（即NLP、CV或ML中的一种或多种）。"
+  },
+  {
+    "block_id": "p3_b77",
+    "page_idx": 3,
+    "order": 77,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2.1. Independent variable",
+    "zh_text": "# 3.2.1. 自变量"
+  },
+  {
+    "block_id": "p3_b78",
+    "page_idx": 3,
+    "order": 78,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "AI-adoption intensity. Our key explanatory variables are the AI technologies that the ventures use in their business processes for the production or development of products and services: (1) natural language processing (NLP, i.e., speech and pattern recognition and chatbots), (2) computer vision (CV, i.e., imaging tagging, image recognition), and (3) machine learning (ML, i.e., recommendation and prediction). To minimize confusion, we explicitly explained and provided examples of each technology. Then, we asked respondents to rate their level of adoption in each of the three AI technologies ( $1 = \\text{no adoption}$,  $2 = \\text{testing stage}$, 3",
+    "zh_text": "人工智能采用强度。本研究的关键解释变量为企业在产品与服务的生产或开发等业务流程中所采用的人工智能技术，具体包括三类：（1）自然语言处理（NLP，即语音与模式识别、聊天机器人）；（2）计算机视觉（CV，即图像标注、图像识别）；（3）机器学习（ML，即推荐系统与预测模型）。为避免歧义，我们在问卷中对每类技术均作了明确解释并辅以实例说明。随后，请受访者就企业在上述三类人工智能技术中的采用程度分别打分（$1 = \\text{未采用}$，$2 = \\text{测试阶段}$，$3 =$"
+  },
+  {
+    "block_id": "p4_b85",
+    "page_idx": 4,
+    "order": 85,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p4_b85_cap",
+    "page_idx": 4,
+    "order": 85,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 1 Summary statistics.",
+    "zh_text": "表1 描述性统计结果。"
+  },
+  {
+    "block_id": "p4_b85_fn",
+    "page_idx": 4,
+    "order": 85,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Note: * statistical significance at the 5% level.",
+    "zh_text": "注：* 表示在5%水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p4_b86",
+    "page_idx": 4,
+    "order": 86,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "$= 0\\% -5\\%$$4 = 5\\% -25\\%$$5 = 25\\% -50\\%$ and  $6 = 50\\%$ or more). Because firms often use these AI technologies in conjunction with each other, we construct our key AI adoption intensity measure with the maximum value in the three technologies. We also create a binary variable that indicates any AI adoption, and hence the categories for adoption levels that correspond to categories 3, 4, 5, or 6.",
+    "zh_text": "$= 0\\% \\text{–}5\\%$，$4 = 5\\% \\text{–}25\\%$，$5 = 25\\% \\text{–}50\\%$，且 $6 = 50\\%$ 及以上）。由于企业通常将这三类人工智能技术协同使用，我们以三者中采用程度的最高值构建核心的人工智能采用强度指标。此外，我们还构建了一个二元变量用以标识“任何人工智能技术的采用”，即只要企业在任一技术上的采用水平属于第3、4、5或6类，该变量即取值为1，否则为0。"
+  },
+  {
+    "block_id": "p4_b87",
+    "page_idx": 4,
+    "order": 87,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2.2. Moderating variables",
+    "zh_text": "# 3.2.2. 调节变量"
+  },
+  {
+    "block_id": "p4_b88",
+    "page_idx": 4,
+    "order": 88,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Complementary technologies. As noted in the literature (Brynjolfsson et al., 2019), the adoption of other technologies can create variation in the benefits of AI adoption through technological complementarity. In this vein, we asked respondents to state the level of adoption in database systems and cloud computing in their business process of production or development of products and services, similar to how we asked about AI intensity in six categories. We then created a binary variable for each technology, which equals 1 for firms that adopted any of the technologies by more than  $0\\%$, that is adoption levels that correspond to categories 3, 4, 5, or 6 and 0 otherwise.",
+    "zh_text": "互补性技术。正如文献所述（Brynjolfsson 等，2019），其他技术的采用可能通过技术互补性影响人工智能采用所带来的收益，从而造成收益差异。据此，我们要求受访者报告其企业在产品与服务的生产或开发业务流程中，数据库系统与云计算技术的采用程度，其分类方式与前述人工智能采用强度的六类别划分一致。随后，我们分别为这两项技术构建了二元变量：若企业在某项技术上的采用程度超过 $0\\%$（即对应第3、4、5或6类），则该变量取值为1；否则为0。"
+  },
+  {
+    "block_id": "p4_b89",
+    "page_idx": 4,
+    "order": 89,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "R&D strategy. To gauge a firm's R&D strategy, we asked managers to indicate where their firms' strategies lie along a seven point scale where 1 corresponds to a firm-specific internal R&D strategy that emphasizes independent development by internal talents and 7 corresponds to a collaborative R&D strategy with external partners [i.e., universities and public institutions]. We converted the responses to a binary variable indicating internal R&D strategy, where 1 to 4 are coded as 1, and 0 otherwise.",
+    "zh_text": "研发战略。为衡量企业的研发战略，我们请管理者在七点量表上指出其企业研发战略所处的位置：其中1表示以企业内部为导向的研发战略，强调由内部人才独立开展研发；7则表示与外部合作伙伴（如高校和公共研究机构）协作开展的研发战略。我们将该量表得分转化为一个二元变量，用于标识“内部研发战略”：得分1至4编码为1，其余情况编码为0。"
+  },
+  {
+    "block_id": "p4_b90",
+    "page_idx": 4,
+    "order": 90,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2.3. Dependent variables",
+    "zh_text": "# 3.2.3. 因变量"
+  },
+  {
+    "block_id": "p4_b91",
+    "page_idx": 4,
+    "order": 91,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We used the average revenue growth rate as a measure of firm performance. The economics literature examines firm performance using a variety of metrics including labor productivity (revenue per employee), profitability (net operating profit to capital employed), tobin's q (the ratio of the firm's stock market value to it's capital stock), and revenue growth (Bloom and Van Reenen 2010). Since our focus is on small and medium sized high-tech ventures, of which many are not listed firms and do not publicly report financial statements, we use revenue growth as our main outcome as revenue measures are more readily available for emerging firms. As noted above we were able to collect data on revenue from SMINFO, in particular, the most recent five years of revenue (2015-2019). The average annual revenue growth rate was measured as  $\\frac{\\log\\mathrm{Y}_{2019} - \\log\\mathrm{Y}_t}{2019 - t}$, where  $t$ represents the establishment year for firms established after 2015, and 2015 otherwise. Accordingly,  $\\log \\mathrm{Y}_{2019}$ is the firm's revenue in 2019, and  $\\log \\mathrm{Y}_t$ is revenue in the establishment year  $t$ for firms established after 2015, and revenue in 2015 otherwise.",
+    "zh_text": "我们采用平均营业收入增长率作为企业绩效的衡量指标。经济学文献中常使用多种指标评估企业绩效，包括劳动生产率（人均营业收入）、盈利能力（营业净利润/投入资本）、托宾Q值（企业股票市值与其资本存量之比）以及营业收入增长率（Bloom 和 Van Reenen，2010）。鉴于本研究聚焦于中小型高科技创业企业——其中许多尚未上市，亦不对外公开财务报表——我们选用营业收入增长率作为主要结果变量，因其数据对新兴企业而言更易获取。如前所述，我们已从SMINFO数据库中成功获取相关企业的营业收入数据，特别是最近五年（2015–2019年）的营业收入。平均年营业收入增长率计算公式为 $\\frac{\\log\\mathrm{Y}_{2019} - \\log\\mathrm{Y}_t}{2019 - t}$，其中 $t$ 表示企业成立年份（若企业成立于2015年之后）；若企业成立于2015年或更早，则 $t = 2015$。因此，$\\log \\mathrm{Y}_{2019}$ 表示企业2019年的营业收入，而 $\\log \\mathrm{Y}_t$ 则表示：对于2015年后成立的企业，为其成立当年 $t$ 的营业收入；对于2015年及以前成立的企业，则为其2015年的营业收入。"
+  },
+  {
+    "block_id": "p4_b92",
+    "page_idx": 4,
+    "order": 92,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2.4. Control variables",
+    "zh_text": "# 3.2.4. 控制变量"
+  },
+  {
+    "block_id": "p4_b93",
+    "page_idx": 4,
+    "order": 93,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We control for a number of firm and owner characteristics that the literature has shown are related to firm performance. First, we control for firm age, measured as the age since the establishment year. We also account for the different types of business models. We asked respondents to state the firm's current business model (B2C, B2B, B2G, etc.) and included the responses as dummy variables. To control for a firm's different growth stages, we incorporate the current business stage, using dummy variables for before profit generation, early profit generation, growth, near IPO, and IPO. In addition, we included a control variable for the firm's valuation, by including dummy variables that correspond to approximately  $0-0.5 million,$0.5-1 million, $1-2 million, $2-5 million, $5-10 million, and above $10 million. We use the valuation by venture capital and other financial institutions if the venture was not listed on the market, and on stock prices if the venture was listed on the stock exchange. Lastly, to control for previous IT capital investments, we use the firm's adoption of enterprise resource planning (ERP) systems within their business. We create a binary variable for the ERP adoption, which equals 1 for firms that adopted ERP technologies by more than  $5\\%$, and 0 otherwise.",
+    "zh_text": "我们控制了一系列已被文献证实与企业绩效相关的公司及所有者特征变量。首先，我们控制企业年龄，即自成立年起至今的年限。其次，我们控制不同类型商业模式的影响：我们请受访者说明企业当前的商业模式（如B2C、B2B、B2G等），并将这些回答作为虚拟变量纳入模型。为控制企业所处不同成长阶段的影响，我们引入当前业务发展阶段这一变量，并设置如下虚拟变量：尚未盈利、早期盈利、成长期、临近IPO、已IPO。此外，我们还纳入企业估值这一控制变量，具体划分为若干档位的虚拟变量：约 $0\\text{–}\\$0.5$百万、$\\$0.5\\text{–}\\$1$百万、$\\$1\\text{–}\\$2$百万、$\\$2\\text{–}\\$5$百万、$\\$5\\text{–}\\$10$百万，以及 $\\$10$ 百万以上。对于未上市企业，估值依据风险投资机构及其他金融机构的评估结果；对于已上市企业，则依据其股票市场价格确定。最后，为控制前期信息技术资本投入的影响，我们纳入企业是否在其业务中部署企业资源计划（ERP）系统这一变量，并构建一个二元变量：若企业ERP技术采用程度超过 $5\\%$，则该变量取值为1；否则为0。"
+  },
+  {
+    "block_id": "p5_b99",
+    "page_idx": 5,
+    "order": 99,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In addition, research shows that owner characteristics strongly influence firm performance (Lindquist et al., 2015; Eesley and Lee, 2020). We capture these effects with several owner-related variables indicating gender and prior experience of the owner as well as the owner's age. Moreover, we also account for differences in specific firm types, including dummy variables for an independent venture, spinoffs from either domestic or foreign firms, lab-based ventures, and joint ventures.",
+    "zh_text": "此外，研究表明，所有者特征对企业绩效具有显著影响（Lindquist 等，2015；Eesley 和 Lee，2020）。我们通过多个所有者相关变量来捕捉此类效应，包括所有者的性别、先前从业经验及其年龄。此外，我们还控制了特定企业类型之间的差异，设置了如下虚拟变量：独立创办企业、源自国内企业的衍生企业、源自国外企业的衍生企业、实验室衍生企业，以及合资企业。"
+  },
+  {
+    "block_id": "p5_b100",
+    "page_idx": 5,
+    "order": 100,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Taking into consideration the time-varying firm characteristics, we also control for a set of variables in the year the firm was established, or 2014 if earlier. We control for the initial size of the venture, measured by dummy variables indicating the number of total employees at the time of the firm's establishment, namely, 5-10, 11-15, 15-20, 21-30, and above 30. Firm performance can also vary in the extent to which firms receive subsequent funding, which we account for using the amount of funding received from various sources at the time of the firm's establishment. We specifically asked respondents to fill in the year of funding and the amount of funding received for each funding source. Finally, we add industry dummies as well as venture location to all our specifications.",
+    "zh_text": "考虑到企业特征随时间变化，我们还控制了企业在成立当年（若早于2014年，则统一取2014年）的一组变量。我们控制创业初期规模，以企业成立时员工总数为衡量标准，并设置如下虚拟变量：5–10人、11–15人、15–20人、21–30人，以及30人以上。企业绩效也可能因后续融资获取程度不同而存在差异，对此我们通过企业在成立时从各类渠道获得的融资金额予以控制。我们特别要求受访者填写每笔融资的发生年份及对应金额。最后，我们在所有回归设定中均加入了行业虚拟变量及创业企业所在地变量。"
+  },
+  {
+    "block_id": "p5_b101",
+    "page_idx": 5,
+    "order": 101,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.3. Descriptive statistics",
+    "zh_text": "# 3.3. 描述性统计"
+  },
+  {
+    "block_id": "p5_b102",
+    "page_idx": 5,
+    "order": 102,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Table 2 presents descriptive statistics by the level of AI adoption. Firms that have a higher level of AI adoption tend to be smaller and younger than firms that have not adopted AI technologies. Moreover, firms with a higher valuation are likely to adopt AI technologies more intensively. This difference is large between firms with no AI adoption and firms with AI adoption of more than  $50\\%$. Firms founded by younger CEOs and CEOs with prior startup experiences are likely to adopt AI technologies more intensely. Notably, across all levels, AI adoption is correlated with database and cloud-computing adoption. Lastly, turning to our main outcome, average revenue growth, we observe significant differences in performance between firms that did adopt AI technologies and firms that did not, particularly firms with adoption levels of  $25\\%$ or more.",
+    "zh_text": "表2按人工智能（AI）采用程度分组列示了描述性统计结果。AI采用程度较高的企业，通常比尚未采用AI技术的企业规模更小、成立时间更短。此外，估值更高的企业更倾向于更深入地采用AI技术。这一差异在未采用AI的企业与AI采用率超过$50\\%$的企业之间尤为显著。由年龄较轻的首席执行官（CEO）或具有先前创业经历的CEO所创立的企业，更可能更深入地采用AI技术。值得注意的是，在所有采用水平上，AI采用均与数据库及云计算技术的采用呈正相关。最后，就本文的核心被解释变量——平均营业收入增长率而言，我们观察到：已采用AI技术的企业与未采用AI技术的企业在业绩表现上存在显著差异，尤其是AI采用率达到$25\\%$及以上的企业。"
+  },
+  {
+    "block_id": "p5_b103",
+    "page_idx": 5,
+    "order": 103,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4. Empirical framework",
+    "zh_text": "# 4. 实证框架"
+  },
+  {
+    "block_id": "p5_b104",
+    "page_idx": 5,
+    "order": 104,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We present the framework of the revenue growth regressions we use in the empirical analysis. Consider the following equation which represents a general relationship between AI-adoption intensity and firm performance: where  $y_{it}$ measures firm revenue for firm  $i$ in year  $t$, and  $\\mathrm{AI}_{it}$ represents the intensity of AI adoption by firm  $i$ in year  $t$. The control variable vector  $\\mathbf{X}_{\\mathrm{it}}$ includes a host of firm-level and owner-level variables, including firm age, firm size, growth stage of the firm, valuation of the firm, industry, and location of the firm, and various owner characteristics (age, gender, serial entrepreneur). Although we include many control variables, omitted variables may exist that are related to both the firm's AI-adoption intensity and firm performance. The presence of omitted variables will lead to bias in the coefficient estimate on AI adoption in equation (1). To mitigate this concern, we control for unobserved firm-fixed effects by performing a first-differenced regression at the firm level, as follows:",
+    "zh_text": "我们介绍实证分析中所使用的营业收入增长率回归模型框架。考虑如下方程，该方程刻画了AI采用强度与企业绩效之间的一般关系：其中，$y_{it}$ 表示企业在第 $t$ 年的营业收入，$\\mathrm{AI}_{it}$ 表示企业在第 $t$ 年的AI采用强度。控制变量向量 $\\mathbf{X}_{\\mathrm{it}}$ 包含一系列企业层面与所有者层面的变量，例如企业年龄、企业规模、企业发展阶段、企业估值、所属行业与地理位置，以及各类所有者特征（如年龄、性别、连续创业者身份）。尽管我们已纳入大量控制变量，但仍可能存在某些被遗漏变量，这些变量同时影响企业的AI采用强度与企业绩效。若存在此类遗漏变量，则方程（1）中AI采用系数的估计值将产生偏误。为缓解这一问题，我们通过在企业层面进行一阶差分回归，以控制不可观测的企业固定效应，具体形式如下："
+  },
+  {
+    "block_id": "p5_b110",
+    "page_idx": 5,
+    "order": 110,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "$\\Delta y_{i,2015-2019}$ measures firm  $i$'s change in log revenue between 2015 and 2019.  $AI_{i,2019}^{k}$ is a dummy variable representing the intensity of AI adoption by firm  $i$ in 2019, where  $k$ represents the level of adoption: testing but not adopting,  $0\\%-5\\%$,  $5\\%-25\\%$,  $25\\%-50\\%$, or  $50\\%$ or more.  $\\mathbf{X}_i$ represents firm and owner characteristics, and  $\\mathbf{W}_{i,2015}$ is the set of firm characteristics in 2015, which are based on retrospective questions we pose in the survey. The  $AI_{i,2019}^{k}$ variables are intended to capture the change in AI adoption, which as we discussed in the data section, is based on the very likely assumption that AI adoption was  $0\\%$ in 2015 or earlier. Hence, the adoption level in 2019 can be considered as the change in the level of AI adoption. The assumption is reasonable because AI adoption among high-tech ventures in South Korea was fairly recent. AI adoption has been slightly slower in South Korea than in the US, where AI adoption generally began after 2016 in Korea. This assumption limits the sample to firms that were created in 2015 or before. We also examine results using different years, for example, 2014 and 2016, as the cutoff in Online Appendix Tables A2 and A3.",
+    "zh_text": "$\\Delta y_{i,2015-2019}$ 表示企业 $i$ 在2015年至2019年期间对数营业收入的变化值；$AI_{i,2019}^{k}$ 是一个虚拟变量，表示企业 $i$ 在2019年的AI采用强度，其中 $k$ 代表不同的采用水平：仅处于测试阶段但尚未正式采用、$0\\%$–$5\\%$、$5\\%$–$25\\%$、$25\\%$–$50\\%$，或 $50\\%$ 及以上。$\\mathbf{X}_i$ 表示企业与所有者特征；$\\mathbf{W}_{i,2015}$ 表示企业在2015年的特征集合，其数据来源于我们在调查中设置的回溯性问题。$AI_{i,2019}^{k}$ 变量旨在捕捉AI采用程度的变化；正如我们在数据部分所讨论的，我们基于一个高度可信的假设，即企业在2015年或更早时期AI采用率为$0\\%$。因此，2019年的AI采用水平可被视为AI采用程度的变化量。该假设具有合理性，因为韩国高科技创业企业的AI采用整体起步较晚：相较于美国，韩国的AI采用进程略为滞后，普遍始于2016年之后。该假设将样本限定于2015年或之前成立的企业。我们亦在在线附录表A2与A3中，分别以2014年和2016年作为时间节点，检验了不同年份设定下的稳健性结果。"
+  },
+  {
+    "block_id": "p5_b111",
+    "page_idx": 5,
+    "order": 111,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Equation (2) presents the growth regressions used in the analysis, and the coefficient estimates on AI adoption (i.e.,  $\\beta_{1}$ to  $\\beta_{5}$) represent the difference in average annual revenue growth rates at different adoption levels compared with no adoption. If AI adoption increases firm performance, we would expect the coefficient estimates on high AI-adoption-intensity levels (e.g.,  $\\beta_{4}$ and  $\\beta_{5}$) to be greater than the estimates on zero or low levels of adoption. If a lag exists in the benefits of AI as we hypothesized, the coefficient estimates at low levels of adoption may not be significantly different from zero but turn positive and significant at higher levels of adoption. If something akin to a so-called J-curve effect exists, in which adoption of AI initially results in lower performance through adjustment costs, we may find that some coefficient estimates are negative at low levels of adoption. The growth regressions do not resolve all potential sources of endogeneity, but with the rich set of control variables, the results do provide convincing insights into how AI-adoption affects firm performance.",
+    "zh_text": "方程（2）呈现了本分析所采用的增长率回归模型，其中AI采用变量的系数估计值（即 $\\beta_{1}$ 至 $\\beta_{5}$）表示：相较于未采用AI的企业，不同AI采用水平下企业平均年营业收入增长率的差异。若AI采用确实提升了企业绩效，则我们预期高AI采用强度水平（例如 $\\beta_{4}$ 和 $\\beta_{5}$）的系数估计值应大于零采用或低采用水平下的估计值。若如我们所假设的那样，AI带来的收益存在滞后效应，则低采用水平下的系数估计值可能不显著异于零，但在更高采用水平下则转为正值且显著。若存在类似所谓“J型曲线”效应（即AI采用初期因调整成本导致绩效暂时下降），则我们可能发现低采用水平下的部分系数估计值为负。尽管增长率回归模型无法完全消除所有潜在的内生性来源，但在控制变量体系较为丰富的情况下，所得结果仍能为AI采用如何影响企业绩效提供具有说服力的实证洞见。"
+  },
+  {
+    "block_id": "p5_b112",
+    "page_idx": 5,
+    "order": 112,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5. Results",
+    "zh_text": "# 5. 实证结果"
+  },
+  {
+    "block_id": "p5_b113",
+    "page_idx": 5,
+    "order": 113,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.1. Determinants of AI adoption by intensity",
+    "zh_text": "# 5.1. AI采用强度的影响因素"
+  },
+  {
+    "block_id": "p5_b114",
+    "page_idx": 5,
+    "order": 114,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We first examine firm and owner characteristics associated with AI adoption in Table 3. We perform an ordered logit regression, in which the outcome variable is an ordinal variable from 1 to 6 that corresponds to the different AI adoption levels: no adoption, testing, \\(0\\% -5\\%\\), \\(5\\% -25\\%\\), \\(25\\% -50\\%\\), and \\(50\\%\\) or more (column (1)). We also run ordinary least squares (OLS) regressions in which each outcome variable represents the cumulative level of AI adoption (columns (2)-(5)). Several interesting patterns emerge. First, firms with high valuations are more likely to adopt AI more intensively, but the effect on valuation is not necessarily linear. As columns (4) and (5) indicate, firms with a relatively low valuation (\\(1 million-\\)5 million) are significantly more likely to adopt AI intensively (at or above \\(25\\%\\)), as well as firms with a high valuation (\\(10 million or more). The results suggest that newer firms with the more potential for growth are likely to adopt AI intensively, along with the more established firms. However, this U-shaped pattern is not necessarily a size effect. The coefficient estimates on all the firm-size dummy variables are negative in column (1). Note that the missing category is firms with a size of 10 or less. So, larger firms are less likely to adopt AI intensively relative to smaller firms. Also, estimates on firms",
+    "zh_text": "我们首先在表3中考察与AI采用相关的企业及所有者特征。我们采用有序Logit回归，其中被解释变量为取值1至6的有序变量，对应六类AI采用水平：未采用、处于测试阶段、$0\\%$–$5\\%$、$5\\%$–$25\\%$、$25\\%$–$50\\%$，以及$50\\%$及以上（见第（1）列）。此外，我们还进行了普通最小二乘法（OLS）回归，其中各被解释变量分别表示AI采用的累计水平（见第（2）至（5）列）。若干有趣模式由此浮现。第一，估值较高的企业更可能更深入地采用AI，但估值的影响未必呈线性关系。如第（4）列与第（5）列所示，估值相对较低（100万–500万美元）与估值较高（1000万美元及以上）的企业，均显著更可能以$25\\%$及以上的强度采用AI。该结果表明，兼具高增长潜力的新兴企业与更为成熟的企业均倾向于高强度采用AI。然而，这种U型模式未必源于企业规模效应：第（1）列中所有企业规模虚拟变量的系数估计值均为负值。需注意，基准组（参照组）为企业规模为10人及以下的企业。因此，相较于小型企业，大型企业更不可能高强度采用AI。此外，关于企业……"
+  },
+  {
+    "block_id": "p6_b119",
+    "page_idx": 6,
+    "order": 119,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p6_b119_cap",
+    "page_idx": 6,
+    "order": 119,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 2 Descriptive statistics (by the intensity of any AI adoption).",
+    "zh_text": "表2 描述性统计结果（按任意AI采用强度分组）。"
+  },
+  {
+    "block_id": "p6_b119_fn",
+    "page_idx": 6,
+    "order": 119,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Standard errors are in parentheses.",
+    "zh_text": "注：标准误置于括号内。"
+  },
+  {
+    "block_id": "p6_b120",
+    "page_idx": 6,
+    "order": 120,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "with a size of 41 or more are large and negative throughout and significant (at the  $10\\%$ level) in column (5).",
+    "zh_text": "规模为41或更大的系数在整个区间内均为负值且显著（在10%水平上），见第(5)列。"
+  },
+  {
+    "block_id": "p6_b121",
+    "page_idx": 6,
+    "order": 121,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Firm type is significantly related to AI-adoption intensity. Spinoffs from other companies are less likely to adopt AI, but lab-based spinoffs are more likely to adopt AI intensively. CEOs with prior entrepreneurship experience, that is, serial entrepreneurs, are more likely to adopt AI intensively. We do not find that younger CEOs are more likely to adopt AI intensively, which may be due to the correlation between CEO age and firm valuation or size. Finally, firms that have adopted database systems and cloud computing are more likely to adopt AI more intensively.[8]",
+    "zh_text": "企业类型与人工智能（AI）采纳强度显著相关。源自其他公司的衍生企业采纳AI的可能性较低，而源自实验室的衍生企业则更可能高强度采纳AI。具有先前创业经历的首席执行官（即连续创业者）更可能高强度采纳AI。我们未发现年轻CEO更可能高强度采纳AI，这可能源于CEO年龄与企业估值或规模之间的相关性。最后，已采纳数据库系统和云计算的企业更可能更高强度地采纳AI。[8]"
+  },
+  {
+    "block_id": "p6_b122",
+    "page_idx": 6,
+    "order": 122,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.2. AI-adoption intensity and firm performance",
+    "zh_text": "# 5.2 AI采纳强度与企业绩效"
+  },
+  {
+    "block_id": "p6_b123",
+    "page_idx": 6,
+    "order": 123,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We examine how revenue growth is related to AI adoption, focusing on any level of AI adoption. Table 4, column (1), examines any AI technology, and columns (2) to (4) examine each specific AI technology (NLP, CV, and ML). All regressions control for the full set of control variables, namely, the base controls (firm age, business-development level, finance level, prior technology adoption and owner characteristics), initial-year controls, industry-fixed effects, and region-fixed effects.",
+    "zh_text": "我们考察收入增长率与AI采纳之间的关系，重点关注任意程度的AI采纳。表4第(1)列考察任意AI技术，第(2)至(4)列则分别考察各类具体AI技术（自然语言处理NLP、计算机视觉CV及机器学习ML）。所有回归均控制了全部变量，包括基础控制变量（企业年龄、业务发展阶段、财务水平、前期技术采纳情况及所有者特征）、初始年份控制变量、行业固定效应以及地区固定效应。"
+  },
+  {
+    "block_id": "p6_b124",
+    "page_idx": 6,
+    "order": 124,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The results indicate average annual revenue growth is about 30 percentage points higher for AI adopters than for non-adopters. If we examine each AI technology separately, the effect ranges from 32.4 percentage points (ML) to 45.8 percentage points (NLP). The effects are all statistically significant at the  $1\\%$ level, and the R-squared of each regression hovers around 0.5. The larger magnitudes in columns (2) to (4) are likely due to firms that often incorporate more than one AI technology.[9]",
+    "zh_text": "结果表明，AI采纳企业的平均年收入增长率比非采纳企业高出约30个百分点。若分项考察各类AI技术，其效应介于32.4个百分点（ML）至45.8个百分点（NLP）之间。所有效应在1%统计水平上均显著，各回归的R²值均维持在0.5左右。第(2)至(4)列中效应量更大，可能源于多数企业往往同时采纳多种AI技术。[9]"
+  },
+  {
+    "block_id": "p6_b125",
+    "page_idx": 6,
+    "order": 125,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We next examine how the intensity of AI adoption is related to firm performance. Table 5 presents the regression results, and Fig. 1 plots the coefficient estimates. The estimates represent the difference in the firm's annual growth rates at different levels of adoption relative to non-adopting firms. As Fig. 1a-d illustrate, the firm's average annual revenue growth rate generally increases with higher levels of AI adoption, and the relationship becomes significant at higher levels of adoption, namely,  $25\\% - 50\\%$ or  $50\\%$ or more.",
+    "zh_text": "接下来，我们考察AI采纳强度与企业绩效之间的关系。表5呈现了回归结果，图1则绘制了系数估计值。这些估计值表示：相较于未采纳AI的企业，不同采纳强度下企业年增长率的差异。如图1a–d所示，企业平均年收入增长率总体随AI采纳强度提升而上升，且该关系在较高采纳水平（即25%–50%或50%及以上）下变得显著。"
+  },
+  {
+    "block_id": "p6_b127",
+    "page_idx": 6,
+    "order": 127,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "However, low levels of AI adoption or the testing stages of AI technologies do not generate revenue growth. These findings are consistent with Hypotheses 1a and 1b and show that there may be delayed productivity gains from AI adoption.[10] There could be several reasons behind delayed productivity gains. At the early stages of AI adoption, firms often need to adjust or reorganize their business practices to use AI productively. Firms may also recognize the need to make complementary investments, such as R&D, AI-specific human capital, data, and cloud computing, at the early stages of adoption. After the complementary investments and reorganization are in place, firms might start to reap the benefits of AI.",
+    "zh_text": "然而，低水平的AI采纳或AI技术尚处于测试阶段时，并不能带来收入增长。上述发现与假设1a和1b一致，表明AI采纳可能带来延迟性的生产率提升。[10] 延迟性生产率提升背后可能存在多重原因：在AI采纳初期，企业往往需调整或重构其业务实践，以实现AI的有效应用；企业也可能在早期即意识到需进行互补性投资，例如研发投入、AI专用人力资本、数据基础设施及云计算能力。待互补性投资与组织重构完成后，企业方能开始收获AI带来的收益。"
+  },
+  {
+    "block_id": "p6_b128",
+    "page_idx": 6,
+    "order": 128,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5.3. AI adoption and complementary investments",
+    "zh_text": "# 5.3 AI采纳与互补性投资"
+  },
+  {
+    "block_id": "p6_b129",
+    "page_idx": 6,
+    "order": 129,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We next examine whether the relationship between AI-adoption and revenue growth is more pronounced at firms that make complementary investments. As we discussed in Section 2, the unique aspects of AI as an algorithmic technology motivates us to focus on two potentially complementary technology investments, namely, in database and cloud computing, and R&D strategy.",
+    "zh_text": "接下来，我们检验AI采纳与收入增长之间的关系是否在进行了互补性投资的企业中更为显著。如第2节所述，AI作为一种算法型技术所具有的独特属性，促使我们将分析聚焦于两类潜在的互补性技术投资：数据库与云计算，以及研发（R&D）战略。"
+  },
+  {
+    "block_id": "p6_b130",
+    "page_idx": 6,
+    "order": 130,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Table 6 presents results after we split the sample based on database and cloud-computing adoption. We find that 83 out of 160 firms invested in these technologies. The pattern between AI-adoption intensity and revenue growth in Table 5 occurs only among firms that adopt these technologies. Fig. 2 illustrates the results by plotting the coefficient estimates between the two samples for any AI technology (which corresponds to the results in Table 5, column (1)). The jump at  $25\\%$ adoption or higher is evident only at firms that invest in these technologies.",
+    "zh_text": "表6展示了依据是否采纳数据库与云计算技术对企业样本进行划分后的回归结果。我们发现，在160家企业中，有83家投资了上述技术。表5中所呈现的AI采纳强度与收入增长之间的模式，仅存在于采纳了这些技术的企业中。图2通过绘制两组样本中任意AI技术采纳（对应表5第(1)列结果）的系数估计值，直观呈现了该结果。仅在投资了上述技术的企业中，才可观察到采纳强度达25%及以上时的明显跃升。"
+  },
+  {
+    "block_id": "p6_b131",
+    "page_idx": 6,
+    "order": 131,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In Table 7, we test whether the differences in Fig. 2 and Table 6 are statistically meaningful. We pool the two samples together and conduct a regression analysis that includes a dummy variable indicating AI adoption at  $25\\%$ or more, a dummy indicating whether the firm adopted database and cloud computing, and the interaction term between the two. As column (1) indicates, the interaction term is positive at 0.637 with a standard error of 0.175. Revenue growth is 63.7 percentage",
+    "zh_text": "在表7中，我们进一步检验图2与表6中所呈现的差异是否具有统计显著性。我们将两组样本合并，并构建一个包含以下变量的回归模型：一个指示AI采纳强度是否达25%及以上的虚拟变量、一个指示企业是否采纳数据库与云计算的虚拟变量，以及二者之间的交互项。如第(1)列所示，该交互项系数为正，数值为0.637，标准误为0.175。收入增长率提高63.7个百分点。"
+  },
+  {
+    "block_id": "p7_b138",
+    "page_idx": 7,
+    "order": 138,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p7_b138_cap",
+    "page_idx": 7,
+    "order": 138,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 3 Determinants of AI adoption by intensity.",
+    "zh_text": "表3 按采纳强度划分的人工智能采纳决定因素。"
+  },
+  {
+    "block_id": "p7_b139",
+    "page_idx": 7,
+    "order": 139,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Notes: All regressions controls for business stages, firm valuation, business model, firm age, firm size, CEO gender, CEO age, CEO's prior experience, firm type, the amount of funding, database system, cloud-computing adoption, ERP adoption, and industry and region fixed effects. The results of current business stage and business model are not shown in the table. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：所有回归均控制了企业发展阶段、企业估值、商业模式、企业年龄、企业规模、CEO性别、CEO年龄、CEO先前经验、企业类型、融资金额、数据库系统、云计算采纳情况、ERP系统采纳情况，以及行业与地区固定效应。当前发展阶段与商业模式的回归结果未在表中列出。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和10% 水平上的统计显著性。"
+  },
+  {
+    "block_id": "p7_b141",
+    "page_idx": 7,
+    "order": 141,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p7_b141_cap",
+    "page_idx": 7,
+    "order": 141,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 4 AI adoption and firm performance.",
+    "zh_text": "表4 人工智能采纳与企业绩效。"
+  },
+  {
+    "block_id": "p7_b142",
+    "page_idx": 7,
+    "order": 142,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, database system, cloud-computing adoption, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业发展阶段、企业估值、商业模式、企业年龄、CEO性别、CEO年龄、CEO先前经验、企业类型、数据库系统、云计算采纳情况及ERP系统采纳情况；初始年份控制变量包括企业规模与融资金额；控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和10% 水平上的统计显著性。"
+  },
+  {
+    "block_id": "p7_b143",
+    "page_idx": 7,
+    "order": 143,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p7_b143_cap",
+    "page_idx": 7,
+    "order": 143,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 5 AI intensity and firm performance.",
+    "zh_text": "表5 人工智能采纳强度与企业绩效。"
+  },
+  {
+    "block_id": "p7_b144",
+    "page_idx": 7,
+    "order": 144,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, database system, cloud-computing adoption, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业发展阶段、企业估值、商业模式、企业年龄、CEO性别、CEO年龄、CEO先前经验、企业类型、数据库系统、云计算采纳情况及ERP系统采纳情况；初始年份控制变量包括企业规模与融资金额；控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和10% 水平上的统计显著性。"
+  },
+  {
+    "block_id": "p7_b145",
+    "page_idx": 7,
+    "order": 145,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "points higher among firms that additionally invest in these complementary technologies than at firms that intensively adopt AI technology (at  $25\\%$ or higher) without investing in database and cloud computing. These findings are consistent with Hypothesis 2. AI is an algorithm based technology that trains on large databases and the performance of AI is",
+    "zh_text": "在那些除人工智能（AI）技术外，还额外投资于数据库与云计算等互补技术的企业中，其绩效得分显著更高；相比之下，在AI采用强度较高（即达25%或以上）但未同步投资数据库与云计算技术的企业中，该绩效优势则不明显。上述发现与假设2一致。AI是一种基于算法的技术，其训练依赖于大规模数据库，而AI的性能表现则与数据采集、数据管理及计算能力密切相关。"
+  },
+  {
+    "block_id": "p8_b149",
+    "page_idx": 8,
+    "order": 149,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p8_b149_cap",
+    "page_idx": 8,
+    "order": 149,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 1a. Any ai.",
+    "zh_text": "图1a. 任意AI技术。"
+  },
+  {
+    "block_id": "p8_b150",
+    "page_idx": 8,
+    "order": 150,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p8_b150_cap",
+    "page_idx": 8,
+    "order": 150,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 1b. Nlp.",
+    "zh_text": "图1b. 自然语言处理（NLP）。"
+  },
+  {
+    "block_id": "p8_b151",
+    "page_idx": 8,
+    "order": 151,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "closely tied to data collection, data management, and computing capabilities. Indeed our results indicate that firms that have access to large amounts of data and high-power computing systems for its AI applications more effectively benefit from adopting AI. The pattern is generally the same across each specific AI technology, with complementarity being most pronounced for ML, followed by CV and then NLP. The weaker interaction effect between NLP and database systems and cloud computing might imply that NLP need different technology complementarity. For example, some researchers indicate that current NLP algorithms could be further improved by applying other ML algorithms and developing new optimization methods (landola et al., 2020).",
+    "zh_text": "事实上，我们的研究结果表明：那些拥有海量数据资源并配备高性能计算系统以支撑其AI应用的企业，能更有效地从AI采用中获益。这一模式在各类具体AI技术中总体保持一致，其中机器学习（ML）所表现出的互补性最强，其次为计算机视觉（CV），再次为自然语言处理（NLP）。NLP与数据库系统及云计算之间较弱的交互效应可能意味着NLP需要不同类型的互补技术。例如，一些学者指出，当前NLP算法可通过引入其他机器学习算法以及开发新型优化方法进一步提升性能（Landola等，2020）。"
+  },
+  {
+    "block_id": "p8_b152",
+    "page_idx": 8,
+    "order": 152,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We next examine the complementarity between AI adoption and R&D strategy. Some firms engage in more open and collaborative R&D, whereas others pursue a more secretive and firm-specific R&D strategy. The latter strategy may be more suitable for proprietary databases and algorithms and more responsive to the reorganization needs of the firm's unique production processes and business strategy. Table 8 presents the results after we split samples between those that pursue a firm-specific internal R&D strategy and those that pursue a more open and collaborative R&D strategy. Comparing columns (1) to (4), we find a positive relationship between higher levels of AI adoption, and revenue growth is significant among firms that adopt more firm-specific internal R&D strategies. The estimates in columns (5) to (8) indicate that a positive association also exists at firms that pursue external R&D collaboration, but the estimates are not precise. Fig. 3 illustrates this point as well. The coefficient estimates between the two groups are similar but significant only for the subsample of firms pursuing internal R&D strategies. Moreover, when we examine the results for each AI technology, the relationship is more consistent among firms that adopt internal R&D strategies. The interaction-term analysis in Table 9 also illustrates this point. Column (1) indicates that AI adoption of  $25\\%$ or more is associated with revenue growth that is 53.9 percentage points higher. The table shows revenue growth that is 39.9 percentage points higher among firms adopting an internal R&D strategy. When we examine each technology separately, we always find a positive interaction term, and the estimate is the largest for ML. These findings are consistent with Hypothesis 3 and indicate that firms that pursue internal R&D strategies are more likely to be productive at using algorithms and data that are often proprietary and firm-specific.",
+    "zh_text": "接下来，我们考察AI采用与研发（R&D）战略之间的互补关系。部分企业采取更为开放、协作式的研发模式，而另一些企业则倾向于实施更具保密性、更强调企业自身特性的内部研发战略。后者可能更契合专有数据库与算法的应用需求，并更能响应企业独特生产工艺与商业战略所引发的组织重构需要。表8展示了将样本按“企业专属型内部研发战略”与“更开放协作型外部研发战略”两类划分后的回归结果。对比第(1)至(4)列可见，在采用企业专属型内部研发战略的企业中，AI采用程度越高，其营收增长率也越高，且该正向关系具有统计显著性。第(5)至(8)列的估计结果显示，在采取外部研发协作战略的企业中同样存在正向关联，但估计精度较低。图3亦印证了这一点：两组企业的系数估计值相近，但仅在内部研发战略子样本中达到统计显著水平。此外，当我们分AI技术类型考察时，内部研发战略企业的相关关系更为稳健。表9中的交互项分析进一步支持该结论：第(1)列显示，AI采用率达25%及以上的企业，其营收增长率平均高出53.9个百分点；而在采用内部研发战略的企业中，该增幅为39.9个百分点。当分别考察各AI技术时，所有交互项均为正值，且以ML的估计值最大。这些发现与假设3一致，表明倾向于实施内部研发战略的企业，更有可能高效利用那些通常具有专有性与企业特异性的算法与数据。"
+  },
+  {
+    "block_id": "p8_b154",
+    "page_idx": 8,
+    "order": 154,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Lastly, we examine the potential mechanisms through which AI",
+    "zh_text": "最后，我们探讨AI"
+  },
+  {
+    "block_id": "p9_b158",
+    "page_idx": 9,
+    "order": 158,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b158_cap",
+    "page_idx": 9,
+    "order": 158,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 1c. CV.",
+    "zh_text": "图1c. 计算机视觉（CV）。"
+  },
+  {
+    "block_id": "p9_b159",
+    "page_idx": 9,
+    "order": 159,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b159_cap",
+    "page_idx": 9,
+    "order": 159,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 1d. Ml.",
+    "zh_text": "图1d. 机器学习（ML）。"
+  },
+  {
+    "block_id": "p9_b160",
+    "page_idx": 9,
+    "order": 160,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "adoption at higher levels might result in revenue growth in Table 10. We asked firm managers how their firms would use AI to contribute to their products and services. Managers at firms that adopt AI at higher levels expected improvement in their products and services, marketing and sales, and customer support. These are all key aspects that contributes to firm revenue. Though we are unable to test how these aspects changed with AI adoption, the findings in Table 10 suggest that AI adoption, and the more intense adoption of AI, may contribute to revenue growth by improving the firms' products and services, marketing and sales, and customer support.",
+    "zh_text": "高水平采用可能通过何种机制促进企业营收增长，结果见表10。我们向企业高管询问其公司计划如何运用AI来提升产品与服务。结果显示，AI采用程度较高的企业高管普遍预期，AI将在产品与服务改进、市场营销与销售、以及客户服务等方面带来显著提升——而这些方面均是影响企业营收的关键环节。尽管我们尚无法实证检验上述各维度在AI采用前后的实际变化情况，但表10的结果表明：AI的采用，尤其是更高强度的AI采用，可能通过提升企业的产品与服务质量、营销与销售能力以及客户服务效能，从而推动营收增长。"
+  },
+  {
+    "block_id": "p9_b161",
+    "page_idx": 9,
+    "order": 161,
+    "type": "title",
+    "translatable": true,
+    "source_text": "6. Discussion and conclusion",
+    "zh_text": "# 6. 讨论与结论"
+  },
+  {
+    "block_id": "p9_b162",
+    "page_idx": 9,
+    "order": 162,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Despite the rapid increase in AI adoption among firms, evidence on how AI adoption affects firm performance is relatively scant. Moreover, the decline in productivity despite technological progress in recent years has puzzled scholars studying technology and productivity. In this paper, we examine how AI adoption affects firm performance at high-tech ventures. In particular, we investigate how firm performance varies depending on the AI adoption level and which firm strategies are complementary to AI-adoption intensity.",
+    "zh_text": "尽管企业层面的AI采用率正迅速上升，但关于AI采用如何影响企业绩效的实证证据仍相对匮乏。此外，近年来在技术持续进步的背景下，生产率却呈现下降趋势，这一现象令从事技术与生产率研究的学者深感困惑。本文聚焦于高科技创业企业，考察AI采用对其企业绩效的影响机制；尤其关注企业绩效如何随AI采用强度而变化，以及哪些企业战略能够与AI采用强度形成有效互补。"
+  },
+  {
+    "block_id": "p9_b164",
+    "page_idx": 9,
+    "order": 164,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We find that AI adoption at low levels is initially unrelated to revenue growth, but as the level of AI adoption increases, revenue growth increases significantly. Moreover, such delayed productivity gains occur at ventures that invest in complementary technologies, such as cloud computing and database systems, and pursue firm-specific internal R&D strategy. The latter point suggests that AI contributes to firm performance when its R&D is well tailored and integrated into the business. In sum, our findings show that firm performance increases with the level of AI adoption, but only after sufficient investment in AI technology has been made. Moreover, the benefits of AI adoption become more salient when complementary technology investments and R&D are made.",
+    "zh_text": "我们发现：低水平AI采用初期与营收增长并无显著关联；但随着AI采用强度提升，营收增长率显著上升。此外，此类延迟显现的生产率提升主要出现在两类企业中：一是投资于云计算、数据库系统等互补技术的企业；二是采取企业专属型内部研发战略的企业。后一点表明，只有当AI相关的研发活动被精准定制并深度嵌入企业业务体系时，AI才能切实提升企业绩效。综上所述，我们的研究结果表明：企业绩效确实随AI采用强度提升而提高，但前提是企业已对AI技术进行了充分投入；并且，当企业同步开展互补技术投资与适配性研发时，AI带来的绩效收益将更加显著。"
+  },
+  {
+    "block_id": "p9_b165",
+    "page_idx": 9,
+    "order": 165,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The productivity gains from AI will likely become more evident as adoption continues to increase. Our findings suggest that the performance benefits from AI adoption will likely differ across firms depending on whether they invest in complementarities, including technological complementarities, such as database systems and cloud computing, and R&D strategy. Many firms, especially smaller firms without the technical capabilities of large companies, are still exploring how to incorporate AI into their businesses. At the same time,",
+    "zh_text": "随着AI采用程度持续深化，其带来的生产率提升效应有望进一步凸显。本研究结果提示：不同企业在AI采用后的绩效改善程度可能存在显著差异，关键取决于其是否投资于各类互补要素——既包括数据库系统、云计算等技术层面的互补性，也涵盖研发战略层面的互补性。许多企业，尤其是缺乏大型企业所具备技术能力的中小企业，仍在积极探索如何将AI融入自身业务体系。与此同时，"
+  },
+  {
+    "block_id": "p10_b169",
+    "page_idx": 10,
+    "order": 169,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b169_cap",
+    "page_idx": 10,
+    "order": 169,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 6 Hypothesis 2 (AI intensity with tech complements) heterogeneity.",
+    "zh_text": "表6 假设2（AI采用强度与技术互补性）的异质性分析。"
+  },
+  {
+    "block_id": "p10_b169_fn",
+    "page_idx": 10,
+    "order": 169,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业所处发展阶段、公司估值、商业模式、企业成立年限、CEO性别、CEO年龄、CEO先前从业经验、企业类型以及ERP系统采用情况。初始年份控制变量包括企业规模和融资金额。控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和 10% 水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p10_b170",
+    "page_idx": 10,
+    "order": 170,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b170_cap",
+    "page_idx": 10,
+    "order": 170,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 2. Technology complements.",
+    "zh_text": "图2. 技术互补性。"
+  },
+  {
+    "block_id": "p10_b171",
+    "page_idx": 10,
+    "order": 171,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "governments around the world are encouraging AI development and adoption. In 2016, the US announced its AI initiative to pursue policies to expand its AI-related R&D workforce and funding (Agrawal et al., 2016), and in 2019, the president signed an executive order regarding the national strategy on AI to maintain national competitiveness.[11] Similar efforts are being pursued in many countries, including China, South Korea, and the member countries of the European Union. Although such AI initiatives abound, little research concretely addresses the challenges that firms face in terms of AI adoption and the productivity benefits of AI. Our findings may help firms and policymakers understand which attributes are associated with high levels of AI adoption and when and how companies can obtain the productivity benefits from adopting AI.",
+    "zh_text": "全球各国政府正积极推动人工智能（AI）的发展与应用。2016年，美国宣布启动其人工智能倡议，旨在制定相关政策以扩大人工智能相关研发人员队伍并增加资金投入（Agrawal等，2016）；2019年，美国总统签署关于国家人工智能战略的行政命令，以维持本国在全球范围内的竞争力。[11] 类似举措亦正在中国、韩国以及欧盟各成员国等众多国家和地区持续推进。尽管此类人工智能倡议层出不穷，但鲜有研究具体探讨企业在人工智能采纳过程中所面临的现实挑战，以及人工智能所能带来的实际生产率提升效果。本研究的发现有助于企业界与政策制定者理解：哪些企业特征与较高水平的人工智能采纳率密切相关，以及企业应在何时、以何种方式实现人工智能采纳所带来的生产率收益。"
+  },
+  {
+    "block_id": "p10_b172",
+    "page_idx": 10,
+    "order": 172,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "More specifically, countries that pursue an AI policy would benefit by concurrently pursuing policies that develop cloud computing and that expand and facilitate firms' and entrepreneurs' access to it. Cloud computing incurs substantial costs, especially for small and young firms, and access limitations can hinder the adoption and productive development of AI. Major cloud-computing service providers in the US, such as Amazon Web Services and Microsoft Azure, offer free cloud credits to startups and university researchers (Marks, 2018). By incorporating",
+    "zh_text": "更具体而言，推行人工智能政策的国家应同步推进云计算发展战略，并扩大及便利企业与创业者对云计算资源的获取渠道。云计算部署成本高昂，尤其对小型与初创企业而言负担沉重，而接入限制则可能阻碍人工智能的采纳及其高效发展。美国主要云服务提供商（如亚马逊云科技AWS与微软Azure）已面向初创企业和高校研究人员提供免费云积分支持（Marks，2018）。通过将"
+  },
+  {
+    "block_id": "p10_b173",
+    "page_idx": 10,
+    "order": 173,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b173_cap",
+    "page_idx": 10,
+    "order": 173,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 7 Hypothesis 2 (AI intensity with tech complements) interaction.",
+    "zh_text": "表7 假设2（人工智能强度与技术互补性）交互效应检验结果。"
+  },
+  {
+    "block_id": "p10_b173_fn",
+    "page_idx": 10,
+    "order": 173,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业所处发展阶段、公司估值、商业模式、企业成立年限、CEO性别、CEO年龄、CEO先前从业经验、企业类型以及ERP系统采用情况。初始年份控制变量包括企业规模和融资金额。控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和 10% 水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p10_b174",
+    "page_idx": 10,
+    "order": 174,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "cloud computing into national AI strategies, countries could help develop an ecosystem that enables productive AI adoption.",
+    "zh_text": "云计算纳入国家人工智能战略，各国可助力构建一个支持人工智能高效落地与应用的生态系统。"
+  },
+  {
+    "block_id": "p10_b175",
+    "page_idx": 10,
+    "order": 175,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Another key policy component is AI education and training. Currently, the demand for AI researchers far exceeds the supply, and the relatively few AI researchers are mostly recruited by larger tech companies at a high premium (Metz, 2017; Tilley, 2017). Younger and",
+    "zh_text": "另一项关键政策内容是人工智能教育与人才培养。当前，人工智能研究人员的需求远超供给，且为数不多的人工智能研究人员大多被大型科技公司以高额薪酬招揽（Metz，2017；Tilley，2017）。而规模较小、资历较浅的企业由于难以提供同等水平的薪资待遇，在人工智能采纳与商业化进程方面明显滞后。尤其当企业内部研发战略与人工智能采纳呈现互补关系时（正如本研究所揭示），具备扎实人工智能技术背景的专业人才供给，对于中小企业实现人工智能的高效应用至关重要。"
+  },
+  {
+    "block_id": "p11_b180",
+    "page_idx": 11,
+    "order": 180,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p11_b180_cap",
+    "page_idx": 11,
+    "order": 180,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 8 Hypothesis 3 (AI intensity with R&D) heterogeneity.",
+    "zh_text": "表8 假设3（人工智能强度与研发投入）异质性分析结果。"
+  },
+  {
+    "block_id": "p11_b180_fn",
+    "page_idx": 11,
+    "order": 180,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, database system, cloudcomputing adoption, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. \\*\\*\\*, \\*\\*, and \\* statistical significance at the  $1\\%$,  $5\\%$, and  $10\\%$ level.",
+    "zh_text": "注：基础控制变量包括企业所处发展阶段、公司估值、商业模式、企业成立年限、CEO性别、CEO年龄、CEO先前从业经验、企业类型、数据库系统、云计算采用情况以及ERP系统采用情况。初始年份控制变量包括企业规模和融资金额。控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在 $1\\%$、$5\\%$ 和 $10\\%$ 水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p11_b181",
+    "page_idx": 11,
+    "order": 181,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p11_b181_cap",
+    "page_idx": 11,
+    "order": 181,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Fig. 3. R&D complements.",
+    "zh_text": "图3. 研发互补性。"
+  },
+  {
+    "block_id": "p11_b182",
+    "page_idx": 11,
+    "order": 182,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "smaller firms that cannot afford to pay comparable wages to these skilled workers are falling behind in terms of AI adoption and commercialization. In particular, when the internal R&D strategy is complementary to AI adoption, as we find in our study, the supply of technical workers well versed in AI is critical for the productive use of AI by smaller firms.",
+    "zh_text": "无法承担同类高薪的小型与初创企业，在人工智能采纳与商业化进程中正逐渐落后。尤其当企业内部研发战略与人工智能采纳之间存在互补关系（如本研究所发现）时，具备扎实人工智能技术背景的专业人才供给，对于中小企业实现人工智能的高效应用至关重要。"
+  },
+  {
+    "block_id": "p11_b183",
+    "page_idx": 11,
+    "order": 183,
+    "type": "title",
+    "translatable": true,
+    "source_text": "6.1. Theoretical and managerial contributions",
+    "zh_text": "# 6.1 理论贡献与管理启示"
+  },
+  {
+    "block_id": "p11_b184",
+    "page_idx": 11,
+    "order": 184,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This study makes several contributions to the academic literature. First, we contribute to the expanding body of literature that examines the impact of AI. A large body of the AI literature focuses on the impact of AI on the labor market (Brynjolfsson et al., 2019; Felten et al., 2019; Webb, 2020). Researchers have started to examine firm and manager responses related to AI adoption but the literature is still quite nascent (Cuellar et al., 2022). Also, the literature takes on a sector-specific approach with several papers focusing on the financial sector (Fuster et al., 2019, 2020; Bartlett et al., 2019), and healthcare (Goldfarb et al., 2020; Eggleston et al., 2021). By investigating firm-level AI adoption and its implications for business performance, and by examining startups in a variety of high-tech industries, our paper contributes to the literature.",
+    "zh_text": "本研究对学术文献作出了若干重要贡献。首先，本文拓展了有关人工智能影响的日益丰富的研究文献。现有大量人工智能相关文献聚焦于人工智能对劳动力市场的影响（Brynjolfsson等，2019；Felten等，2019；Webb，2020）。学者们虽已开始关注企业及管理者在人工智能采纳方面的响应行为，但该领域研究仍处于起步阶段（Cuellar等，2022）。此外，既有文献多采取行业特定视角，其中若干论文集中探讨金融行业（Fuster等，2019，2020；Bartlett等，2019）与医疗健康行业（Goldfarb等，2020；Eggleston等，2021）。本文则从企业层面切入，考察人工智能采纳行为及其对企业绩效的影响，并聚焦于多个高科技领域的初创企业，从而丰富并拓展了该研究脉络。"
+  },
+  {
+    "block_id": "p11_b185",
+    "page_idx": 11,
+    "order": 185,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Second, our finding contributes to the rich literature that discusses the delayed productivity benefits of new technologies (i.e., J-Curve",
+    "zh_text": "其次，本研究发现进一步深化了关于新技术应用后生产率提升存在滞后现象（即“J型曲线效应”）"
+  },
+  {
+    "block_id": "p11_b186",
+    "page_idx": 11,
+    "order": 186,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p11_b186_cap",
+    "page_idx": 11,
+    "order": 186,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 9 Hypothesis 3 (AI intensity with R&D) interaction.",
+    "zh_text": "表9 假设3（人工智能强度与研发投入）交互效应检验结果。"
+  },
+  {
+    "block_id": "p11_b186_fn",
+    "page_idx": 11,
+    "order": 186,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, database system, cloud-computing adoption, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业所处发展阶段、公司估值、商业模式、企业成立年限、CEO性别、CEO年龄、CEO先前从业经验、企业类型、数据库系统、云计算采用情况以及ERP系统采用情况。初始年份控制变量包括企业规模和融资金额。控制变量还包括12个行业的固定效应与3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和 10% 水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p11_b187",
+    "page_idx": 11,
+    "order": 187,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "effect) and the importance of complementarities when adopting new technologies (Brynolfsson, 1993; David, 1990; Brynjolfsson et al., 2019; Chung and Lee, 2022). We show that similar patterns emerge for AI, the newest GPT, and that the delayed productivity gains from AI can be moderated by complementary technologies and R&D strategy. This is",
+    "zh_text": "以及新技术采纳过程中互补性要素重要性的经典文献（Brynjolfsson，1993；David，1990；Brynjolfsson等，2019；Chung与Lee，2022）。本文表明，作为最新一代通用目的技术（GPT），人工智能同样呈现出类似模式；而人工智能所引发的生产率提升滞后现象，可通过配套技术（如云计算）与研发战略予以缓解。这一结论"
+  },
+  {
+    "block_id": "p12_b191",
+    "page_idx": 12,
+    "order": 191,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p12_b191_cap",
+    "page_idx": 12,
+    "order": 191,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 10 Possible mechanisms.",
+    "zh_text": "表10 可能的作用机制。"
+  },
+  {
+    "block_id": "p12_b191_fn",
+    "page_idx": 12,
+    "order": 191,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Notes: Base controls include business stages, firm valuation, business model, firm age, CEO gender, CEO age, CEO's prior experience, firm type, database system, cloud-computing adoption, and ERP adoption. Initial-year controls include firm size and the amount of funding. The control variables include fixed effects for 12 industries and 3 regions. Robust standard errors are in parentheses. ***, **, and * statistical significance at the 1%, 5%, and 10% level.",
+    "zh_text": "注：基础控制变量包括企业所处发展阶段、企业估值、商业模式、企业成立年限、CEO性别、CEO年龄、CEO先前从业经验、企业类型、数据库系统、云计算采纳情况以及ERP系统采纳情况；初始年份控制变量包括企业规模与融资金额。控制变量还包括12个行业的固定效应和3个地区的固定效应。括号内为稳健标准误。***、** 和 * 分别表示在1%、5% 和10% 水平上具有统计显著性。"
+  },
+  {
+    "block_id": "p12_b192",
+    "page_idx": 12,
+    "order": 192,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "consistent with the literature that finds that the productivity benefits of new GPTs often do not appear in the initial stages of adoption but appear in the later stages of adoption when complementary technological investments or intangible investments in R&D strategies or organizational changes are made (Jovanovic and Rousseau, 2005; Bresnahan, 2010; Majumdar et al., 2010). Considering that many firms are still at the relatively early stages of AI adoption, it should not come as a surprise that the benefits of AI may not be apparent in the productivity statistics.",
+    "zh_text": "这与既有文献一致，相关研究指出，通用目的技术（GPT）在采纳初期往往难以显现生产率提升效应，而需待后续阶段——当企业同步开展互补性技术投资，或进行无形资产层面的研发战略调整与组织变革时，其生产率收益才逐步显现（Jovanovic and Rousseau, 2005; Bresnahan, 2010; Majumdar et al., 2010）。鉴于当前众多企业仍处于人工智能采纳的相对早期阶段，人工智能带来的生产率提升尚未在统计数据中显现，实属意料之中。"
+  },
+  {
+    "block_id": "p12_b193",
+    "page_idx": 12,
+    "order": 193,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Relatedly, our study also has practical managerial implications. Our findings suggest that when managers adopt and utilize AI, they might not observe immediate benefits from the technology, but rather see delayed productivity benefits. Managers may need to have some patience to eventually reap concrete benefits from their AI investments. Managers also need to understand that investment in AI alone may not be sufficient and that they need to consider complementary investments in data systems and cloud computing, as well as realign the direction of their R&D with AI investment. Our findings offer guidance to managers who face budget constraints and need to decide which complementary investments to make.",
+    "zh_text": "与此相关，本研究亦具有重要的管理实践启示意义。我们的研究结果表明，管理者在引入并应用人工智能技术时，可能无法立即观察到技术所带来的效益，而更可能经历一段滞后期后方能收获切实的生产率提升。因此，管理者需具备一定耐心，以最终实现人工智能投资的实质性回报。此外，管理者还需认识到，仅对人工智能本身进行投资可能并不充分；他们还需统筹考虑在数据系统与云计算等领域的互补性投入，并相应调整研发方向，使之与人工智能投资战略相协同。本研究结果可为面临预算约束、亟需决策应优先配置哪些互补性资源的管理者提供实践指导。"
+  },
+  {
+    "block_id": "p12_b194",
+    "page_idx": 12,
+    "order": 194,
+    "type": "title",
+    "translatable": true,
+    "source_text": "6.2. Limitations and future research",
+    "zh_text": "# 6.2 局限性与未来研究方向"
+  },
+  {
+    "block_id": "p12_b195",
+    "page_idx": 12,
+    "order": 195,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Our study is not without limitations, and future research can build upon our findings. First, we consider AI the combination of specific learning algorithms (NLP, CV, and ML) with respect to technology, because of the nature of our research question. However, future studies can investigate the effects of different aspects of AI; for example, they could examine which types of AI are \"human-enhancing innovations\" and which are \"human-replacing innovations\" (Trajtenberg, 2019). Alternatively, future research can examine the different applications of AI across different industries. The major innovations in AI in business are not in refining existing algorithms to perform slightly better than the previous iterations, but in how those algorithms are applied to businesses. In fact, most patents related to AI are related to how the technology is applied (Webb, 2020). Hence, future studies can examine the productivity benefits based on different AI applications in different industries (e.g., Simon, 2019). The literature has made headway in some sectors, such as finance (Fuster et al., 2019, 2020; Bartlett et al., 2019), but analysis has yet to catch up to many more areas of AI application.",
+    "zh_text": "本研究并非毫无局限，未来研究可在本研究基础上进一步拓展。首先，受限于本研究问题的性质，我们在技术维度上将人工智能界定为若干特定学习算法（自然语言处理NLP、计算机视觉CV与机器学习ML）的组合。然而，未来研究可深入探讨人工智能不同维度的影响；例如，可辨析哪些类型的人工智能属于“增强人类能力的创新”，而哪些则属于“替代人类功能的创新”（Trajtenberg, 2019）。又或者，未来研究可考察人工智能在不同行业中的差异化应用场景。事实上，商业领域中人工智能的重大创新，并不在于持续精炼既有算法以使其性能略优于前代，而在于如何将这些算法创造性地应用于具体商业实践。正如此，与人工智能相关的大多数专利，其核心内容均聚焦于技术的具体应用方式（Webb, 2020）。因此，未来研究可基于不同行业背景，围绕人工智能的不同应用场景（如Simon, 2019），系统评估其生产率提升效应。目前，部分领域（如金融行业）已有一定进展（Fuster et al., 2019, 2020; Bartlett et al., 2019），但针对更多人工智能应用领域的实证分析仍显不足。"
+  },
+  {
+    "block_id": "p12_b197",
+    "page_idx": 12,
+    "order": 197,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Second, we find technology investment and R&D strategy to be the most relevant complementarities to AI adoption in our data. However, our survey-based measurement of AI adoption has limitations in what it can encapsulate. A better measurement of AI implementation ideally would encompass aspects related to data quality, management, curation, and network capabilities. Consequently, a different measurement of AI could find other complementarities as well. We note this as an area for future improvement. In addition, other intangible investments, especially those related to human resource management, business organization, production strategy, and so on, may also be more salient complementarities in different contexts. A fruitful next step would be to study other firms (e.g., listed firms, firms in developing countries) and other potential complementarities, such as financial capabilities, human resource management and organizational structure, culture, and practices (Chatterjee et al., 2020a,b; Powell and Dent-Micallef, 1997; Bennett and Levinthal, 2017).",
+    "zh_text": "其次，在本研究样本中，我们发现技术投资与研发战略是人工智能采纳最具相关性的互补性因素。然而，本研究所采用的基于问卷调查的人工智能采纳测量方法存在固有局限，难以全面涵盖人工智能实施的全部内涵。理想的人工智能实施测量应同时涵盖数据质量、数据管理、数据治理及网络能力等多个维度。因此，若采用更为精细的人工智能测量指标，或许还能识别出其他类型的互补性因素。我们将此列为未来研究亟待改进的方向之一。此外，其他无形资产投资——尤其是与人力资源管理、企业组织架构、生产战略等相关方面的投资——在不同情境下也可能展现出更强的互补性。一个富有前景的后续研究方向是：面向其他类型企业（例如上市公司、发展中国家的企业）开展研究，并考察诸如财务能力、人力资源管理与组织结构、企业文化与实践等潜在互补性因素（Chatterjee et al., 2020a,b; Powell and Dent-Micallef, 1997; Bennett and Levinthal, 2017）。"
+  },
+  {
+    "block_id": "p12_b198",
+    "page_idx": 12,
+    "order": 198,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Lastly, the impact of AI will likely evolve over time and become more nuanced. AI as a GPT is still in its nascent stage. In this paper, we examine its performance benefits at high-tech ventures in Korea. As Agrawal et al. (2018) underscore, AI is primarily a prediction machine, and our analysis is based on an AI system whose primary role in business is to assist managers and workers through prediction. However, the application of AI will become more widespread and diverse and have already started to permeate into non-business contexts, such as in governments, schools, and hospitals. Thus, future research on the impact of AI in non-business sectors would further contribute to our overall understanding of the impact of AI.",
+    "zh_text": "最后，人工智能的影响将随时间推移而不断演化，并日趋复杂化。作为一项通用目的技术（GPT），人工智能尚处于发展初期。本文聚焦于韩国高科技创业企业的绩效收益分析。正如Agrawal等（2018）所强调，人工智能本质上是一种“预测机器”，而本文的分析亦建立在这样一种前提之上：即人工智能在企业中的主要作用是通过提升预测能力来辅助管理者与员工决策。然而，人工智能的应用范围正日益广泛且多样化，并已开始渗透至非商业领域，例如政府机构、学校与医院等。因此，未来针对人工智能在非商业部门影响的研究，将进一步深化我们对人工智能整体社会经济影响的系统性理解。"
+  },
+  {
+    "block_id": "p12_b199",
+    "page_idx": 12,
+    "order": 199,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Author contributions",
+    "zh_text": "# 作者贡献"
+  },
+  {
+    "block_id": "p12_b200",
+    "page_idx": 12,
+    "order": 200,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "All authors contributed equally to the research design, analysis, and writing of the paper.",
+    "zh_text": "所有作者均同等参与了本研究的设计、分析与论文撰写工作。"
+  },
+  {
+    "block_id": "p12_b201",
+    "page_idx": 12,
+    "order": 201,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Declaration of interest statement",
+    "zh_text": "# 利益声明"
+  },
+  {
+    "block_id": "p12_b202",
+    "page_idx": 12,
+    "order": 202,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The authors of this paper have no interest to declare.",
+    "zh_text": "本文作者无任何需要声明的利益关系。"
+  },
+  {
+    "block_id": "p12_b203",
+    "page_idx": 12,
+    "order": 203,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Acknowledgements",
+    "zh_text": "# 致谢"
+  },
+  {
+    "block_id": "p12_b204",
+    "page_idx": 12,
+    "order": 204,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We thank Scott Stern and Chuck Eesley for their comments at the early stages of this project. We thank Hyun Soo Kim of Hankook Research for implementing the survey. Guijung Kim provided excellent research assistance. This research was supported by the Keough School of Global Affairs at University of Notre Dame the Freeman Spogli Institute for International Studies at Stanford University, the Ministry of Education of the Republic of Korea and the National Research Foundation of Korea (NRF-2021R1A6A1A14045741).",
+    "zh_text": "我们衷心感谢Scott Stern与Chuck Eesley在本项目早期阶段提出的宝贵意见。感谢韩科院（Hankook Research）的金贤洙（Hyun Soo Kim）协助开展问卷调查工作。金圭贞（Guijung Kim）提供了出色的研究支持。本研究获得以下机构资助：美国圣母大学凯奥赫全球事务学院（Keough School of Global Affairs at University of Notre Dame）、斯坦福大学弗里曼·斯波格利国际问题研究所（Freeman Spogli Institute for International Studies at Stanford University）、韩国教育部（Ministry of Education of the Republic of Korea）以及韩国国家研究基金会（National Research Foundation of Korea, NRF-2021R1A6A1A14045741）。"
+  },
+  {
+    "block_id": "p12_b205",
+    "page_idx": 12,
+    "order": 205,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Appendix A. Supplementary data",
+    "zh_text": "# 附录A：补充数据"
+  },
+  {
+    "block_id": "p12_b206",
+    "page_idx": 12,
+    "order": 206,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Supplementary data to this article can be found online at https://doi.org/10.1016/j.technovation.2022.102590.",
+    "zh_text": "本文的补充数据可在线获取：https://doi.org/10.1016/j.technovation.2022.102590。"
+  },
+  {
+    "block_id": "p12_b207",
+    "page_idx": 12,
+    "order": 207,
+    "type": "title",
+    "translatable": true,
+    "source_text": "References",
+    "zh_text": "# 参考文献"
+  },
+  {
+    "block_id": "p12_b208",
+    "page_idx": 12,
+    "order": 208,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Acemoglu, D., Autor, D., Hazell, J., Restrepo, P., 2020. AI and Jobs: Evidence from Online Vacancies. NBER Working Paper 28257.\nAcemoglu, D., Restrepo, P., 2018. Artificial Intelligence, Automation and Work. No. W24196. National Bureau of Economic Research.\nAghion, P., Antonin, C., Bunel, S., 2019. Artificial intelligence, growth and employment: the role of policy. Econ. Stat. 510 (1), 149-164.\nAgrawal, A., Gans, J., Goldfarb, A., 2016. The Obama administration's roadmap for AI policy. Harv. Bus. Rev. https://hbr.org/2016/12/the-obama-administrations-roadmap-for-ai-policy/.\nAgrawal, A., Gans, J., Goldfarb, A., 2018. Prediction Machines: the Simple Economics of Artificial Intelligence. Harvard Business Press, Boston.",
+    "zh_text": "- Acemoglu, D., Autor, D., Hazell, J., Restrepo, P., 2020. 人工智能与就业：来自在线招聘启事的证据。NBER 工作论文第 28257 号。  \n- Acemoglu, D., Restrepo, P., 2018. 人工智能、自动化与工作。工作论文编号 W24196。美国国家经济研究局（NBER）。  \n- Aghion, P., Antonin, C., Bunel, S., 2019. 人工智能、增长与就业：政策的作用。《经济与统计》第 510 卷第 1 期，第 149–164 页。  \n- Agrawal, A., Gans, J., Goldfarb, A., 2016. 奥巴马政府的人工智能政策路线图。《哈佛商业评论》。https://hbr.org/2016/12/the-obama-administrations-roadmap-for-ai-policy/  \n- Agrawal, A., Gans, J., Goldfarb, A., 2018. 预测机器：人工智能的简单经济学。哈佛商业出版社，波士顿。"
+  },
+  {
+    "block_id": "p13_b212",
+    "page_idx": 13,
+    "order": 212,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Agrawal, A., Gans, J.S., Goldfarb, A., 2019. Artificial intelligence: the ambiguous labor market impact of automating prediction. J. Econ. Perspect. 33 (2), 31-50.\nAlekseeva, L., Azar, J., Gine, M., Samila, S., Taska, B., 2021. The demand for AI skills in the labor market. Lab. Econ. 71, 102002.\nAral, Sinan, Brynjolfsson, Erik, Wu, Lynn, 2012. Three-way complementarities: performance pay, human resource analytics, and information technology. Manag. Sci. 58 (5), 913-931.\nArora, A., Forman, C., Yoon, J.W., 2010. Complementarity and information technology adoption: local area networks and the Internet. Inf. Econ. Pol. 22 (3), 228-242.\nAtkeson, A., Kehoe, P., 1993. Industry Evolution and Transition: the Role of Information Capital. Federal Reserve Bank of Minneapolis. Staff Report No. 162.\nAugereau, A., Greenstein, S., 2001. The need for speed in emerging communications markets: upgrades to advanced technology at internet service providers. Int. J. Ind. Organ. 19 (7), 1085-1102.\nBartlett, R., Morse, A., Stanton, R., Wallace, N., 2019. Consumer-lending Discrimination in the FinTech Era. National Bureau of Economic Research. No. w25943.\nBeede, D., et al., 2020. Measuring Technology Adoption in Enterprise-Level Surveys: the Annual Business Survey. American Economic Association, San Diego.\nBennett, V.M., Levinthal, D.A., 2017. Firm lifecycles: linking employee incentives and firm growth dynamics. Strat. Manag. J. 38 (10), 2005-2018.\nBeraja, M., Yang, D.Y., Bó, E.D., Enikolopov, R., Freeman, R., Neumeyer, A., Nicolini, J. P., Petrova, M., 2020. Data-intensive Innovation and the State: Evidence from AI Firms in China. NBER Working Paper 27723.\nBloom, N., Van Reenen, J., 2010. Why do management practices differ across firms and countries? J. Econ. Perspect. 24 (1), 203-224.\nBresnahan, T., 2010. General purpose technologies. In: Handbook of the Economics of Innovation, vol. 2. North-Holland, Amsterdam, pp. 761-791.\nBresnahan, T.F., Greenstein, S., 1999. Technological competition and the structure of the computer industry. J. Ind. Econ. 47 (1), 1-40.\nBresnahan, T.F., Trajtenberg, M., 1996. General purpose technologies \"engines of growth\". J. Econom. 65 (1), 83-108.\nBrynolfsson, E., 1993. The productivity paradox of information technology. Commun. ACM 36 (12), 66-77.\nBrynjolfsson, E., Mitchell, T., 2017. What can machine learning do? Workforce implications. Science 358 (6370), 1530-1534.\nBrynolfsson, E., Rock, D., Syverson, C., 2019. Artificial Intelligence and the Modern Productivity Paradox: A Clash of Expectations and Statistics. No. W24001. National Bureau of Economic Research.\nBrynolfsson, E., Rock, D., Syverson, C., 2021. The productivity J-curve: how intangibles complement general purpose technologies. Am. Econ. J. Macroecon. 13 (1), 333-372.\nCao, L., 2021. Artificial intelligence in retail: applications and value creation logics. Int. J. Retail Distrib. Manag. 49, 958-976.\nCassiman, B., Veugelers, R., 2006. In search of complementarity in innovation strategy: internal R&D and external knowledge acquisition. Manag. Sci. 52 (1), 68-82.\nChalmers, D., MacKenzie, N.G., Carter, S., 2020. Artificial intelligence and entrepreneurship: implications for venture creation in the fourth industrial revolution. Enterpren. Theor. Pract. 1-26.\nChatterjee, S., 2020. AI strategy of India: policy framework, adoption challenges and actions for government. Transforming Gov. People, Process Policy 14, 757-775.\nChatterjee, S., Chaudhuri, R., Vronis, A., 2020a. Does data-driven culture impact innovation and performance of a firm? An empirical examination. Annals of Operational Research. https://doi.org/10.1007/s10479-020-03887-z (in press).\nChatterjee, S., Ghosh, S.K., Chaudhuri, R., Chaudhuri, S., 2020b. Adoption of AI-integrated CRM system by Indian industry: from security and privacy perspective. Inf. Comput. Secur. 29, 1-24. https://doi.org/10.1108/ICS-02-2019-0029.\nChatterjee, S., Sreenivasulu, N.S., 2019. Personal data sharing and legal issues of human rights in the era of artificial intelligence: moderating effect of government regulation. Int. J. Electron. Govern. Res. 15 (3), 21-36.\nChen, P.Y., Forman, C., 2006. Can vendors influence switching costs and compatibility in an environment with open standards? MIS Q. 30, 541-562, 2006.\nChung, J., Lee, Y., 2022. The Evolving Impact of Robots on Jobs. Keough School Working Paper.\nChoi, S., Kim, N., Kim, J., Kang, H. How does AI improve human decision-making? Evidence from the AI-powered Go program (July 26, 2021). Available at SSRN: http://ssrn.com/abstract=3893835.\nCockburn, I., Henderson, R., Stern, S., 2019. 4. The impact of artificial intelligence on innovation: an exploratory analysis. In: Agrawal, A., Gans, J., Goldfarb, A. (Eds.), The Economics of Artificial Intelligence: an Agenda. University of Chicago Press, Chicago, pp. 115-148. https://doi.org/10.7208/9780226613475-006.\nCohen, W.M., Levinthal, D.A., 1989. Innovation and learning: the two faces of R&D. Econ. J. 99 (397), 569-596.\nCowgill, B., 2019. Bias and Productivity in Humans and Machines. Columbia Business School Research Paper.\nCuéllar, M-F., Larsen, B., Lee, Y.S., Webb, M., 2022. Does information about AI regulation change manager evaluation of ethical concerns and intent to adopt AI? Journal of Law, Economics, and Organization. https://doi.org/10.1093/jleo/ewac004.\nDavid, P., 1990. The dynamo and the computer: an historical perspective on the modern productivity paradox. Am. Econ. Rev. 80 (2), 355-361.\nDavid, P., 1991. Computer and dynamo: the modern productivity paradox in a not-too-distant mirror. In: Technology and Productivity: the Challenge for Economic Policy. OECD, Paris, pp. 315-347.\nDeloitte, 2018. In: State of AI in the Enterprise, 2d ed. www.deloitte.com/insights/s_tateofai/.",
+    "zh_text": "- 阿格拉瓦尔（Agrawal, A.）、甘斯（Gans, J.S.）、戈德法布（Goldfarb, A.），2019。《人工智能：自动化预测对劳动力市场的模糊影响》。《经济展望杂志》（*Journal of Economic Perspectives*）第33卷第2期，第31–50页。  \n- 阿列克谢耶娃（Alekseeva, L.）、阿扎尔（Azar, J.）、希内（Gine, M.）、萨米拉（Samila, S.）、塔斯卡（Taska, B.），2021。《劳动力市场对人工智能技能的需求》。《劳动经济学》（*Labour Economics*）第71卷，102002。  \n- 阿拉尔（Aral, Sinan）、布林约尔松（Brynjolfsson, Erik）、吴（Wu, Lynn），2012。《三方互补性：绩效薪酬、人力资源分析与信息技术》。《管理科学》（*Management Science*）第58卷第5期，第913–931页。  \n- 阿罗拉（Arora, A.）、福尔曼（Forman, C.）、尹（Yoon, J.W.），2010。《互补性与信息技术采纳：局域网与互联网》。《信息经济学与政策》（*Information Economics and Policy*）第22卷第3期，第228–242页。  \n- 阿特金森（Atkeson, A.）、凯霍（Kehoe, P.），1993。《产业演化与转型：信息资本的作用》。明尼阿波利斯联邦储备银行工作人员报告第162号（Staff Report No. 162）。  \n- 奥热罗（Augereau, A.）、格林斯坦（Greenstein, S.），2001。《新兴通信市场对速度的需求：互联网服务提供商向先进技术的升级》。《产业组织国际杂志》（*International Journal of Industrial Organization*）第19卷第7期，第1085–1102页。  \n- 巴特利特（Bartlett, R.）、莫尔斯（Morse, A.）、斯坦顿（Stanton, R.）、华莱士（Wallace, N.），2019。《金融科技时代的消费者信贷歧视》。美国国家经济研究局工作论文第w25943号（NBER Working Paper No. w25943）。  \n- 比德（Beede, D.）等，2020。《在企业级调查中衡量技术采纳：年度商业调查》（*Measuring Technology Adoption in Enterprise-Level Surveys: the Annual Business Survey*）。美国经济学会（American Economic Association），圣地亚哥。  \n- 本内特（Bennett, V.M.）、莱文塔尔（Levinthal, D.A.），2017。《企业生命周期：连接员工激励与企业增长动态》。《战略管理杂志》（*Strategic Management Journal*）第38卷第10期，第2005–2018页。  \n- 贝拉哈（Beraja, M.）、杨（Yang, D.Y.）、博（Bó, E.D.）、恩尼科洛波夫（Enikolopov, R.）、弗里曼（Freeman, R.）、纽迈耶（Neumeyer, A.）、尼科利尼（Nicolini, J.P.）、佩特罗娃（Petrova, M.），2020。《数据密集型创新与国家：来自中国人工智能企业的证据》。美国国家经济研究局工作论文第27723号（NBER Working Paper 27723）。  \n- 布鲁姆（Bloom, N.）、范·雷南（Van Reenen, J.），2010。《为何企业管理实践在不同企业与国家间存在差异？》。《经济展望杂志》（*Journal of Economic Perspectives*）第24卷第1期，第203–224页。  \n- 布雷斯纳汉（Bresnahan, T.），2010。《通用目的技术》。载于：《创新经济学手册》（*Handbook of the Economics of Innovation*）第2卷，北荷兰出版社（North-Holland），阿姆斯特丹，第761–791页。  \n- 布雷斯纳汉（Bresnahan, T.F.）、格林斯坦（Greenstein, S.），1999。《技术竞争与计算机产业的结构》。《产业经济学杂志》（*Journal of Industrial Economics*）第47卷第1期，第1–40页。  \n- 布雷斯纳汉（Bresnahan, T.F.）、特拉滕贝格（Trajtenberg, M.），1996。《通用目的技术：“增长引擎”》。《计量经济学杂志》（*Journal of Econometrics*）第65卷第1期，第83–108页。  \n- 布林约尔松（Brynolfsson, E.），1993。《信息技术的生产率悖论》。《美国计算机学会通讯》（*Communications of the ACM*）第36卷第12期，第66–77页。  \n- 布林约尔松（Brynolfsson, E.）、米切尔（Mitchell, T.），2017。《机器学习能做什么？对劳动力的影响》。《科学》（*Science*）第358卷第6370期，第1530–1534页。  \n- 布林约尔松（Brynolfsson, E.）、洛克（Rock, D.）、西弗森（Syverson, C.），2019。《人工智能与现代生产率悖论：期望与统计之间的冲突》。美国国家经济研究局工作论文第W24001号（NBER Working Paper No. W24001）。  \n- 布林约尔松（Brynolfsson, E.）、洛克（Rock, D.）、西弗森（Syverson, C.），2021。《生产率J型曲线：无形资产如何补充通用目的技术》。《美国经济杂志：宏观经济学》（*American Economic Journal: Macroeconomics*）第13卷第1期，第333–372页。  \n- 曹（Cao, L.），2021。《人工智能在零售业中的应用及价值创造逻辑》。《国际零售与分销管理杂志》（*International Journal of Retail & Distribution Management*）第49卷，第958–976页。  \n- 卡西曼（Cassiman, B.）、韦格尔尔斯（Veugelers, R.），2006。《创新战略中互补性的探索：内部研发与外部知识获取》。《管理科学》（*Management Science*）第52卷第1期，第68–82页。  \n- 查尔默斯（Chalmers, D.）、麦肯齐（MacKenzie, N.G.）、卡特（Carter, S.），2020。《人工智能与创业：第四次工业革命中创业活动的启示》。《创业理论与实践》（*Entrepreneurship Theory and Practice*），第1–26页。  \n- 查特吉（Chatterjee, S.），2020。《印度的人工智能战略：政策框架、采纳挑战与政府行动》。《变革型治理：人、流程与政策》（*Transforming Government: People, Process and Policy*）第14卷，第757–775页。  \n- 查特吉（Chatterjee, S.）、乔杜里（Chaudhuri, R.）、弗罗尼斯（Vronis, A.），2020a。《数据驱动型文化是否影响企业的创新与绩效？一项实证检验》。《运筹学年刊》（*Annals of Operations Research*）。https://doi.org/10.1007/s10479-020-03887-z（即将出版）。  \n- 查特吉（Chatterjee, S.）、高什（Ghosh, S.K.）、乔杜里（Chaudhuri, R.）、乔杜里（Chaudhuri, S.），2020b。《印度产业对人工智能集成客户关系管理系统（CRM）的采纳：基于安全与隐私视角的分析》。《信息与计算机安全》（*Information and Computer Security*）第29卷，第1–24页。https://doi.org/10.1108/ICS-02-2019-0029。  \n- 查特吉（Chatterjee, S.）、斯瑞尼瓦苏鲁（Sreenivasulu, N.S.），2019。《人工智能时代下的个人数据共享与人权法律问题：政府监管的调节效应》。《电子政务研究国际杂志》（*International Journal of Electronic Governance*）第15卷第3期，第21–36页。  \n- 陈（Chen, P.Y.）、福尔曼（Forman, C.），2006。《在开放标准环境下，供应商能否影响转换成本与兼容性？》。《管理信息系统季刊》（*MIS Quarterly*）第30卷，第541–562页，2006。  \n- 崔（Chung, J.）、李（Lee, Y.），2022。《机器人对就业的演变性影响》。基奥奇学院工作论文（Keough School Working Paper）。  \n- 崔（Choi, S.）、金（Kim, N.）、金（Kim, J.）、康（Kang, H.）。《人工智能如何提升人类决策能力？来自人工智能驱动围棋程序的证据》（2021年7月26日）。SSRN 可获取：http://ssrn.com/abstract=3893835。  \n- 科克伯恩（Cockburn, I.）、亨德森（Henderson, R.）、斯特恩（Stern, S.），2019。《人工智能对创新的影响：一项探索性分析》。载于：阿格拉瓦尔（Agrawal, A.）、甘斯（Gans, J.）、戈德法布（Goldfarb, A.）（编）：《人工智能经济学：一项议程》（*The Economics of Artificial Intelligence: an Agenda*），芝加哥大学出版社（University of Chicago Press），芝加哥，第115–148页。https://doi.org/10.7208/9780226613475-006。  \n- 科恩（Cohen, W.M.）、莱文塔尔（Levinthal, D.A.），1989。《创新与学习：研发的双重面向》。《经济杂志》（*Economic Journal*）第99卷第397期，第569–596页。  \n- 科格威尔（Cowgill, B.），2019。《人类与机器中的偏见与生产率》。哥伦比亚商学院研究论文（Columbia Business School Research Paper）。  \n- 奎利亚尔（Cuéllar, M-F.）、拉尔森（Larsen, B.）、李（Lee, Y.S.）、韦伯（Webb, M.），2022。《有关人工智能监管的信息是否会改变管理者对伦理问题的评估及其采用人工智能的意愿？》。《法律、经济学与组织杂志》（*Journal of Law, Economics, and Organization*）。https://doi.org/10.1093/jleo/ewac004。  \n- 戴维（David, P.），1990。《发电机与计算机：现代生产率悖论的历史视角》。《美国经济评论》（*American Economic Review*）第80卷第2期，第355–361页。  \n- 戴维（David, P.），1991。《计算机与发电机：一面并不遥远的镜子中的现代生产率悖论》。载于：《技术与生产率：经济政策面临的挑战》（*Technology and Productivity: the Challenge for Economic Policy*），经合组织（OECD），巴黎，第315–347页。  \n- 德勤（Deloitte），2018。《企业中人工智能现状》，第二版。网址：www.deloitte.com/insights/stateofai/。"
+  },
+  {
+    "block_id": "p13_b213",
+    "page_idx": 13,
+    "order": 213,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Duffy, J., Papageorgiou, C., Perez-Sebastian, F., 2004. Capital-skill complementarity? Evidence from a panel of countries. Rev. Econ. Stat. 86 (1), 327-344.\nEckhardt, J.T., Shane, S.A., 2011. Industry changes in technology and complementary assets and the creation of high-growth firms. J. Bus. Ventur. 26 (4), 412-430.\nEesley, C., Lee, Y.S., 2020. Do university entrepreneurship programs promote entrepreneurship? Strat. Manag. J. 42 (4), 833-861.\nEggleston, K., Lee, Y.S., Iizuka, T., 2021. Robots and Labor in the Service Sector: Evidence from Nursing Homes. NBER Working Paper 28322.\nFarboodi, M., Mihet, R., Philippon, T., Veldkamp, L., 2019. Big data and firm dynamics. In: AEA Papers and Proceedings, vol. 109, pp. 38-42.\nFelten, E.W., Raj, M., Seamans, R., 2019. The Occupational Impact of Artificial Intelligence: Labor, Skills, and Polarization. NYU Stern School of Business. Available at SSRN: https://ssrn.com/abstract=3368605.\nFranck, R., Galor, O., 2017. Technology-skill Complementarity in Early Phases of Industrialization. National Bureau of Economic Research. No. w23197.\nFuster, A., Goldsmith-Pinkham, P., Ramadorai, T., Walther, A., 2020. Predictably Unequal? the Effects of Machine Learning on Credit Markets: the Effects of Machine Learning on Credit Markets. Working paper.\nFuster, A., Plosser, M., Schnabl, P., Vickery, J., 2019. The role of technology in mortgage lending. Rev. Financ. Stud. 32 (5), 1854-1899.\nGoldfarb, A., Taska, B., Teodoridis, F., 2019. Could machine learning be a general purpose technology? A comparison of emerging technologies using data from online job postings (No. w29767). National Bureau of Economic Research.\nGoldfarb, A., Taska, B., Teodoridis, F., 2020. Artificial intelligence in health care? Evidence from online job postings. AEA Papers and Proceedings 110, 400-404\nGoldin, C., Katz, L.F., 1998. The origins of technology-skill complementarity. Q. J. Econ. 113 (3), 693-732.\nGreenwood, J., Yorukoglu, M., 1997, June. 1974. In Carnegie-Rochester Conference Series on Public Policy, vol. 46. North-Holland, Amsterdam, pp. 49-95.\nGriffith, R., Redding, S., Reenen, J.V., 2004. Mapping the two faces of R&D: productivity growth in a panel of OECD industries. Rev. Econ. Stat. 86 (4), 883-895.\nGriliches, Z., 1969. Capital-skill complementarity. Rev. Econ. Stat. 51 (4), 465-468.\nGulshan, V., Peng, L., Coram, M., Stumpe, M.C., Wu, D., Narayanaswamy, A., et al., 2016. Development and validation of a deep learning algorithm for detection of diabetic retinopathy in retinal fundus photographs. JAMA 316 (22), 2402-2410.\nHentzen, J.K., Hoffmann, A., Dolan, R., Pala, E., 2021. Artificial intelligence in customer-facing financial services: a systematic literature review and agenda for future research. Int. J. Bank Market. https://doi.org/10.1108/JBM-09-2021-0417.\nHitt, L.M., Brynjolfsson, E., 1997. Information technology and internal firm organization: an exploratory analysis. J. Manag. Inf. Syst. 14 (2), 81-101.\nHornstein, A., Krusell, P., 1996. Can technology improvements cause productivity slowdowns? NBER Macroecon. Annu. 11, 209-259.\nIandola, F.N., Shaw, A.E., Krishna, R., Keutzer, K.W., 2020. SqueezeBERT: What can computer vision teach NLP about efficient neural networks? arXiv preprint arXiv. 2006.11316.\nJovanovic, B., Nyarko, Y., 1994. Learning by Doing and the Choice of Technology. National Bureau of Economic Research. No. w4739.\nJovanovic, B., Rousseau, P.L., 2005. General purpose technologies. In: Aghion, P., Durlauf, S. (Eds.), Handbook of Economic Growth, vol. 1. Elsevier, Amsterdam, pp. 1181-1224.\nKim, T., Park, Y., Kim, W., 2021. Artificial intelligence and firm performance, 1. In: Academy of Management Proceedings, vol. 2021. Academy of Management, 14361. Briarcliff Manor, NY 10510.\nKlinger, J., Mateos-Garcia, J.C., Stathoulopoulos, K., 2018. Deep Learning, Deep Change? Mapping the Development of the Artificial Intelligence General Purpose Technology. Available at SSRN: https://ssrn.com/abstract=3233463.\nKretschmer, T., 2005. Competing Technologies in the Database Management Systems Market. Available at SSRN: https://ssrn.com/abstract=850505.\nLee, Y., 2018. Government guaranteed small business loans and regional growth. J. Bus. Ventur. 33 (1), 70-83.\nLindquist, M.J., Sol, J., Van Praag, M., 2015. Why do entrepreneurial parents have entrepreneurial children? J. Labor Econ. 33 (2), 269-296.\nLou, B., Wu, Lynn, 2020. Artificial Intelligence on Drugs: A Large-Scale Examination of AI and Drug Innovation. Available at SSRN: https://ssrn.com/abstract=3524985.\nMajumdar, S.K., Carare, O., Chang, H., 2010. Broadband adoption and firm productivity: evaluating the benefits of general purpose technology. Ind. Corp. Change 19 (3), 641-674.\nManser Payne, E.H., Dahl, A.J., Peltier, J., 2021. Digital servitization value co-creation framework for AI services: a research agenda for digital transformation in financial service ecosystems. J. Res. Interact. Mark. 15, 200-222.\nMarks, G., 2018. Microsoft Is Giving Away Free Cloud Storage ... and Other Small Business Tech News This Week. Forbes (February 11). https://www.forbes.com/sites/quickerbettertech/2018/02/11/microsoft-is-giving-away-free-cloud-storage-and-other-small-business-tech-news-this-week/?sh=618c95bcaa6e/.\nMcKinsey, 2017. Artificial intelligence the next digital frontier? Available at. htt ps://www.mckinsey.com/\\~/media/McKinsey/Industries/Advanced%20Electronics/Our%20Insights/How%20artificial%20intelligence%20can%20deliver%20real%20value%20to%20companies/MGI-Artificial-Intelligence-Discussion-paper.shx.\nMcKinsey, 2018. AI adoption advances, but foundational barriers remain. Available at: https://www.mckinsey.com/features-insights/artificial-intelligence/ai-adoption-advances-but-foundational-barriers-remain.\nMetz, C., 2017. Tech Giants Are Paying Huge Salaries for Scarce A.I. Talent. New York Times (October 22). https://www.nytimes.com/2017/10/22/technology/artificial-intelligence-experts-salaries.html.",
+    "zh_text": "- 达菲（Duffy, J.）、帕帕乔治乌（Papageorgiou, C.）、佩雷斯-塞巴斯蒂安（Perez-Sebastian, F.），2004。《资本—技能互补性？基于多国面板数据的证据》。《经济统计评论》（*Review of Economics and Statistics*）第86卷第1期，第327–344页。  \n- 埃克哈特（Eckhardt, J.T.）、谢恩（Shane, S.A.），2011。《行业技术变革与互补性资产对高增长企业创建的影响》。《创业学杂志》（*Journal of Business Venturing*）第26卷第4期，第412–430页。  \n- 埃斯利（Eesley, C.）、李永硕（Lee, Y.S.），2020。《大学创业教育项目是否促进创业？》。《战略管理杂志》（*Strategic Management Journal*）第42卷第4期，第833–861页。  \n- 埃格尔斯顿（Eggleston, K.）、李永硕（Lee, Y.S.）、饭塚俊（Iizuka, T.），2021。《机器人技术与服务业劳动力：来自养老院的证据》。美国国家经济研究局工作论文（NBER Working Paper）第28322号。  \n- 法尔博迪（Farboodi, M.）、米赫特（Mihet, R.）、菲利蓬（Philippon, T.）、菲尔德坎普（Veldkamp, L.），2019。《大数据与企业动态》。载于《美国经济学会论文与会议录》（*AEA Papers and Proceedings*）第109卷，第38–42页。  \n- 费尔滕（Felten, E.W.）、拉吉（Raj, M.）、西曼斯（Seamans, R.），2019。《人工智能的职业影响：劳动力、技能与极化》。纽约大学斯特恩商学院（NYU Stern School of Business）。SSRN 可获取：https://ssrn.com/abstract=3368605。  \n- 弗兰克（Franck, R.）、加洛尔（Galor, O.），2017。《工业化早期阶段的技术—技能互补性》。美国国家经济研究局（National Bureau of Economic Research），工作论文编号 w23197。  \n- 富斯特（Fuster, A.）、戈德史密斯-平克汉姆（Goldsmith-Pinkham, P.）、拉马多赖（Ramadorai, T.）、瓦尔特（Walther, A.），2020。《可预测的不平等？机器学习对信贷市场的影响：机器学习对信贷市场的影响》。工作论文。  \n- 富斯特（Fuster, A.）、普洛瑟（Plosser, M.）、施纳布尔（Schnabl, P.）、维克里（Vickery, J.），2019。《技术在住房抵押贷款中的作用》。《金融研究评论》（*Review of Financial Studies*）第32卷第5期，第1854–1899页。  \n- 戈德法布（Goldfarb, A.）、塔斯卡（Taska, B.）、特奥多里迪斯（Teodoridis, F.），2019。《机器学习能否成为通用技术？——基于在线招聘启事数据对新兴技术的比较分析》（工作论文编号 w29767）。美国国家经济研究局（National Bureau of Economic Research）。  \n- 戈德法布（Goldfarb, A.）、塔斯卡（Taska, B.）、特奥多里迪斯（Teodoridis, F.），2020。《人工智能在医疗保健领域的应用？——来自在线招聘启事的证据》。《美国经济学会论文与会议录》（*AEA Papers and Proceedings*）第110卷，第400–404页。  \n- 戈尔丁（Goldin, C.）、卡茨（Katz, L.F.），1998。《技术—技能互补性的起源》。《经济学季刊》（*Quarterly Journal of Economics*）第113卷第3期，第693–732页。  \n- 格林伍德（Greenwood, J.）、约鲁科古鲁（Yorukoglu, M.），1997年6月。载于《卡内基—罗切斯特公共政策会议系列》（*Carnegie-Rochester Conference Series on Public Policy*）第46卷。北荷兰出版社（North-Holland），阿姆斯特丹，第49–95页。  \n- 格里菲思（Griffith, R.）、雷丁（Redding, S.）、范·雷嫩（Reenen, J.V.），2004。《描绘研发的双重面孔：经合组织（OECD）各产业面板中的生产率增长》。《经济统计评论》（*Review of Economics and Statistics*）第86卷第4期，第883–895页。  \n- 格里利切斯（Griliches, Z.），1969。《资本—技能互补性》。《经济统计评论》（*Review of Economics and Statistics*）第51卷第4期，第465–468页。  \n- 古尔尚（Gulshan, V.）、彭磊（Peng, L.）、科拉姆（Coram, M.）、斯图姆佩（Stumpe, M.C.）、吴笛（Wu, D.）、纳拉亚纳斯瓦米（Narayanaswamy, A.）等，2016。《用于视网膜眼底照片中糖尿病视网膜病变检测的深度学习算法的开发与验证》。《美国医学会杂志》（*JAMA*）第316卷第22期，第2402–2410页。  \n- 亨岑（Hentzen, J.K.）、霍夫曼（Hoffmann, A.）、多兰（Dolan, R.）、帕拉（Pala, E.），2021。《面向客户的金融服务中的人工智能：系统性文献综述与未来研究议程》。《国际银行营销杂志》（*International Journal of Bank Marketing*）。https://doi.org/10.1108/JBM-09-2021-0417。  \n- 希特（Hitt, L.M.）、布林约尔松（Brynjolfsson, E.），1997。《信息技术与企业内部组织：一项探索性分析》。《管理信息系统杂志》（*Journal of Management Information Systems*）第14卷第2期，第81–101页。  \n- 霍恩斯坦（Hornstein, A.）、克鲁塞尔（Krusell, P.），1996。《技术进步是否可能导致生产率放缓？》。《NBER宏观经济学年会》（*NBER Macroeconomics Annual*）第11卷，第209–259页。  \n- 伊安多拉（Iandola, F.N.）、肖（Shaw, A.E.）、克里希纳（Krishna, R.）、凯策尔（Keutzer, K.W.），2020。《SqueezeBERT：计算机视觉能为自然语言处理提供哪些关于高效神经网络的启示？》。arXiv 预印本 arXiv:2006.11316。  \n- 乔瓦诺维奇（Jovanovic, B.）、尼亚尔科（Nyarko, Y.），1994。《干中学与技术选择》。美国国家经济研究局（National Bureau of Economic Research），工作论文编号 w4739。  \n- 乔瓦诺维奇（Jovanovic, B.）、鲁索（Rousseau, P.L.），2005。《通用技术》。载于阿吉翁（Aghion, P.）、杜尔劳夫（Durlauf, S.）主编：《经济增长手册》（*Handbook of Economic Growth*）第1卷。爱思唯尔（Elsevier），阿姆斯特丹，第1181–1224页。  \n- 金泰勋（Kim, T.）、朴妍（Park, Y.）、金武（Kim, W.），2021。《人工智能与企业绩效（一）》。载于《管理学会年会论文集》（*Academy of Management Proceedings*）第2021卷。管理学会（Academy of Management），编号14361。纽约州布赖阿克利夫庄园（Briarcliff Manor, NY 10510）。  \n- 克林格（Klinger, J.）、马特奥斯-加西亚（Mateos-Garcia, J.C.）、斯塔苏洛普洛斯（Stathoulopoulos, K.），2018。《深度学习，深度变革？——人工智能作为通用技术的发展图谱》。SSRN 可获取：https://ssrn.com/abstract=3233463。  \n- 克雷奇默（Kretschmer, T.），2005。《数据库管理系统市场中的竞争性技术》。SSRN 可获取：https://ssrn.com/abstract=850505。  \n- 李永硕（Lee, Y.），2018。《政府担保的小企业贷款与区域增长》。《创业学杂志》（*Journal of Business Venturing*）第33卷第1期，第70–83页。  \n- 林奎斯特（Lindquist, M.J.）、索尔（Sol, J.）、范·普拉格（Van Praag, M.），2015。《为何创业型父母更可能养育出创业型子女？》。《劳动经济学杂志》（*Journal of Labor Economics*）第33卷第2期，第269–296页。  \n- 楼波（Lou, B.）、吴琳（Wu, Lynn），2020。《人工智能赋能药物研发：人工智能与药物创新的大规模实证考察》。SSRN 可获取：https://ssrn.com/abstract=3524985。  \n- 马朱姆达尔（Majumdar, S.K.）、卡拉雷（Carare, O.）、张浩（Chang, H.），2010。《宽带采纳与企业生产率：通用技术效益评估》。《产业与公司变革》（*Industrial and Corporate Change*）第19卷第3期，第641–674页。  \n- 曼瑟·佩恩（Manser Payne, E.H.）、达尔（Dahl, A.J.）、佩尔蒂埃（Peltier, J.），2021。《面向人工智能服务的数字服务化价值共创框架：金融服务业生态系统数字化转型的研究议程》。《互动营销研究杂志》（*Journal of Research in Interactive Marketing*）第15卷，第200–222页。  \n- 马克斯（Marks, G.），2018。《微软免费赠送云存储空间……及其他本周小型企业科技新闻》。《福布斯》（*Forbes*），2月11日。https://www.forbes.com/sites/quickerbettertech/2018/02/11/microsoft-is-giving-away-free-cloud-storage-and-other-small-business-tech-news-this-week/?sh=618c95bcaa6e/。  \n- 麦肯锡公司（McKinsey），2017。《人工智能：下一个数字前沿？》。可获取于：https://www.mckinsey.com/\\~/media/McKinsey/Industries/Advanced%20Electronics/Our%20Insights/How%20artificial%20intelligence%20can%20deliver%20real%20value%20to%20companies/MGI-Artificial-Intelligence-Discussion-paper.shx。  \n- 麦肯锡公司（McKinsey），2018。《人工智能采纳持续推进，但基础性障碍依然存在》。可获取于：https://www.mckinsey.com/features-insights/artificial-intelligence/ai-adoption-advances-but-foundational-barriers-remain。  \n- 梅茨（Metz, C.），2017。《科技巨头正为稀缺的人工智能人才支付巨额薪资》。《纽约时报》（*The New York Times*），10月22日。https://www.nytimes.com/2017/10/22/technology/artificial-intelligence-experts-salaries.html。"
+  },
+  {
+    "block_id": "p14_b217",
+    "page_idx": 14,
+    "order": 217,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Mihet, R., Philippon, T., 2019. The economics of big data and artificial intelligence. In: Choi, J., Ozkan, B. (Eds.), Disruptive Innovation in Business and Finance in the Digital World, vol. 108. Emerald Publishing Limited, pp. 29-43.\nOECD, 2019. Artificial Intelligence in Society. OECD Publishing, Paris. https://doi.org/10.1787/eedfee77-en.\nPetrenko, O.V., Aime, F., Recendes, T., Chandler, J.A., 2019. The case for humble expectations: CEO humility and market performance. Strat. Manag. J. 40 (12), 1938-1964.\nPowell, T.C., Dent-Micallef, A., 1997. Information technology as competitive advantage: the role of human, business, and technology resources. Strat. Manag. J. 18 (5), 375-405.\nRaisch, S., Krakowski, S., 2021. Artificial intelligence and management: the automation-augmentation paradox. Acad. Manag. Rev. 46 (1), 192-210.\nRansbotham, S., Khodabandeh, S., Kiron, D., Candelon, F., Chu, M., LaFountain, B., 2020. Expanding AI's Impact with Organizational Learning. MIT Sloan Management Review. https://sloanreview.mit.edu/projects/expanding-ais-impact-with-organizational-learning/?utm_medium=pr&utm_source=release&utm_campaign=ReportBCGAI2020.\nRothaermel, F.T., 2001. Incumbent's advantage through exploiting complementary assets via interfirm cooperation. Strat. Manag. J. 22 (6-7), 687-699.\nSeamans, R., Raj, M., 2018. AI, Labor, Productivity and the Need for Firm-Level Data. National Bureau of Economic Research. No. w24239.\nSimon, J.P., 2019. Artificial intelligence: scope, players, markets and geography. Digit. Policy, Regul. Gov. 21, 208-237. https://doi.org/10.1108/DPRG-08-2018-0039.\nSingh, S., Okun, A., Jackson, A., 2017. Artificial intelligence: learning to play Go from scratch. Nature 550 (7676), 336-337.\nScott, A., 1997. Innovation and the Persistence of Technological Lock-In. Stanford University. PhD dissertation.\nTamble, P., Hitt, L.M., Brynjolfsson, E., 2012. The extroverted firm: how external information practices affect innovation and productivity. Manag. Sci. 58 (5), 843-859.\nThomke, S., Kuemmerle, W., 2002. Asset accumulation, interdependence and technological change: evidence from pharmaceutical drug discovery. Strat. Manag. J. 23 (7), 619-635.",
+    "zh_text": "- 米赫特，R.，菲利普松，T.，2019。大数据与人工智能的经济学。载于：崔，J.，奥兹坎，B.（编），《数字世界中的商业与金融颠覆性创新》，第108卷。爱默瑞尔德出版有限公司，第29–43页。  \n- 经济合作与发展组织（OECD），2019。《人工智能在社会中的应用》。OECD出版，巴黎。https://doi.org/10.1787/eedfee77-en。  \n- 彼得连科，O.V.，艾梅，F.，雷森德斯，T.，钱德勒，J.A.，2019。谦逊预期之主张：首席执行官的谦逊与市场绩效。《战略管理杂志》40（12），1938–1964。  \n- 鲍威尔，T.C.，登特-米卡尔莱夫，A.，1997。信息技术作为竞争优势：人力、业务与技术资源的作用。《战略管理杂志》18（5），375–405。  \n- 拉伊施，S.，克拉科夫斯基，S.，2021。人工智能与管理：自动化与增强之间的悖论。《美国管理学会评论》46（1），192–210。  \n- 兰斯博瑟姆，S.，霍达班德，S.，基龙，D.，坎德隆，F.，朱，M.，拉方丹，B.，2020。通过组织学习拓展人工智能的影响。《麻省理工学院斯隆管理评论》。https://sloanreview.mit.edu/projects/expanding-ais-impact-with-organizational-learning/?utm_medium=pr&utm_source=release&utm_campaign=ReportBCGAI2020。  \n- 罗萨赫尔姆，F.T.，2001。既有企业的优势：通过企业间合作开发互补性资产。《战略管理杂志》22（6–7），687–699。  \n- 希曼斯，R.，拉吉，M.，2018。人工智能、劳动力与生产率：对微观企业层面数据的需求。美国国家经济研究局工作论文，编号 w24239。  \n- 西蒙，J.P.，2019。人工智能：范围、参与主体、市场与地理分布。《数字政策、监管与治理》21，208–237。https://doi.org/10.1108/DPRG-08-2018-0039。  \n- 辛格，S.，奥昆，A.，杰克逊，A.，2017。人工智能：从零开始学习围棋。《自然》550（7676），336–337。  \n- 斯科特，A.，1997。《创新与技术路径依赖的持续性》。斯坦福大学博士论文。  \n- 坦布尔，P.，希特，L.M.，布林约尔松，E.，2012。外向型公司：外部信息实践如何影响创新与生产率。《管理科学》58（5），843–859。  \n- 托梅克，S.，库默勒，W.，2002。资产积累、相互依赖性与技术变革：来自制药领域新药研发的证据。《战略管理杂志》23（7），619–635。"
+  },
+  {
+    "block_id": "p14_b218",
+    "page_idx": 14,
+    "order": 218,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Tilley, A., 2017. The Great AI Recruitment War: Amazon Is on Top, and Apple Is Almost Nowhere to Be Seen. Forbes (April 18). https://www.forbes.com/sites/aaronttilley/2017/04/18/the-great-ai-recruitment-war-amazon-is-on-top-and-apple-is-almost-no where-to-be-seen/?sh=abaacba61e5d/.\nTrajtenberg, M., 2019. Artificial intelligence as the next GPT. In: The Economics of Artificial Intelligence: an Agenda. University of Chicago Press, pp. 175-186.\nTripp, A., 2020. AI Is Today's Hottest Technology, So CIOs Need to Learn How to Protect it from Copycats. Forbes (July 6). https://www.forbes.com/sites/anthonytrippe/2020/07/06/ai-is-todays-hottest-technology-so-cios-need-to-learn-how-to-protect-it-from-copycats/#36639d537dba/.\nTucker, C., 2019. 17. Privacy, algorithms, and artificial intelligence. In: Agrawal, A., Gans, J., Goldfarb, A. (Eds.), The Economics of Artificial Intelligence: an Agenda. University of Chicago Press, Chicago, pp. 423-438. https://doi.org/10.7208/9780226613475-019.\nTversky, A., Kahneman, D., 1974. Judgment under uncertainty: heuristics and biases. Science 185 (4157), 1124-1131.\nWang, W., Gao, G.G., Agarwal, R., 2019. Friend or Foe? the Influence of Artificial Intelligence on Human Performance in Medical Chart Coding. Working paper. Available at SSRN: https://ssrn.com/abstract-3405759.\nWebb, M., 2020. The Impact of Artificial Intelligence on the Labor Market. Working paper. Available at SSRN: https://ssrn.com/abstract=3482150.\nWestphal, J.D., Bednar, M.K., 2005. Pluralistic ignorance in corporate boards and firms' strategic persistence in response to low firm performance. Adm. Sci. Q. 50 (2), 262-298.\nZhang, D., Mishra, S., Brynjolfsson, E., Etchemendy, J., Ganguli, D., Grosz, B., et al., 2021. The Ai Index 2021 Annual Report. AI Index Steering Committee, Human-Centered AI Institute, Stanford University, Stanford.\nZhu, K., 2004. The complementarity of information technology infrastructure and e-commerce capability: a resource-based assessment of their business value. J. Manag. Inf. Syst. 21 (1), 167-202.\nZolas, N., Kroff, Z., Brynjolfsson, E., McElheran, K., Beede, D.N., Buffington, C., et al., 2021. Advanced Technologies Adoption and Use by US Firms: Evidence from the Annual Business Survey (No. W28290). National Bureau of Economic Research.",
+    "zh_text": "- 蒂利，A.，2017。《人工智能人才争夺大战：亚马逊居首，苹果几乎不见踪影》。《福布斯》（4月18日）。https://www.forbes.com/sites/aaronttilley/2017/04/18/the-great-ai-recruitment-war-amazon-is-on-top-and-apple-is-almost-nowhere-to-be-seen/?sh=abaacba61e5d/。  \n- 特拉伊滕贝格，M.，2019。人工智能作为下一代通用目的技术（GPT）。载于：《人工智能经济学：一项议程》。芝加哥大学出版社，第175–186页。  \n- 特里普，A.，2020。人工智能是当今最热门的技术，因此首席信息官必须学会如何防范模仿者。《福布斯》（7月6日）。https://www.forbes.com/sites/anthonytrippe/2020/07/06/ai-is-todays-hottest-technology-so-cios-need-to-learn-how-to-protect-it-from-copycats/#36639d537dba/。  \n- 塔克，C.，2019。第17章：隐私、算法与人工智能。载于：阿格拉瓦尔，A.，甘斯，J.，戈德法布，A.（编），《人工智能经济学：一项议程》。芝加哥大学出版社，芝加哥，第423–438页。https://doi.org/10.7208/9780226613475-019。  \n- 特沃斯基，A.，卡尼曼，D.，1974。不确定性下的判断：启发式与偏差。《科学》185（4157），1124–1131。  \n- 王炜，高国光，阿加瓦尔，R.，2019。朋友还是对手？人工智能对医疗病历编码中人类绩效的影响。工作论文。SSRN可获取：https://ssrn.com/abstract=3405759。  \n- 韦布，M.，2020。《人工智能对劳动力市场的影响》。工作论文。SSRN可获取：https://ssrn.com/abstract=3482150。  \n- 韦斯特法尔，J.D.，贝德纳，M.K.，2005。董事会中的多元无知现象及其对企业在低绩效下战略惯性的助长作用。《行政科学季刊》50（2），262–298。  \n- 张丹，米什拉，S.，布林约尔松，E.，埃切门迪，J.，甘古利，D.，格罗斯，B.，等，2021。《2021年人工智能指数年度报告》。人工智能指数指导委员会，以人为本的人工智能研究所，斯坦福大学，斯坦福。  \n- 朱坤，2004。信息技术基础设施与电子商务能力的互补性：基于资源观对其商业价值的评估。《管理信息系统杂志》21（1），167–202。  \n- 佐拉斯，N.，克罗夫，Z.，布林约尔松，E.，麦克埃尔赫兰，K.，比德，D.N.，巴芬顿，C.，等，2021。《美国企业对先进技术的采纳与使用：来自年度商业调查（编号 W28290）的证据》。美国国家经济研究局。"
+  }
+]

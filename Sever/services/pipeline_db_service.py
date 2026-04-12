@@ -167,7 +167,7 @@ def init_db() -> None:
                 title          TEXT    NOT NULL DEFAULT '',
                 url            TEXT    NOT NULL DEFAULT '',
                 year           INTEGER,
-                blocks_json    TEXT    NOT NULL DEFAULT '[]',
+                blocks_json    TEXT    NOT NULL DEFAULT '{}',
                 created_at     TEXT    NOT NULL,
                 UNIQUE(user_id, date_str, paper_arxiv_id)
             );
@@ -899,7 +899,7 @@ def upsert_paper_assets(
     title: str = "",
     url: str = "",
     year: Optional[int] = None,
-    blocks: Optional[list] = None,
+    blocks: Optional[dict] = None,
 ) -> None:
     now = _now_iso()
     conn = _connect()
@@ -919,7 +919,7 @@ def upsert_paper_assets(
             """,
             (
                 user_id, date_str, paper_arxiv_id, title, url, year,
-                json.dumps(blocks or [], ensure_ascii=False), now,
+                json.dumps(blocks or {}, ensure_ascii=False), now,
             ),
         )
         conn.commit()
@@ -952,7 +952,7 @@ def bulk_upsert_paper_assets(
                 (
                     user_id, date_str, a["paper_arxiv_id"],
                     a.get("title", ""), a.get("url", ""), a.get("year"),
-                    json.dumps(a.get("blocks", []), ensure_ascii=False), now,
+                    json.dumps(a.get("blocks", {}), ensure_ascii=False), now,
                 )
                 for a in assets
             ],
@@ -984,9 +984,9 @@ def get_paper_assets(
         for r in rows:
             d = dict(r)
             try:
-                d["blocks"] = json.loads(d.get("blocks_json") or "[]")
+                d["blocks"] = json.loads(d.get("blocks_json") or "{}")
             except (json.JSONDecodeError, TypeError):
-                d["blocks"] = []
+                d["blocks"] = {}
             results.append(d)
         return results
     finally:
@@ -1082,7 +1082,13 @@ def get_digest_papers(
             "summary_limit": summ.get("summary_limit", ""),
             "headline": summ.get("headline", ""),
             "relevance_score": scores.get(arxiv_id),
-            "paper_assets": assets.get("blocks") if assets else None,
+            "paper_assets": {
+                "paper_id": arxiv_id,
+                "title": assets.get("title", ""),
+                "url": assets.get("url", ""),
+                "year": assets.get("year"),
+                "blocks": assets.get("blocks"),
+            } if assets and assets.get("blocks") else None,
             # Indicate whether this came from the user's personalised pipeline
             "is_personalized": (effective_uid != 0 and effective_uid == user_id),
             "pipeline_user_id": effective_uid,

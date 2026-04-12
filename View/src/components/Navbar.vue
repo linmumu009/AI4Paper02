@@ -5,6 +5,8 @@ import { ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { isDark, toggleTheme } from '../stores/theme'
 import { API_ORIGIN, fetchUnreadAnnouncementCount, markAllAnnouncementsRead, fetchAnnouncements } from '../api'
 import type { Announcement } from '../types/paper'
+import { useEngagement } from '../composables/useEngagement'
+import EngagementProgressBar from './EngagementProgressBar.vue'
 
 // 在 Tauri 桌面端（API_ORIGIN 有值）时隐藏下载安装包按钮
 const isDesktop = !!API_ORIGIN
@@ -115,6 +117,11 @@ function goAllAnnouncements() {
   router.push('/profile?tab=announcements')
 }
 
+function goToAnnouncement(id: number) {
+  closeAnnouncementPopover()
+  router.push(`/announcements/${id}`)
+}
+
 function announcementTagLabel(tag: string): string {
   const map: Record<string, string> = {
     important: '重要', general: '一般', update: '更新', maintenance: '维护',
@@ -150,15 +157,38 @@ function handleClickOutsideAnnouncement(e: MouseEvent) {
 
 let _pollTimer: ReturnType<typeof setInterval> | null = null
 
+function _handleVisibilityChange() {
+  if (document.visibilityState === 'visible') {
+    refreshUnreadCount()
+  }
+}
+
+// P7 + C3: Engagement — badge display and global progress bar
+const engagement = useEngagement()
+const highestBadge = computed(() => engagement.highestBadge.value)
+const engTaskItems = computed(() => engagement.taskItems.value)
+const engAllDone = computed(() => engagement.allDone.value)
+const engHasNew = computed(() => engagement.hasNewRewards.value)
+const engAllDoneVal = computed(() => engagement.allDone.value)
+const engTasksDone = computed(() => {
+  const p = engagement.status.value?.progress
+  return p ? `${p.progress_count}/${p.target_count}` : '0/3'
+})
+
 onMounted(async () => {
   await ensureAuthInitialized()
   await refreshUnreadCount()
-  _pollTimer = setInterval(refreshUnreadCount, 60_000)
+  // Reduce polling interval when tab is hidden using the Page Visibility API
+  _pollTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') refreshUnreadCount()
+  }, 90_000)
+  document.addEventListener('visibilitychange', _handleVisibilityChange)
   document.addEventListener('click', handleClickOutsideAnnouncement)
 })
 
 onBeforeUnmount(() => {
   if (_pollTimer) clearInterval(_pollTimer)
+  document.removeEventListener('visibilitychange', _handleVisibilityChange)
   document.removeEventListener('click', handleClickOutsideAnnouncement)
 })
 </script>
@@ -229,6 +259,21 @@ onBeforeUnmount(() => {
 
     <!-- Right auth area -->
     <div class="flex items-center justify-end gap-2 shrink-0">
+      <!-- Tutorial entry -->
+      <router-link
+        to="/tutorial"
+        title="使用教程"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline"
+        :class="route.path === '/tutorial'
+          ? 'bg-bg-elevated text-text-primary scale-110'
+          : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+        </svg>
+      </router-link>
+
       <!-- Download installer button (web-only; hidden in Tauri desktop) -->
       <a
         v-if="!isDesktop"
@@ -286,6 +331,48 @@ onBeforeUnmount(() => {
           <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>
       </button>
+
+      <!-- Mobile engagement icon (xs only — shows daily progress + new indicator) -->
+      <router-link
+        v-if="isAuthenticated && engagement.status.value"
+        to="/profile?tab=achievements"
+        title="研究激励进度"
+        class="sm:hidden relative w-8 h-8 flex items-center justify-center rounded-full no-underline transition-all duration-200 hover:bg-bg-hover"
+        :class="engAllDoneVal ? 'text-tinder-gold' : 'text-text-muted'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
+        </svg>
+        <!-- Progress fraction badge -->
+        <span
+          class="absolute -bottom-0.5 -right-0.5 min-w-[15px] h-[13px] px-0.5 flex items-center justify-center rounded-full text-[8px] font-bold leading-none select-none"
+          :class="engAllDoneVal ? 'bg-tinder-gold text-white' : 'bg-bg-elevated text-text-muted border border-border'"
+        >{{ engTasksDone }}</span>
+        <!-- NEW reward dot -->
+        <span
+          v-if="engHasNew"
+          class="absolute top-0 right-0 w-2 h-2 rounded-full bg-[#f59e0b]"
+        />
+      </router-link>
+
+      <!-- C3: Global engagement progress bar (authenticated only, desktop) -->
+      <div v-if="isAuthenticated && engagement.status.value" class="hidden sm:block">
+        <EngagementProgressBar
+          :task-items="engTaskItems"
+          :streak="engagement.status.value?.streak"
+          :all-done="engAllDone"
+        />
+      </div>
+
+      <!-- P7: Highest honorary badge (authenticated, earned badge only; hidden when progress bar is visible since bar is more informative) -->
+      <router-link
+        v-if="isAuthenticated && highestBadge && !engagement.status.value"
+        to="/profile?tab=achievements"
+        :title="highestBadge.name"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full no-underline transition-all duration-200 hover:bg-bg-hover"
+      >
+        <span class="text-base leading-none select-none">{{ highestBadge.emoji }}</span>
+      </router-link>
 
       <!-- Announcement bell (authenticated only) -->
       <div v-if="isAuthenticated" ref="announcementPopoverRef" class="relative">
@@ -349,7 +436,8 @@ onBeforeUnmount(() => {
               <div
                 v-for="item in recentAnnouncements"
                 :key="item.id"
-                class="px-4 py-3 flex items-start gap-2.5 hover:bg-bg-hover transition-colors"
+                class="px-4 py-3 flex items-start gap-2.5 hover:bg-bg-hover transition-colors cursor-pointer"
+                @click="goToAnnouncement(item.id)"
               >
                 <!-- Unread dot -->
                 <span

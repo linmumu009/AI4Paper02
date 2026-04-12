@@ -1,0 +1,647 @@
+# VISTA: Visualization of Token Attribution via Efficient Analysis
+
+Syed Ahmed syed_ahmed12@infosys.com
+
+Bharathi Vokkaliga Ganesh bharathi_ganesh01@infosys.com
+
+Jagadish Babu P jagadish.p02@infosys.com
+
+Karthick Selvaraj karthick.s50@infosys.com
+
+Praneeth Talluri praneeth.talluri@infosys.com
+
+Sanket Hingne sankethemraj.hingne@infosys.com
+
+Anubhav Kumar anubhav.kumar03@infosys.com
+
+Anushka Yadav anushka.yadav01@infosys.com
+
+Pratham Kumar Verma prathamkumar.verma@infosys.com
+
+Kiranmayee Janardhan kiranmayee.j@infosys.com
+
+Mandanna A N mandanna_an@infosys.com
+
+Responsible AI Office
+
+Infosys Limited, Bangalore, India
+
+# ABSTRACT
+
+Understanding how Large Language Models (LLMs) process information from prompts remains a significant challenge. To shed light on this "black box," attention visualization techniques have been developed [1], [14] to capture neuronlevel perceptions and interpret how models focus on different parts of input data. However, many existing techniques are tailored to specific model architectures, particularly within the Transformer family, and often require backpropagation [5], resulting in nearly double the GPU memory usage and increased computational cost. A lightweight, model-agnostic approach for attention visualization remains lacking [25].
+
+In this paper, we introduce a model-agnostic token importance visualization technique to better understand how generative AI systems perceive and prioritize information from input text, without incurring additional computational cost. Our method leverages perturbation-based [11] strategies combined with a three-matrix analytical framework to generate relevance maps that illustrate token-level contributions to model predictions. The framework
+
+comprises: (1) the Angular Deviation Matrix, which captures shifts in semantic direction; (2) the Magnitude Deviation Matrix, which measures changes in semantic intensity; and (3) the Dimensional Importance Matrix, which evaluates contributions across individual vector dimensions. By systematically removing each token and measuring the resulting impact across these three complementary dimensions, we derive a composite importance score that provides a nuanced and mathematically grounded measure of token significance. To support reproducibility and foster wider adoption, we provide open-source implementations of all proposed and utilized explainability techniques, with code and resources publicly available at https://github.com/Infosys/Infosys-Responsible-AI-Toolkit
+
+# 1. INTRODUCTION
+
+# 1.1 Background and Motivation
+
+The emergence of Large Language Models (LLMs) including GPT [3], BERT [2], and their successive variants has
+
+fundamentally redefined the landscape of computational linguistics, enabling unprecedented performance across comprehension and text generation tasks. Despite their impressive performance across a wide array of tasks, the internal workings of these models remain largely opaque, often described as "black boxes [17]." This opacity creates a fundamental tension between model capability and practical deployability, as organizations in domains requiring auditability, such as patient care, financial regulation, and legal compliance.
+
+Understanding how these models perceive and prioritize different parts of an input prompt is critical not only for transparency, but also for debugging, model auditing, and bias detection [15]. A key approach to demystifying model behavior has been attention visualization [22], which attempts to reveal how and where models focus during inference. While these techniques have offered valuable insights, they are often tightly coupled with specific architectures typically Transformers [14] and rely on attention weights [12] or backpropagation-based methods. These constraints introduce challenges: they demand deeper access to the model's internals, are often computationally intensive, and tend to double memory usage, limiting their practicality in real-time or resource-constrained applications [26].
+
+To address these limitations, we propose a model-agnostic token importance visualization technique [6] that is lightweight, efficient, and architecture-independent. Our approach does not require any access to the model's internal gradients [8] or attention mechanisms. Instead, it leverages a perturbation-based strategy [11] paired with a multidimensional analytical framework to evaluate token importance. By systematically removing individual tokens from the input sentence and measuring the resulting change across three complementary matrices: Angular Deviation, Magnitude Deviation, and Dimensional Importance. This enables a measurable assessment of each token's contribution to the aggregate semantic representation of the input prompt, revealing which words exert the greatest influence on the embedding structure. The greater the shifts in the sentence's semantic representation across these dimensions, the more important the removed token is.
+
+This technique is designed to be both computationally efficient and highly interpretable, rendering the approach practical for integration into production-grade generative AI pipelines without imposing significant computational overhead. Additionally, by filtering out common or semantically lightweight words, our method ensures that only the most impactful tokens are highlighted in the final relevance map.
+
+# 1.2 Research Objectives
+
+This paper details a methodology for calculating a token's importance score based on its impact on the prompt's collective semantic meaning. Our specific objectives are:
+
+1. To develop a model-agnostic framework for token importance quantification
+
+2. To capture multiple dimensions of semantic contribution (direction, intensity, and dimensional balance)
+
+3. To provide mathematically rigorous and interpretable importance metrics
+
+4. To establish a foundation for automated prompt optimization
+
+# 1.3 Approach Overview
+
+We utilize GloVe (Global Vectors for Word Representation) to transform tokens into a high-dimensional vector space. The core of our method is perturbation-based [11] analysis: we systematically ablate each token and quantify the resulting geometric and semantic shifts in the prompt's aggregate embedding through three complementary analytical matrices.
+
+# 2. THEORETICAL FOUNDATION
+
+# 2.1 Vector Space Semantics
+
+Our methodology is grounded in the distributional hypothesis of linguistics, which posits that words appearing in similar contexts tend to have similar meanings. GloVe embeddings capture this principle by representing each word as a dense vector in a high-dimensional space, where geometric
+
+relationships (distances and angles) correspond to semantic relationships.
+
+For a vocabulary ?, GloVe learns a mapping:
+
+$$
+w \in V \to E (w) \in \mathbb {R} ^ {\wedge} d
+$$
+
+where $d$ is the embedding dimension (50 in our implementation).
+
+# 2.2 Aggregate Prompt Representation
+
+Given an input prompt $P$ consisting of $n$ tokens $T =$ $\{ t _ { 1 } , t _ { 2 } , \ldots , t _ { n } \}$ , we represent the entire prompt as a single aggregate vector. This representation is computed as the vector sum of individual token embeddings:
+
+$$
+E _ {o r i g} = \sum_ {i = 1} ^ {n} E (t _ {\mathrm {i}})
+$$
+
+This sum captures the collective semantic content of the prompt. While simple, this additive model has been shown to be effective in various NLP tasks and provides a tractable foundation for perturbation analysis.
+
+# 2.3 Perturbation-Based Importance
+
+Our methodology is founded on the principle that a token's importance is proportional to the semantic disruption its absence causes [11]. For each token $t _ { k }$ , we construct a "perturbed" prompt embedding by removing that token:
+
+$$
+E _ {p e r t _ {k}} = E _ {o r i g} - E (t _ {k}) = \sum_ {i = 1} ^ {n} E (t _ {\mathrm {i}}) i \neq k
+$$
+
+The difference between $E _ { o r i g }$ and $E _ { p e r t _ { k } }$ quantifies the token's contribution to the prompt's overall semantic representation. However, a single scalar measure of this difference would be insufficient to capture the multifaceted nature of semantic contribution. Therefore, we decompose the impact into three distinct analytical dimensions.
+
+# 3. METHODOLOGY: THREE-MATRIX ANALYTICAL FRAMEWORK
+
+Our comprehensive token importance score is derived from three complementary matrices, each capturing a distinct aspect of how a token's removal affects the prompt's semantic representation.
+
+# 3.1 THE ANGULAR DEVIATION MATRIX
+
+# 3.1.1 Conceptual Foundation
+
+The Angular Deviation Matrix measures how the removal of a token alters the overall semantic *direction* of the prompt in the embedding space. This component is critical because semantic direction encodes the primary topic or intent of the prompt. A significant change in direction implies the token was crucial for establishing the prompt's core meaning.
+
+# 3.1.2 Geometric Interpretation
+
+In vector space semantics, the angle between two vectors represents their semantic similarity. We quantify this directional relationship using the cosine function, which yields a scale-invariant similarity metric bounded between −1 ??? 1, unaffected by differences in vector length:
+
+$$
+\cos (\theta) = \frac {\left(v _ {1} \cdot v _ {2}\right)}{\left(\left| \left| v _ {1} \right| \right| \times \left| \left| v _ {2} \right| \right|\right)}
+$$
+
+This formulation isolates the angular separation between two vectors, capturing purely orientational semantic alignment.
+
+When $c o s ( \theta ) = 1 \quad$ , the vectors point in identical directions (perfect semantic alignment). When $c o s ( \theta ) = 0$ , they are orthogonal (semantically unrelated). When $c o s ( \theta ) = - 1$ , they point in opposite directions (antonymous or contradictory).
+
+# 3.1.3 Mathematical Formulation
+
+For token $t _ { k }$ , we calculate the cosine angle between the original prompt embedding $E _ { o r i g }$ and the perturbed embedding ?()"*!: $E _ { p e r t _ { k } }$
+
+$$
+c o s (\theta_ {k}) = \frac {(E _ {o r i g} \cdot E _ {p e r t _ {k}})}{(| | E _ {o r i g} | | \times | | E _ {p e r t _ {k}} | |)}
+$$
+
+To transform this into an importance score where higher values indicate greater importance, we apply the following transformation:
+
+$$
+S c o r e _ {a n g u l a r _ {k}} = \frac {(1 - \cos (\theta_ {k}))}{2}
+$$
+
+This normalization ensures:
+
+• ?????+%$,-+"! ∈ [0, 1]   
+$\mathbf { \nabla } \cdot S c o r e _ { a n g u l a r _ { k } } = \textbf { 0 }$ when the token causes no directional change $( c o s ( \theta _ { k } ) = 1 )$   
+$\mathbf { \nabla } _ { \cdot } S c o r e _ { a n g u l a r _ { k } } = \ 1$ when the token causes maximum directional change $( c o s ( \theta _ { k } ) = - 1 )$
+
+# 3.1.4 Interpretation
+
+A high angular deviation score indicates that removing the token causes a significant shift in the prompt's semantic orientation. Such tokens typically include:
+
+• Primary subject nouns (e.g., "AI", "model", "system")   
+• Action verbs that define the task (e.g., "analyze", "generate", "classify")   
+• Domain-specific terminology that anchors the prompt's context
+
+Conversely, low scores are assigned to tokens that do not substantially alter the direction, such as:
+
+• Common stopwords (e.g., "the", "a", "an")   
+• Auxiliary verbs (e.g., "is", "are", "was")   
+• Generic modifiers that do not shift the core topic
+
+# 3.1.5 Example Calculation
+
+Consider the prompt: "The AI system processes natural language effectively"
+
+For the token "AI":
+
+1. $E _ { o r i g }$ points in a direction representing the full semantic content   
+2. $E _ { p e r t _ { A I } }$ excludes "AI", shifting toward a more generic "system processes" meaning   
+3. The cosine angle between these vectors is significantly less than 1   
+4. The resulting $S c o r e _ { a n g u l a r _ { A I } }$ is high, reflecting "AI"'s importance in defining the prompt's topic
+
+# 3.2 THE MAGNITUDE DEVIATION MATRIX
+
+# 3.2.1 Conceptual Foundation
+
+The Magnitude Deviation Matrix quantifies a token's contribution to the overall "semantic intensity" or "weight" of the prompt. In vector space models, the magnitude (?2 ????) of an embedding vector can be interpreted as a measure of semantic salience or informativeness. Tokens that significantly increase or decrease this magnitude are considered important contributors to the prompt's overall semantic strength.
+
+# 3.2.2 Geometric Interpretation
+
+The ?2 ???? (Euclidean length) of a vector $v$ in ? - dimensional space is defined
+
+as:
+
+$$
+| | v | | = \sqrt {\left(\sum_ {i = 1} ^ {d} v _ {\mathrm {i}} ^ {2}\right)}
+$$
+
+In the context of word embeddings, a larger magnitude often correlates with more semantically rich or specific content. Generic or weak semantic content tends to result in lower magnitude aggregate vectors.
+
+# 3.2.3 Mathematical Formulation
+
+For token $t _ { k } .$ we calculate the absolute difference between the norms of the original and perturbed embeddings, normalized by the original norm:
+
+$$
+S c o r e _ {m a g n i t u d e _ {k}} = \frac {| | | E _ {o r i g} | | - | | E _ {p e r t _ {k}} | | |}{| | E _ {o r i g} | |}
+$$
+
+This normalization ensures:
+
+$\bullet s c o r e _ { m a g n i t u d e _ { k } } \in [ 0 , 1 ]$   
+• The score is scale-invariant (independent of the absolute magnitudes)   
+• The score reflects the *relative* change in semantic intensity
+
+# 3.2.4 Interpretation
+
+A high magnitude deviation score indicates that the token substantially contributes to (or detracts from) the prompt's overall semantic weight. This can occur in two scenarios:
+
+(a) Additive Contribution: The token's embedding vector is well-aligned with the rest of the prompt, amplifying the semantic signal.   
+Example: In "very important task", the word "important" adds significant semantic weight to reinforce the urgency and priority.   
+(b) Cancellation Effect: The token's embedding vector opposes some components of the aggregate, reducing the net magnitude but potentially sharpening the semantic focus.
+
+Example: In "not insignificant", "not" reduces the magnitude of "insignificant" but refines the meaning.
+
+Conversely, low scores indicate tokens whose removal has minimal effect on the overall semantic intensity:
+
+• Tokens with small embedding magnitudes themselves   
+• Tokens whose embeddings are orthogonal to the main semantic direction   
+• Tokens that are redundant with other tokens in the prompt
+
+# 3.2.5 Example Calculation
+
+Consider the prompt: "The AI system processes natural language effectively"
+
+For the token "effectively":
+
+1. $| | E _ { o r i g } | |$ represents the total semantic intensity of the prompt   
+2. $| | E _ { p e r t _ { e f f e c t i v e l y } } | |$ is slightly lower, as "effectively" adds semantic weight to the action "processes"   
+$3 . S c o r e _ { m a g n i t u d e _ { e f f e c t i v e l y } } = \frac { | | E _ { o r i g } | | - | | E _ { p e r t _ { e f f e c t i v e l y } } | | } { | | E _ { o r i g } | | }$ 3. ?????/+$%#*,.)$%%$&'()$*+   
+4. This yields a moderate-to-high score, indicating "effectively" contributes meaningfully to the prompt's semantic strength
+
+For the token "the":
+
+$1 . \ | | E _ { p e r t _ { t h e } } | | \approx \ | | E _ { o r i g } | |$ (minimal change)   
+2. ?????_?????????_?ℎ? $\approx 0$ , reflecting "the"'s negligible contribution to semantic intensity
+
+# 3.3 THE DIMENSIONAL IMPORTANCE MATRIX
+
+# 3.3.1 Conceptual Foundation
+
+While the Angular Deviation and Magnitude Deviation matrices analyze the aggregate vector as a whole, the Dimensional Importance Matrix examines the token's influence at the level of individual embedding dimensions. This fine-grained analysis captures the nuanced role of tokens in shaping the prompt's semantic profile across the entire 50-dimensional space.
+
+Each dimension in the GloVe embedding space encodes a latent semantic feature (e.g., abstractness vs. concreteness, positive vs. negative sentiment, temporal vs. spatial reference). A token's importance can be understood not just by its overall contribution, but by *how* it contributes across these various semantic axes.
+
+# 3.3.2 Dimensional Weighting Rationale
+
+The key insight of this matrix is that a token's importance on a given dimension is context-dependent. A token is particularly important if:
+
+• It contributes to a dimension where the prompt's aggregate vector has low energy (filling a semantic gap)   
+• It counteracts a dimension where the prompt has high energy (providing semantic balance or contrast)
+
+This weighting strategy rewards tokens that either:
+
+(a) Introduce novel semantic features not strongly present in the rest of the prompt   
+(b) Provide contrastive or qualifying information that balances the prompt's semantic profile
+
+# 3.3.3 Mathematical Formulation
+
+For each token $t _ { k }$ and each dimension $j \in \{ 0 , 1 , \ldots , 4 9 \}$ , we define a weight function that captures the token's contribution to that dimension:
+
+$$
+w e i g h t _ {j} \left(t _ {k}\right) = f \left(E _ {o r i g} [ j ], E \left(t _ {k}\right) [ j ]\right)
+$$
+
+The exact form of $f$ varies by implementation, but a common approach is:
+
+$$
+\begin{array}{l} w e i g h t _ {j} \left(t _ {k}\right) = | E \left(t _ {k}\right) [ j ] | \\ \times g \left(\operatorname {s i g n} \left(E _ {\text {o r i g}} [ j ]\right), \operatorname {s i g n} \left(E \left(t _ {k}\right) [ j ]\right)\right) \\ \end{array}
+$$
+
+where $g$ is a function that assigns higher weight when $E _ { o r i g } [ j ]$ and $E ( t _ { k } ) [ j ]$ have opposite signs (indicating the token provides contrast on this dimension).
+
+The total dimensional importance score is the sum across all dimensions:
+
+$$
+S c o r e _ {d i m e n s i o n a l _ {k}} = \sum_ {j = 0} ^ {4 9} w e i g h t _ {j} (t _ {k})
+$$
+
+# 3.3.4 Interpretation
+
+A high dimensional importance score indicates that the token plays a crucial role in structuring the prompt's semantic representation across multiple latent
+
+features. This often occurs for:
+
+• Content words with rich, multi-faceted meanings (e.g., "analyze", "create", "evaluate")   
+• Domain-specific terms that activate unique semantic dimensions   
+• Modifiers that introduce important nuances (e.g., "not", "very", "partially")
+
+Low scores typically correspond to:
+
+• Tokens with sparse or generic semantic profiles   
+• Tokens that are redundant with other tokens across most dimensions   
+• Functional words that do not carry substantial semantic content
+
+# 3.3.5 Dimensional Balance and Semantic Refinement
+
+This matrix captures a phenomenon not addressed by the first two: the role of tokens in achieving semantic *balance*. Consider the prompt:
+
+"The AI system does not process natural language effectively"
+
+The token "not" may have:
+
+• Low angular deviation (the prompt is still about AI processing language)   
+• Low magnitude deviation (negations often have relatively small magnitude)   
+• High dimensional importance (it flips the valence across multiple dimensions)
+
+The Dimensional Importance Matrix ensures "not" receives appropriate weight despite low scores on the other two metrics.
+
+# 3.3.6 Example Calculation
+
+Consider the prompt: "The AI system processes natural language effectively"
+
+# For the token "processes":
+
+1. Across the 50 dimensions, "processes" contributes significantly to action-oriented dimensions (verb semantics)   
+2. It may oppose or balance object-oriented dimensions (noun semantics) present in "AI", "system", "language"   
+3. The weighted sum across all dimensions yields a high ?????.#/)%5#!%+-/-,&$11$1   
+4. This reflects "processes" as a key action verb defining the prompt's task
+
+# For the token "the":
+
+1. "the" has low values across most semantic dimensions (it's semantically weak)   
+2. It does not provide contrastive information on any dimension   
+3. ?????.#/)%5#!%+-'0$ is very low, confirming "the"'s minimal semantic contribution
+
+![](images/1acc417dbeeb8a15cfc2beed8a50405d33a3924a89681cd2cc978a9d7749a278.jpg)  
+Figure 1: Token Importance
+
+# 4. COMPOSITE IMPORTANCE SCORE
+
+# 4.1 Integration Strategy
+
+To derive a single, holistic measure of a token's importance, we combine the scores from the three analytical matrices. The choice of combination method is critical to ensure that the final score reflects a balanced assessment across all dimensions of importance. As stated in the image Figure 1 We employ multiplicative combination:
+
+$$
+\begin{array}{l} \text {I m p o r t a n c e S c o r e} _ {k} = \text {S c o r e} _ {\text {a n g u l a r} k} \times \text {S c o r e} _ {\text {m a g n i t u d e} k} \\ \times S c o r e _ {d i m e n s i o n a l _ {k}} \\ \end{array}
+$$
+
+# 4.2 Rationale for Multiplicative Combination Multiplicative combination offers several advantages:
+
+(a) Robustness: A token must score well across *all three* dimensions to be considered highly important. Due to the multiplicative nature of this integration, a deficiency in any one dimension propagates through the entire composite, acting as a natural safeguard against inflated importance scores driven by a single metric in isolation.   
+(b) Semantic Completeness: True token importance requires contribution to direction (topic), intensity (weight), and dimensional balance (nuance). Multiplication captures this requirement for multi-dimensional significance.   
+(c) Dynamic Range: The multiplicative approach naturally creates a wide range of final scores, making it easier to distinguish between tokens of varying importance.   
+(d) Interpretability: If a token has a very low final score, one can examine which of the three component scores is the bottleneck, providing diagnostic insight.
+
+# 4.3 Score Distribution and Interpretation The final importance scores typically exhibit the following distribution:
+
+• High Scores $( > 0 . 5 )$ : Core content words that define the prompt's topic, task, and key entities. These are often:
+
+- Domain-specific nouns (e.g., "AI", "model", "data")   
+- Primary verbs (e.g., "analyze", "generate", "predict")   
+- Critical modifiers (e.g., "accurate", "comprehensive")
+
+• Medium Scores (0.2 − 0.5): Supporting words that add important context or detail but are not central to the core meaning. These include:
+
+- Secondary nouns and verbs   
+- Descriptive adjectives and adverbs   
+- Connective words that structure the prompt
+
+• Low Scores $( < 0 . 2 )$ : Functional words with minimal semantic contribution:
+
+- Articles (e.g., "the", "a", "an")   
+- Auxiliary verbs (e.g., "is", "are", "was")   
+- Generic prepositions (e.g., "of", "in", "to")
+
+4.4 Example: Complete Token Importance Analysis Prompt: "The AI system processes natural language effectively"
+
+# Token Analysis:
+
+1. "The"
+
+- ?????+%$,-+": 0.05 (minimal directional shift)   
+- ?????/+$%#*,.): 0.03 (negligible intensity change)   
+- ?????.#/)%5#!%+-: 1.20 (low semantic content)   
+- ???????????????: $0 . 0 5 \times 0 . 0 3 \times 1 . 2 0 = 0 . 0 0 1 8$   
+???? ??? ?????????? (functional word)
+
+2. "AI"
+
+- ?????+%$,-+": 0.89 (major directional shift without "AI")   
+-?????/+$%#*,.): 0.76 (significant intensity contribution)   
+- ?????.#/)%5#!%+-: 15.67 (rich semantic profile)   
+- ???????????????: $0 . 8 9 \times 0 . 7 6 \times 1 5 . 6 7 = 1 0 . 6 0$   
+???? ℎ??ℎ ?????????? (core topic word)
+
+3. "system"
+
+- ?????+%$,-+": 0.67 (moderate directional impact)   
+- ?????/+$%#*,.): 0.54 (moderate intensity contribution)   
+- ?????.#/)%5#!%+-: 8.32 (moderate semantic richness)   
+- ???????????????: $0 . 6 7 \times 0 . 5 4 \times 8 . 3 2 = 3 . 0 1$   
+???ℎ ?????????? (key entity)
+
+4. "processes"
+
+- ?????+%$,-+": 0.82 (substantial directional shift)   
+- ?????/+$%#*,.): 0.68 (notable intensity contribution)
+
+- ?????.#/)%5#!%+-: 12.45 (action verb with rich semantics)
+
+- ???????????????: $0 . 8 2 \times 0 . 6 8 \times 1 2 . 4 5 = 6 . 9 4$   
+???? ℎ??ℎ ?????????? (core action)
+
+5. "natural"
+
+- ?????+%$,-+": 0.45 (moderate directional impact)   
+- ?????/+$%#*,.): 0.38 (moderate intensity contribution)
+
+- ?????.#/)%5#!%+-: 6.20 (qualifier with moderate semantics)   
+- ???????????????: $0 . 4 5 \times 0 . 3 8 \times 6 . 2 0 = 1 . 0 6$   
+???????? ?????????? (key qualifier)
+
+6. "language"
+
+- ?????+%$,-+": 0.71 (significant directional shift)   
+- ?????/+$%#*,.): 0.59 (notable intensity contribution)   
+- ?????.#/)%5#!%+-: 10.12 (domain-specific noun)   
+- ???????????????: $0 . 7 1 \times 0 . 5 9 \times 1 0 . 1 2 = 4 . 2 4$   
+???ℎ ?????????? (core concept)
+
+7. "effectively"
+
+- ?????+%$,-+": 0.52 (moderate directional impact)   
+- ?????/+$%#*,.): 0.43 (moderate intensity contribution)   
+- ?????.#/)%5#!%+-: 7.80 (adverb with moderate semantics)   
+- ???????????????: $0 . 5 2 \times 0 . 4 3 \times 7 . 8 0 = 1 . 7 4$   
+???????? ?????????? (qualifier)
+
+Final Ranking by Importance:
+
+1. "AI" (10.60)   
+2. "processes" (6.94)   
+3. "language" (4.24)   
+4. "system" (3.01)   
+5. "effectively" (1.74)   
+6. "natural" (1.06)   
+7. "The" (0.0018)
+
+# 5. GAM-BASED ENHANCEMENT FOR TOKEN IMPORTANCE
+
+5.1 Motivation and Rationale While the three-matrix framework yields a composite importance score that is interpretable and efficient, it assumes a fixed multiplicative interaction between components. In practice, token contributions can exhibit non-linear relationships and context effects (e.g., position in the prompt) that are not fully captured by a single product. To model these effects without sacrificing interpretability, we incorporate a Generalized Additive Model (GAM). GAMs extend linear models by learning smooth functions over each feature and summing them, remaining transparent while capturing non-linearities.
+
+5.2 Feature Set For each token ?, we compute the following features (derived from Sections 3 and 4):
+
+• $f _ { 1 }$ : Angular deviation $A ( t ) \in [ 0 , 1 ]$   
+• $f _ { 2 }$ : Magnitude deviation $M ( t ) \in [ 0 , 1 ]$   
+• $f _ { 3 }$ : Dimensional score $D ( t ) \geq 0$   
+• $f _ { 4 }$ : Position percentile $p ( t ) \in [ 0 , 1 0 0 ]$ (token index normalized by prompt length)
+
+5.3 Model Formulation The target is the percentile rank of the token within the importance sequence. The GAM is:
+
+$$
+\begin{array}{l} \text {P e r c e n t i l e} (t) = \beta_ {0} + s _ {1} (A (t)) + s _ {2} (M (t)) \\ + s _ {3} (D (t)) + s _ {4} (p (t)) + \varepsilon \\ \end{array}
+$$
+
+where $s _ { 1 } \ldots s _ { 4 }$ are smooth functions (e.g., cubic splines) learned from data, $\beta _ { 0 }$ is the intercept, and $\varepsilon$ is the residual. This structure preserves additivity and interpretability: each term shows how a feature influences the percentile, independent of the others.
+
+# 5.4 Training Data Generation
+
+1. For each prompt $P$ , compute importance scores via the current composite method (Section 4).   
+2. Sort tokens by the composite score and assign percentile ranks ( $1 0 0 =$ most important).   
+3. Record $( A ( t ) , M ( t ) , D ( t ) , p ( t ) ,$ , ??????????(?)) for all tokens across diverse prompts/domains.
+
+# 5.5 Inference Pipeline
+
+Given a new prompt and its feature computations per token, the trained GAM outputs a predicted importance percentile for each token. Tokens are then ranked by predicted percentile.
+
+# 5.6 Advantages of the GAM Enhancement
+
+• Captures non-linear effects: importance may grow rapidly after thresholds in $A , M$ , or $D$ .   
+• Position-aware: accounts for structural cues (lead vs. trailing tokens).   
+• Interpretable: Smooth functions can be plotted to show partial dependence per feature.   
+• Efficient: Inference is $O ( k )$ per token ( $k =$ number of features) and adds negligible overhead.
+
+# 5.7 Example (Conceptual)
+
+For the prompt “The AI system processes natural language effectively,” tokens like ‘AI’ and ‘processes’ exhibit high $A , M$ , and $D$ and early positions, yielding $s _ { 1 } + s _ { 2 } + s _ { 3 } + s _ { 4 }$ values near the upper range, hence high predicted percentiles. Functional words like ‘The’ show low ? and $M$ and low $D$ , mapping to low percentiles.
+
+# 5.8 Implementation Note
+
+We use standard GAM tooling with spline terms and crossvalidation; production code loads a serialized model and predicts percentiles within the API layer.
+
+![](images/e634dc189ec78cae24788c3f7f81f8319a7881e6d84605446e9e1440915c0f68.jpg)
+
+# 6. ALGORITHMIC IMPLEMENTATION
+
+# 6.1 Preprocessing Pipeline
+
+Step 1: Tokenization
+
+- Input prompt is split into tokens using whitespace and punctuation rules   
+- Each token is normalized (lowercase, stemming and removal of stopwords if required)
+
+# Step 2: Embedding Lookup
+
+- Each token is mapped to its GloVe embedding vector   
+- Out-of-vocabulary tokens are handled via:
+
+(a) Character-level fallback   
+(b) Subword tokenization   
+(c) Zero vector (with appropriate logging)
+
+Step 3: Aggregate Embedding Computation
+
+$- E _ { o r i g } \ = \ E E ( t _ { \mathrm { i } } )$ for all tokens in the prompt
+
+# 6.2 Core Computation Loop
+
+For each token $t _ { k }$ in the prompt:
+
+Step 1: Compute perturbed embedding
+
+$$
+E _ {p e r t _ {k}} = E _ {o r i g} - E \left(t _ {k}\right)
+$$
+
+Step 2: Compute the directional similarity between the original and perturbed embeddings using the cosine function:
+
+$$
+\cos \theta_ {k} = \frac {\langle E _ {o r i g} , E _ {p e r t _ {k}} \rangle}{(\| E _ {o r i g} \| _ {2} \cdot \| E _ {p e r t _ {k}} \| _ {2})}
+$$
+
+$$
+\operatorname {S c o r e} _ {\text {a n g u l a r} k} = \frac {(1 - \cos_ {\text {t h e t a} k})}{2}
+$$
+
+Step 3: Calculate Magnitude Deviation Score
+
+$$
+S c o r e _ {m a g n i t u d e _ {k}} = \frac {| | E _ {o r i g} | | - | | E _ {p e r t _ {k}} | | |}{| | E _ {o r i g} | |}
+$$
+
+# Step 4: Calculate Dimensional Importance Score
+
+For each dimension $j$ in [0, 49]:
+
+$$
+w e i g h t _ {j _ {k}} = c o m p u t e _ {d i m e n s i o n a l _ {w e i g h t}} \left(E _ {o r i g} [ j ], E (t _ {k}) [ j ]\right)
+$$
+
+$$
+\operatorname {S c o r e} _ {\text {d i m e n s i o n a l} _ {k}} = \Sigma \operatorname {w e i g h t} _ {j _ {k}}
+$$
+
+Step 5: Compute Composite Score
+
+$$
+\begin{array}{l} \text {I m p o r t a n c e S c o r e} _ {k} = \text {S c o r e} _ {\text {a n g u l a r} _ {k}} \times \text {S c o r e} _ {\text {m a g n i t u d e} _ {k}} \\ \times S c o r e _ {d i m e n s i o n a l _ {k}} \\ \end{array}
+$$
+
+# 6.3 Computational Complexity
+
+Time Complexity: ? $\mid ( n \mid \times d )$
+
+where $\begin{array} { r l } { n } & { { } = } \end{array}$ number of tokens, $\begin{array} { r l } { d } & { { } = } \end{array}$ embedding dimensionality (50)
+
+- Embedding lookup: $O ( n )$   
+- Per-token perturbation analysis: $O \ ( n \times d )$   
+- Total: Linear in both prompt length and embedding dimension
+
+Space Complexity: $O ( d )$
+
+- Storage for $E _ { o r i g } \colon O ( d )$   
+- Storage for $E _ { p e r t }$ (recomputed for each token): $O ( d )$   
+- Total: Constant w.r.t. prompt length
+
+# 6.4 Optimization Strategies
+
+(a) Vectorization: All matrix operations are implemented using NumPy for efficient SIMD execution
+
+(b) Caching: GloVe embeddings are loaded once and cached in memory   
+(c) Parallel Processing: Token importance scores can be computed in parallel
+
+# 7. SUMMARY AND GAP ANALYSIS: EXTENDING TOKEN IMPORTANCE TO QUALITY EVALUATION
+
+While token importance analysis provides insights into individual token contributions within a single text, many realworld applications require comparing two texts to assess quality, completeness, and semantic alignment. One critical use case is automatic summarization, where a generated summary must faithfully represent the key information from a source document or context.
+
+Conventional summary assessment methods, notably ROUGE, rely on surface-level lexical overlap through ngram matching, which inherently overlooks deeper semantic correspondence between the source material and the generated summary. BLEU and METEOR consider surfacelevel similarity but are insensitive to missing critical concepts. BERTScore uses contextual embeddings but lacks interpretability and fine-grained diagnostic capabilities.
+
+We extend our token importance methodology to address these limitations by introducing Summary and Gap Analysis, a framework that leverages token-level importance scores to:
+
+1. Quantify semantic coverage of a summary relative to source content   
+2. Identify specific tokens or concepts that are missing or irrelevant   
+3. Provide actionable, interpretable feedback for summary improvement   
+4. Enable automated quality assessment without human annotation
+
+![](images/bcacecf685a60e740b059b2bbe8ade89a565c75844e7acbade9f4920db0b6b94.jpg)
+
+# 8. ADVANTAGES AND LIMITATIONS
+
+# 8.1 Advantages
+
+• Model-Agnostic: Does not require access to model internals or attention weights [6]   
+• Interpretable: Each component score has clear geometric and semantic meaning [17]   
+• Efficient: Linear time complexity enables real-time analysis   
+• Comprehensive: Captures multiple dimensions of token contribution   
+• Deterministic: Produces consistent results for the same input
+
+# 8.2 Limitations
+
+• Additive Assumption: Assumes prompt semantics can be modeled as vector sum   
+• Static Embeddings: GloVe does not capture contextdependent meaning [2]   
+• Token Independence: Does not explicitly model token interactions or dependencies [23]   
+• Language-Specific: Requires pre-trained embeddings for each language
+
+# 9. CONCLUSION
+
+This paper has presented a novel, multi-dimensional methodology for quantifying token importance in LLM prompts. By decomposing a token's contribution into three distinct analytical matrices, Angular Deviation, Magnitude Deviation, and Dimensional Importance, we provide a nuanced and mathematically rigorous framework for understanding prompt semantics.
+
+The methodology offers a deterministic, model-agnostic, and interpretable [11] approach to token importance analysis. It serves as a valuable tool for:   
+• Researchers seeking to understand prompt structure and semantics   
+• Practitioners engineering effective prompts for LLM applications   
+• Organizations ensuring transparency and explainability in AI systems
+
+The framework presented here represents a foundational step toward more transparent, controllable, and effective human-LLM interaction.
+
+# REFERENCES
+
+[1] Vaswani, A., et al. (2017). Attention Is All You Need. NeurIPS. https://arxiv.org/abs/1706.03762   
+[2] Devlin, J., Chang, M.-W., Lee, K., & Toutanova, K. (2019). BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. NAACL. https://arxiv.org/abs/1810.04805   
+[3] Brown, T. B., et al. (2020). Language Models are Few-Shot Learners. NeurIPS (GPT-3). https://arxiv.org/abs/2005.14165   
+[4] Touvron, H., et al. (2023). LLaMA: Open and Efficient Foundation Language Models. https://arxiv.org/abs/2302.13971   
+[5] Sundararajan, M., Taly, A., & Yan, Q. (2017). Axiomatic Attribution for Deep Networks (Integrated Gradients). ICML. https://arxiv.org/abs/1703.01365   
+[6] Ribeiro, M. T., Singh, S., & Guestrin, C. (2016). “Why Should I Trust You?”: Explaining the Predictions of Any Classifier (LIME). KDD. https://arxiv.org/abs/1602.04938   
+[7] Lundberg, S. M., & Lee, S.-I. (2017). A Unified Approach to Interpreting Model Predictions (SHAP). NeurIPS. https://arxiv.org/abs/1705.07874   
+[8] Shrikumar, A., Greenside, P., & Kundaje, A. (2017). Learning Important Features Through Propagating
+
+Activation Differences (DeepLIFT). https://arxiv.org/abs/1704.02685   
+[9] Smilkov, D., Thorat, N., Kim, B., Viégas, F., & Wattenberg, M. (2017). SmoothGrad: removing noise by adding noise. https://arxiv.org/abs/1706.03825   
+[10] Bach, S., et al. (2015). On Pixel-Wise Explanations for Non-Linear Classifier Decisions by Layer-Wise Relevance Propagation. PLOS ONE. https://journals.plos.org/plosone/article?id=10.1371/journal. pone.0130140   
+[11] Li, J., Monroe, W., & Jurafsky, D. (2016). Understanding Neural Networks through Representation Erasure (token/feature ablation logic, very relevant to perturbation-based token importance). https://arxiv.org/abs/1612.08220   
+[12] Jain, S., & Wallace, B. C. (2019). Attention is not Explanation. https://arxiv.org/abs/1902.10186   
+Wiegreffe, S., & Pinter, Y. (2019). Attention is not not Explanation. ACL. https://aclanthology.org/D19-1002/   
+[13] Abnar, S., & Zuidema, W. (2020). Quantifying Attention Flow in Transformers (attention rollout/flow vs raw attention). ACL. https://arxiv.org/abs/2005.00928   
+[14] Chefer, H., Gur, S., & Wolf, L. (2021). Transformer Interpretability Beyond Attention Visualization. CVPR. https://arxiv.org/abs/2012.09838   
+[15] Adebayo, J., et al. (2018). Sanity Checks for Saliency Maps. NeurIPS. https://arxiv.org/abs/1810.03292   
+[16] Yeh, C.-K., et al. (2019). On the (In)fidelity and Sensitivity for Explanations. NeurIPS. https://arxiv.org/abs/1901.09392   
+[17] Jacovi, A., & Goldberg, Y. (2020). Towards Faithfully Interpretable NLP Systems: How should we define and evaluate faithfulness? ACL. https://arxiv.org/abs/2004.03685
+
+[18] DeYoung, J., et al. (2020). ERASER: A Benchmark to Evaluate Rationalized NLP Models. ACL. https://aclanthology.org/2020.acl-main.408/   
+[19] Kokhlikyan, N., et al. (2020). Captum: A unified and generic model interpretability library for PyTorch. https://arxiv.org/abs/2009.07896   
+[20] Captum (Project site / docs). Model Interpretability for PyTorch. https://captum.ai/   
+[21] Sarti, G., et al. (2023). Inseq: An Interpretability Toolkit for Sequence Generation Models. ACL (demo). https://aclanthology.org/2023.acl-demo.40/   
+Inseq (software repository). https://github.com/inseqteam/inseq   
+[22] Vig, J. (2019). BertViz: A Tool for Visualizing Multi-Head Self-Attention in the BERT Model. (ICLR Debug-ML workshop / tech report). https://arxiv.org/pdf/1906.04341   
+BertViz (software repository). https://github.com/jessevig/bertviz   
+[23] Guo, Z., et al. (2024). Attention Score is not All You Need for Token Importance… (token importance for KVcache pruning context; still relevant as “token importance $\neq$ raw attention”). EMNLP. https://aclanthology.org/2024.emnlp-main.1178.pdf   
+[24] TokenButler: Token Importance is Predictable. (2025). https://arxiv.org/html/2503.07518v1   
+[25] Rauba, P., Wei, Q., & van der Schaar, M. (2025). Visualizing token importance for black-box language models. https://arxiv.org/pdf/2512.11573   
+[26] (Black-box gradient-estimation style) GEEX: On Gradient-like Explanation under a Black-box Setting. (2024). https://arxiv.org/html/2308.09381v3

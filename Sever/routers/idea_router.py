@@ -3,6 +3,16 @@ Idea Workbench Router.
 
 All routes are prefixed with /api/idea and registered in api.py via
     app.include_router(idea_router)
+
+Quota policy (idea_gen):
+  - The "idea_gen" quota is charged per CANDIDATE GENERATION SESSION, not per LLM call.
+  - Downstream pipeline steps (review, revise, plans/generate, eval-replay) operate on
+    already-generated candidates and do NOT consume additional quota — this avoids double-
+    billing users who are refining ideas within their monthly allowance.
+  - /atoms/extract and /questions/generate are pipeline prerequisites; they check remaining
+    quota before running but do not consume a credit (the credit is charged at generate time).
+  - This policy is intentional: charging only at generation creates a clear, predictable
+    cost model. If this changes, update consume_quota calls and TIER_ENTITLEMENTS docs.
 """
 
 from datetime import datetime, timezone
@@ -12,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, data_service, idea_pipeline_service, idea_service, kb_service
+from services import auth_service, data_service, engagement_service, entitlement_service, idea_pipeline_service, idea_service, kb_service
 from routers._deps import _get_optional_user, _tier_quota_limit, _tier_label
 
 router = APIRouter(prefix="/api/idea", tags=["idea"])
@@ -35,6 +45,7 @@ class GenerateCandidatesBody(BaseModel):
     question_id: Optional[int] = None
     custom_question: str = ""
     strategies: Optional[list[str]] = None
+    reward_id: Optional[int] = Field(default=None, description="Engagement reward ID to apply an idea generation boost")
 
 
 class CreateCandidateBody(BaseModel):
@@ -218,13 +229,17 @@ def api_idea_get_atom(atom_id: int, _user=Depends(auth_service.require_user)):
     atom = idea_service.get_atom(atom_id)
     if not atom:
         raise HTTPException(status_code=404, detail="Atom not found")
-    if atom.get("user_id") != _user["id"]:
-        raise HTTPException(status_code=403, detail="Permission denied")
+    # Atoms are extracted from public papers; any authenticated user may read them
     return {"ok": True, "atom": atom}
 
 
 @router.post("/atoms/extract", summary="Extract atoms from a paper")
 def api_idea_extract_atoms(body: ExtractAtomsBody, _user=Depends(auth_service.require_user)):
+    # Read-only quota check: ensure the user still has idea_gen quota before running
+    # this LLM-heavy extraction step.  Does not consume a credit (charged at generate).
+    status = entitlement_service.check_quota(_user["id"], "idea_gen")
+    if not status["allowed"]:
+        raise HTTPException(status_code=429, detail="本月灵感生成用量已达上限，请升级套餐以继续使用")
     result = idea_pipeline_service.extract_atoms_for_paper(
         _user["id"], body.paper_id, body.date_str,
     )
@@ -272,6 +287,10 @@ def api_idea_list_questions(
 
 @router.post("/questions/generate", summary="Generate research questions from atoms")
 def api_idea_generate_questions(body: GenerateQuestionsBody, _user=Depends(auth_service.require_user)):
+    # Read-only quota check: prerequisite step — credit is charged at /candidates/generate.
+    status = entitlement_service.check_quota(_user["id"], "idea_gen")
+    if not status["allowed"]:
+        raise HTTPException(status_code=429, detail="本月灵感生成用量已达上限，请升级套餐以继续使用")
     result = idea_pipeline_service.generate_questions(_user["id"], limit=body.limit)
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
@@ -334,8 +353,12 @@ def api_idea_list_candidates(
 @router.get("/candidates/{candidate_id}", summary="Get candidate detail")
 def api_idea_get_candidate(candidate_id: int, _user=Depends(auth_service.require_user)):
     c = idea_service.get_candidate(candidate_id)
-    if not c or c.get("user_id") != _user["id"]:
+    if not c:
         raise HTTPException(status_code=404, detail="Candidate not found")
+    if c.get("user_id") != _user["id"]:
+        # Allow read access for shared/pipeline candidates (e.g. digest cards)
+        if not idea_service.user_has_candidate_access(_user["id"], candidate_id):
+            raise HTTPException(status_code=404, detail="Candidate not found")
     return {"ok": True, "candidate": c}
 
 
@@ -405,12 +428,28 @@ def api_idea_manual_review(candidate_id: int, body: ManualReviewBody, _user=Depe
 
 @router.post("/candidates/generate", summary="Generate candidates (SSE stream)")
 def api_idea_generate_candidates(body: GenerateCandidatesBody, _user=Depends(auth_service.require_user)):
+    # Quota check: consume one idea generation credit (Free: 3/month, Pro: 30/month)
+    entitlement_service.consume_quota(_user["id"], "idea_gen")
+
+    # Apply engagement idea_gen boost if provided (increases atom retrieval pool for richer candidates)
+    atoms_limit = 20
+    if body.reward_id is not None:
+        boost = engagement_service.get_reward_boost(_user["id"], "idea_gen", body.reward_id)
+        if boost:
+            try:
+                engagement_service.use_reward(_user["id"], body.reward_id, "idea_gen_boost")
+                multiplier = boost.get("atoms_limit_multiplier", 1.0)
+                atoms_limit = int(20 * multiplier)
+            except ValueError:
+                pass  # Already used or expired — proceed with default
+
     return StreamingResponse(
         idea_pipeline_service.stream_generate_candidates(
             _user["id"],
             question_id=body.question_id,
             custom_question=body.custom_question,
             strategies=body.strategies,
+            atoms_limit=atoms_limit,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -419,6 +458,8 @@ def api_idea_generate_candidates(body: GenerateCandidatesBody, _user=Depends(aut
 
 @router.post("/candidates/generate-for-paper", summary="Generate candidates for a user paper")
 def api_idea_generate_candidates_for_paper(body: GenerateForPaperBody, _user=Depends(auth_service.require_user)):
+    # Quota check: consume one idea generation credit
+    entitlement_service.consume_quota(_user["id"], "idea_gen")
     result = idea_pipeline_service.generate_candidates_for_paper(_user["id"], body.paper_id, force=body.force)
     if "error" in result:
         raise HTTPException(status_code=422, detail=result["error"])

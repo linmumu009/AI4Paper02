@@ -36,6 +36,16 @@ export interface ContentLayoutContext {
   paperViewScope?: 'kb' | 'mypapers'
   /** When true, PdfPanel renders without its own title bar (use when the outer context already provides one). */
   hidePdfHeader?: boolean
+  /** When true, zh/bilingual MarkdownViewer panels auto-refresh every ~4 seconds to show in-progress translation. */
+  translateInProgress?: boolean
+  /** Deep Research Q&A: list of paper IDs selected as data sources */
+  researchPaperIds?: string[]
+  /** Deep Research Q&A: paper_id → title map for display */
+  researchPaperTitles?: Record<string, string>
+  /** Deep Research Q&A: scope ('kb' | 'mypapers') */
+  researchScope?: string
+  /** Deep Research Q&A: when set, auto-opens this session ID in the ResearchPanel */
+  researchInitialSessionId?: number | null
 }
 
 const props = defineProps<{
@@ -55,6 +65,9 @@ const emit = defineEmits<{
   ideaOpenPaper: [paperId: string]
   compareSaved: [resultId: number]
   closeView: []
+  closeResearch: []
+  removeResearchPaper: [paperId: string]
+  saveToLibrary: [sessionId: number]
 }>()
 
 const globalChat = useGlobalChat()
@@ -323,6 +336,12 @@ function leftMaxWidthClass(panelId: string) {
   ) {
     return 'max-w-3xl mx-auto h-full min-h-0 flex flex-col'
   }
+  if (panelId === PANEL_IDS.RESEARCH) {
+    return 'max-w-3xl mx-auto h-full min-h-0 flex flex-col'
+  }
+  if (panelId === PANEL_IDS.COMPARE || panelId === PANEL_IDS.COMPARE_RESULT) {
+    return 'max-w-3xl mx-auto h-full min-h-0 flex flex-col'
+  }
   return 'h-full min-h-0 flex flex-col'
 }
 
@@ -410,6 +429,9 @@ defineExpose({
               @close-idea="emit('closeIdea')"
               @idea-open-paper="emit('ideaOpenPaper', $event)"
               @compare-saved="emit('compareSaved', $event)"
+              @close-research="emit('closeResearch')"
+              @remove-research-paper="emit('removeResearchPaper', $event)"
+              @save-to-library="emit('saveToLibrary', $event)"
             />
           </div>
         </div>
@@ -437,6 +459,9 @@ defineExpose({
               @close-idea="emit('closeIdea')"
               @idea-open-paper="emit('ideaOpenPaper', $event)"
               @compare-saved="emit('compareSaved', $event)"
+              @close-research="emit('closeResearch')"
+              @remove-research-paper="emit('removeResearchPaper', $event)"
+              @save-to-library="emit('saveToLibrary', $event)"
             />
           </div>
         </div>
@@ -473,6 +498,9 @@ defineExpose({
             @close-idea="emit('closeIdea')"
             @idea-open-paper="emit('ideaOpenPaper', $event)"
             @compare-saved="emit('compareSaved', $event)"
+            @close-research="emit('closeResearch')"
+            @remove-research-paper="emit('removeResearchPaper', $event)"
+            @save-to-library="emit('saveToLibrary', $event)"
           />
         </div>
       </template>

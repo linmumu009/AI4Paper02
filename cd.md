@@ -31,6 +31,19 @@ systemctl restart arxiv-api
 ===============================
 
 
+cd /projects/ArxivPaper4/mobile_new
+npm install
+chmod +x node_modules/.bin/vite
+chmod +x node_modules/.bin/tsc
+chmod +x node_modules/typescript/bin/tsc
+npm run build
+ls -la dist
+systemctl reload nginx
+systemctl restart arxiv-api
+
+===============================
+
+
 好的，这里是您从更新 Python 版本开始的操作顺序列表：
 
 1. 检查是否可以使用 `dnf` 安装 Python 3.11：
@@ -220,19 +233,19 @@ server {
     root /projects/ArxivPaper4/View/dist;
     index index.html;
 
-    # 移动端静态资源（配合 Mobile 构建 base=/m/）
+    # 移动端静态资源（配合 mobile_new 构建 base=/m/）
     location /m/assets/ {
-        alias /projects/ArxivPaper4/Mobile/dist/assets/;
+        alias /projects/ArxivPaper4/mobile_new/dist/assets/;
     }
 
     # 移动端 SPA 路由
     location /m/ {
-        alias /projects/ArxivPaper4/Mobile/dist/;
+        alias /projects/ArxivPaper4/mobile_new/dist/;
         try_files $uri $uri/ /m/index.html;
     }
 
     location = /m/index.html {
-        alias /projects/ArxivPaper4/Mobile/dist/index.html;
+        alias /projects/ArxivPaper4/mobile_new/dist/index.html;
     }
 
     # 桌面端 SPA 路由
@@ -356,7 +369,7 @@ ls -la dist
 systemctl reload nginx
 systemctl restart arxiv-api
 
-cd /projects/ArxivPaper4/Mobile
+cd /projects/ArxivPaper4/mobile_new
 npm install
 chmod +x node_modules/.bin/vite
 chmod +x node_modules/.bin/tsc

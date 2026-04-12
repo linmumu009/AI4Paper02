@@ -6,6 +6,9 @@ import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { IS_TAURI, tauriFetchText } from '../api'
 import MarkdownToc, { type TocHeading } from './MarkdownToc.vue'
+import LoadingSpinner from './LoadingSpinner.vue'
+import BilingualThemePicker from './BilingualThemePicker.vue'
+import BilingualFontSizePicker from './BilingualFontSizePicker.vue'
 
 const props = defineProps<{
   /** 完整 URL（含 API_ORIGIN） */
@@ -14,6 +17,12 @@ const props = defineProps<{
   rootClass?: string
   /** 内容模式：影响特定排版样式 */
   mode?: 'mineru' | 'zh' | 'bilingual'
+  /**
+   * 自动刷新间隔（毫秒）。大于 0 时每隔该时间重新 fetch 文件，用于翻译进行中
+   * 的实时预览。仅当远端文件内容变化时才重新渲染，不会无效闪烁。
+   * 设为 0 或不传则关闭自动刷新。
+   */
+  autoRefreshMs?: number
 }>()
 
 const md = new MarkdownIt({ html: true, linkify: true, breaks: true }).use(texmath, {
@@ -32,6 +41,8 @@ const headings = ref<TocHeading[]>([])
 const activeHeadingId = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
 let tocObserver: IntersectionObserver | null = null
+let _refreshTimer: ReturnType<typeof setInterval> | null = null
+let _lastText = ''  // used to skip re-render when content unchanged
 
 /** 将相对资源路径解析为相对当前 Markdown 文件目录的绝对路径（同源）。 */
 function rewriteRelativeAssetUrls(rendered: string, mdFileUrl: string): string {
@@ -134,10 +145,18 @@ async function load() {
     headings.value = []
     loading.value = false
     error.value = ''
+    _lastText = ''
     return
   }
-  loading.value = true
-  error.value = ''
+
+  // Background refresh: already has content and auto-refresh is active.
+  // Skip loading=true so bodyRef stays mounted (avoids DOM destroy → scrollTop reset).
+  const isBackgroundRefresh = (props.autoRefreshMs ?? 0) > 0 && _lastText !== ''
+  if (!isBackgroundRefresh) {
+    loading.value = true
+    error.value = ''
+  }
+
   try {
     let text: string
     if (IS_TAURI) {
@@ -147,24 +166,85 @@ async function load() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       text = await res.text()
     }
+    // Skip re-render if content has not changed (prevents flicker during auto-refresh)
+    if (text === _lastText) return
+
+    // Save scroll position BEFORE updating html while bodyRef is still the same DOM element.
+    let savedRatio = -1
+    if (isBackgroundRefresh && bodyRef.value) {
+      const el = bodyRef.value
+      const maxScroll = el.scrollHeight - el.clientHeight
+      savedRatio = maxScroll > 0 ? el.scrollTop / maxScroll : 0
+    }
+
+    _lastText = text
     const raw = md.render(text)
     const withIds = injectHeadingIds(raw)
     headings.value = withIds.headings
     html.value = rewriteRelativeAssetUrls(withIds.html, props.url)
     activeHeadingId.value = headings.value[0]?.id ?? ''
+
+    // Restore scroll position after Vue patches the DOM.
+    // bodyRef is the SAME element (not destroyed), so we just need to wait for
+    // the new v-html content to be laid out before writing scrollTop back.
+    if (savedRatio >= 0) {
+      await nextTick()
+      requestAnimationFrame(() => {
+        if (!bodyRef.value) return
+        const el = bodyRef.value
+        const maxScroll = el.scrollHeight - el.clientHeight
+        if (maxScroll > 0) {
+          el.scrollTop = Math.round(Math.min(savedRatio * maxScroll, maxScroll))
+        }
+      })
+    }
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : '加载失败'
-    html.value = ''
-    headings.value = []
+    // During background refresh, keep existing content visible; don't wipe the page.
+    if (!isBackgroundRefresh) {
+      error.value = e instanceof Error ? e.message : '加载失败'
+      html.value = ''
+      headings.value = []
+      _lastText = ''
+    }
   } finally {
-    loading.value = false
-    // Set up observer after DOM updates
+    if (!isBackgroundRefresh) {
+      loading.value = false
+    }
     nextTick(() => setupTocObserver())
   }
 }
 
 onMounted(load)
-watch(() => props.url, load)
+watch(() => props.url, () => {
+  _lastText = ''  // force re-render when URL changes even if content looks identical
+  load()
+})
+
+// ── Auto-refresh timer ────────────────────────────────────
+function _startRefreshTimer(ms: number) {
+  _stopRefreshTimer()
+  if (ms > 0) {
+    _refreshTimer = setInterval(load, ms)
+  }
+}
+function _stopRefreshTimer() {
+  if (_refreshTimer) {
+    clearInterval(_refreshTimer)
+    _refreshTimer = null
+  }
+}
+
+watch(
+  () => props.autoRefreshMs,
+  (ms) => {
+    if (ms && ms > 0) {
+      _startRefreshTimer(ms)
+    } else {
+      _stopRefreshTimer()
+    }
+  },
+  { immediate: true },
+)
 
 // Re-init observer when TOC is opened (body ref may become available)
 watch(showToc, (v) => {
@@ -173,6 +253,7 @@ watch(showToc, (v) => {
 
 onBeforeUnmount(() => {
   tocObserver?.disconnect()
+  _stopRefreshTimer()
 })
 </script>
 
@@ -191,12 +272,20 @@ onBeforeUnmount(() => {
     >
       <aside
         v-if="showToc && headings.length > 0"
-        class="absolute right-full top-0 bottom-0 w-60 mr-2 border border-border rounded-xl bg-bg-sidebar overflow-hidden flex flex-col"
+        class="absolute right-full top-0 bottom-0 w-64 mr-2 border border-border rounded-xl bg-bg-sidebar overflow-hidden flex flex-col shadow-lg"
       >
-        <div class="shrink-0 px-3 py-2 border-b border-border flex items-center justify-between">
-          <span class="text-xs font-bold tracking-wider uppercase text-text-muted">大纲</span>
+        <!-- TOC header -->
+        <div class="shrink-0 px-3 py-2.5 border-b border-border flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <!-- Brand gradient marker bar -->
+            <span class="shrink-0 w-[3px] h-[22px] rounded-full bg-gradient-to-b from-gradient-start to-gradient-end" />
+            <div class="flex flex-col min-w-0">
+              <span class="text-[13px] font-semibold text-text-primary leading-tight">大纲</span>
+              <span class="text-[10.5px] text-text-muted leading-tight">共 {{ headings.length }} 个标题</span>
+            </div>
+          </div>
           <button
-            class="flex items-center justify-center w-5 h-5 rounded text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors bg-transparent border-none cursor-pointer"
+            class="shrink-0 flex items-center justify-center w-6 h-6 rounded-md text-text-muted hover:text-text-primary hover:bg-bg-hover transition-colors bg-transparent border-none cursor-pointer"
             :title="'收起目录'"
             @click="showToc = false"
           >
@@ -208,6 +297,7 @@ onBeforeUnmount(() => {
         <MarkdownToc
           :headings="headings"
           :active-id="activeHeadingId"
+          :is-bilingual="mode === 'bilingual' || mode === 'zh'"
           @select="scrollToHeading"
         />
       </aside>
@@ -217,11 +307,7 @@ onBeforeUnmount(() => {
     <div class="flex flex-col flex-1 min-h-0 bg-bg-card rounded-xl border border-border overflow-hidden">
       <!-- Loading -->
       <div v-if="loading" class="flex-1 flex flex-col items-center justify-center gap-2 p-4">
-        <svg class="animate-spin h-7 w-7 text-tinder-pink" viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        <span class="text-sm text-text-muted">加载中…</span>
+        <LoadingSpinner size="md" text="加载中…" />
       </div>
 
       <!-- Error -->
@@ -233,10 +319,11 @@ onBeforeUnmount(() => {
       <template v-else>
         <!-- TOC toggle button (only when there are headings) -->
         <div
-          v-if="headings.length > 0"
+          v-if="headings.length > 0 || mode === 'bilingual'"
           class="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg-elevated/50"
         >
           <button
+            v-if="headings.length > 0"
             class="flex items-center gap-1.5 text-[12px] px-2 py-1 rounded-md transition-colors bg-transparent border-none cursor-pointer"
             :class="showToc
               ? 'text-tinder-pink bg-tinder-pink/10'
@@ -256,6 +343,12 @@ onBeforeUnmount(() => {
             <span>目录</span>
             <span class="text-text-muted">({{ headings.length }})</span>
           </button>
+          <span v-else />
+          <!-- Bilingual controls: color picker + font size picker -->
+          <div v-if="mode === 'bilingual'" class="bilingual-controls">
+            <BilingualThemePicker />
+            <BilingualFontSizePicker />
+          </div>
         </div>
 
         <!-- Markdown body -->
@@ -432,14 +525,41 @@ onBeforeUnmount(() => {
    Bilingual mode — English blockquote vs Chinese prose
    ═══════════════════════════════════════════════════ */
 
+.bilingual-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Container: set base font size from user preference (CSS var driven by useBilingualTheme) */
+.markdown-viewer-body.bilingual-mode {
+  font-size: var(--bilingual-font-size);
+}
+
+/* Override all p font-size from the generic 0.9rem so it inherits the container variable.
+   Must be declared before the more specific p:not(...) rule. */
+.markdown-viewer-body.bilingual-mode :deep(p) {
+  font-size: 1em;
+}
+
+/* Override heading font-sizes from generic rem to em so they scale proportionally
+   with the user-controlled --bilingual-font-size. Ratios preserved from the
+   general rules: h1/p=1.61, h2/p=1.33, h3/p=1.17, h4-h6/p=1.06. */
+.markdown-viewer-body.bilingual-mode :deep(h1) { font-size: 1.61em; }
+.markdown-viewer-body.bilingual-mode :deep(h2) { font-size: 1.33em; }
+.markdown-viewer-body.bilingual-mode :deep(h3) { font-size: 1.17em; }
+.markdown-viewer-body.bilingual-mode :deep(h4),
+.markdown-viewer-body.bilingual-mode :deep(h5),
+.markdown-viewer-body.bilingual-mode :deep(h6) { font-size: 1.06em; }
+
 /* English source paragraph (rendered as blockquote) */
 .markdown-viewer-body.bilingual-mode :deep(blockquote) {
-  border-left: 3px solid var(--color-tinder-blue, #2db8e2);
-  background: rgba(45, 184, 226, 0.06);
+  border-left: 3px solid hsl(var(--bilingual-hue), var(--bilingual-saturation), 45%);
+  background: hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, calc(var(--bilingual-intensity) * 0.01));
   color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  padding: 0.5rem 0.85rem;
-  margin: 0.5rem 0 0;
+  font-size: 0.92em;
+  padding: 0.5em 0.85em;
+  margin: 0.5em 0 0;
   border-radius: 0 6px 6px 0;
 }
 
@@ -447,30 +567,29 @@ onBeforeUnmount(() => {
 .markdown-viewer-body.bilingual-mode :deep(p > strong:only-child) {
   display: inline-flex;
   align-items: center;
-  font-size: 0.68rem;
+  font-size: 0.72em;
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: var(--color-tinder-blue, #2db8e2);
-  background: rgba(45, 184, 226, 0.12);
-  border: 1px solid rgba(45, 184, 226, 0.25);
+  color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 42%);
+  background: hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, calc(var(--bilingual-intensity) * 0.02));
+  border: 1px solid hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, 0.25);
   border-radius: 4px;
   padding: 0.1em 0.5em;
-  margin: 0.25rem 0 0.1rem;
+  margin: 0.25em 0 0.1em;
   line-height: 1.5;
 }
 
-/* Chinese translation paragraph */
+/* Chinese translation paragraph — inherits container font-size (= user's chosen value) */
 .markdown-viewer-body.bilingual-mode :deep(p:not(:has(> strong:only-child))) {
   color: var(--color-text-primary);
-  font-size: 0.9rem;
   line-height: 1.8;
-  margin: 0.2rem 0 0.6rem;
+  margin: 0.2em 0 0.6em;
 }
 
 /* Section separator */
 .markdown-viewer-body.bilingual-mode :deep(hr) {
   border-top: 1px dashed var(--color-border-light);
-  margin: 0.85rem 0;
+  margin: 0.85em 0;
   opacity: 0.6;
 }
 

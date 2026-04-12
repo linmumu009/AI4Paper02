@@ -1,0 +1,1172 @@
+[
+  {
+    "block_id": "p0_b0",
+    "page_idx": 0,
+    "order": 0,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Reasoning Shift: How Context Silently Shortens LLM Reasoning",
+    "zh_text": "# 推理偏移：上下文如何悄然缩短大语言模型的推理过程"
+  },
+  {
+    "block_id": "p0_b1",
+    "page_idx": 0,
+    "order": 1,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Gleb Rodionov∗ Yandex",
+    "zh_text": "格列布·罗季奥诺夫∗ Yandex"
+  },
+  {
+    "block_id": "p0_b2",
+    "page_idx": 0,
+    "order": 2,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Abstract",
+    "zh_text": "# 摘要"
+  },
+  {
+    "block_id": "p0_b3",
+    "page_idx": 0,
+    "order": 3,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Large language models (LLMs) exhibiting test-time scaling behavior, such as extended reasoning traces and self-verification, have demonstrated remarkable performance on complex, long-term reasoning tasks. However, the robustness of these reasoning behaviors remains underexplored. To investigate this, we conduct a systematic evaluation of multiple reasoning models across three scenarios: (1) problems augmented with lengthy, irrelevant context; (2) multi-turn conversational settings with independent tasks; and (3) problems presented as a subtask within a complex task. We observe an interesting phenomenon: reasoning models tend to produce much shorter reasoning traces (up to $50 \\%$) for the same problem under different context conditions compared to the traces produced when the problem is presented in isolation. A finer-grained analysis reveals that this compression is associated with a decrease in self-verification and uncertainty management behaviors, such as double-checking. While this behavioral shift does not compromise performance on straightforward problems, it might affect performance on more challenging tasks. We hope our findings draw additional attention to both the robustness of reasoning models and the problem of context management for LLMs and LLM-based agents.",
+    "zh_text": "展现出测试时缩放（test-time scaling）行为（例如扩展的推理轨迹与自我验证）的大语言模型（LLMs），在复杂、长程推理任务中已展现出卓越性能。然而，此类推理行为的鲁棒性仍缺乏深入探究。为此，我们在三种场景下对多个推理模型开展了系统性评估：（1）问题附加了冗长且无关的上下文；（2）多轮对话设置中各轮任务相互独立；（3）问题作为复杂任务中的一个子任务呈现。我们观察到一个有趣现象：相较于问题单独呈现时所生成的推理轨迹，同一问题在不同上下文条件下所触发的推理轨迹显著缩短（最多达 $50\\%$）。更细粒度的分析表明，这种压缩与自我验证及不确定性管理等行为（如反复核查）的减少密切相关。尽管该行为偏移在简单问题上并未损害模型性能，但在更具挑战性的任务中可能造成性能下降。我们希望本研究能进一步引起学界对推理模型鲁棒性，以及大语言模型与基于LLM的智能体之上下文管理问题的关注。"
+  },
+  {
+    "block_id": "p0_b4",
+    "page_idx": 0,
+    "order": 4,
+    "type": "title",
+    "translatable": true,
+    "source_text": "1 Introduction",
+    "zh_text": "# 1 引言"
+  },
+  {
+    "block_id": "p0_b5",
+    "page_idx": 0,
+    "order": 5,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Recently, test-time scaling has emerged as a promising strategy for improving the performance of Large Language Models by allocating more compute during inference, allowing adaptation to input complexity without retraining [OpenAI et al., 2024, DeepSeek-AI et al., 2025]. A prominent example of test-time scaling is Chain-of-Thought (CoT) [Kojima et al., 2022, Wei et al., 2022]. With recent advancements in Reinforcement Learning (RL) and other post-training methods, LLMs are now equipped with a thinking mode, which enables them to produce long reasoning trajectories before providing an answer to the user’s query. Importantly, modern advancements in reasoning LLMs are often tied to the models’ ability to self-reflect on how they solve problems, as demonstrated by the presence of high-level patterns in their CoT, such as backtracking, uncertainty management, and self-verification [Gandhi et al., 2025, Venhoff et al., 2025]. These patterns typically accompany increased reasoning trace length.",
+    "zh_text": "近期，测试时缩放作为一种有前景的策略崭露头角，其通过在推理阶段分配更多计算资源，使模型能够根据输入复杂度动态调整自身行为，而无需重新训练 [OpenAI et al., 2024, DeepSeek-AI et al., 2025]。测试时缩放的一个典型范例是思维链（Chain-of-Thought, CoT）[Kojima et al., 2022, Wei et al., 2022]。借助强化学习（RL）及其他后训练技术的最新进展，大语言模型现已具备一种“思考模式”，使其能在给出用户查询答案前生成较长的推理轨迹。尤为重要的是，当前推理型大语言模型的诸多进步，往往与其对自身解题过程进行自我反思的能力密切相关——这一点体现于其CoT中出现的高层级模式，例如回溯（backtracking）、不确定性管理（uncertainty management）与自我验证（self-verification）[Gandhi et al., 2025, Venhoff et al., 2025]。这些模式通常伴随着推理轨迹长度的增加。"
+  },
+  {
+    "block_id": "p0_b6",
+    "page_idx": 0,
+    "order": 6,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In parallel, recent years have seen the rise of long-context language models, with context windows expanding to hundreds of thousands or even millions of tokens [Dubey et al., 2024, Anthropic, 2024, Google DeepMind, 2025b]. These advances provide ample space for test-time scaling, allowing models to explore, reflect, and summarize within a single context, thereby enabling complex reasoning [Liu et al., 2025a], multi-stage prover-verifier pipelines [Shao et al., 2025], and sophisticated agent workflows [Team et al., 2025]. However, multiple works have demonstrated significant limitations associated with longer contexts, such as reduced ability to retrieve relevant data from long contexts [Kamradt, 2023], to learn in context [Li et al., 2024], to recover from wrong assumptions in multi-turn conversations [Laban et al., 2026], and to perform multi-step reasoning over long inputs [Ling et al.,",
+    "zh_text": "与此同时，近年来长上下文语言模型迅速兴起，其上下文窗口已扩展至数十万乃至数百万词元（tokens）[Dubey et al., 2024, Anthropic, 2024, Google DeepMind, 2025b]。这些进展为测试时缩放提供了充足空间，使得模型可在单一上下文中完成探索、反思与总结，从而支持复杂推理 [Liu et al., 2025a]、多阶段“证明者–验证者”流水线（prover-verifier pipelines）[Shao et al., 2025]，以及更为精细的智能体工作流（agent workflows）[Team et al., 2025]。然而，多项研究已揭示长上下文所伴随的显著局限性，例如：从长上下文中检索相关信息的能力下降 [Kamradt, 2023]、上下文内学习（in-context learning）能力减弱 [Li et al., 2024]、在多轮对话中难以从错误假设中恢复 [Laban et al., 2026]，以及在长输入上执行多步推理的能力受限 [Ling et al.,"
+  },
+  {
+    "block_id": "p1_b10",
+    "page_idx": 1,
+    "order": 10,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "2025]. Additionally, Du et al. [2025] demonstrated that the sheer length of the input alone can hurt LLM performance, independent of retrieval quality and in the absence of any distracting information.",
+    "zh_text": "2025]。此外，Du 等人 [2025] 还证实，仅输入长度本身即足以损害大语言模型的性能，且该效应独立于检索质量，并在完全不存在干扰信息的情况下依然存在。"
+  },
+  {
+    "block_id": "p1_b11",
+    "page_idx": 1,
+    "order": 11,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "With the rise of multiple test-time strategies and agents working on long-term tasks, natural questions emerge: \"How does context length and content affect the reasoning capabilities of the models?\" In particular, \"If a model faces an isolated subproblem with irrelevant data in the context, will it solve it similarly as if working on it in isolation?\"",
+    "zh_text": "随着多种测试时策略及面向长期任务的智能体不断涌现，一些自然问题随之产生：“上下文长度与内容如何影响模型的推理能力？”尤其值得追问的是：“若模型面对一个孤立的子问题，但其上下文中混杂了无关数据，其求解方式是否会与该问题单独呈现时一致？”"
+  },
+  {
+    "block_id": "p1_b12",
+    "page_idx": 1,
+    "order": 12,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this work, we study a surprising phenomenon: we observe a significant distribution shift in how models solve the same problems under different context conditions. We explore how reasoning quality and performance change under simple distracting conditions: (1) problems augmented with lengthy, irrelevant context; (2) multi-turn conversational settings with independent tasks; and (3) problems presented as subtasks within a complex task. In particular, we find that reasoning models tend to produce significantly fewer reasoning tokens (up to $2 \\times$less) when solving problems under non-isolated context conditions. An analysis of the reasoning chains shows that this compression is associated with a decrease in self-verification and uncertainty management behaviors, such as doublechecking. While this reduction in reasoning traces may reduce overthinking on easier problems without sacrificing accuracy, it leads to performance drops on more challenging tasks.",
+    "zh_text": "本文研究了一种令人惊讶的现象：我们观察到，模型在不同上下文条件下求解同一问题时，其行为分布发生了显著偏移。我们重点考察了若干简单干扰条件对推理质量与性能的影响：（1）问题附加了冗长且无关的上下文；（2）多轮对话设置中各轮任务相互独立；（3）问题作为复杂任务中的一个子任务呈现。特别地，我们发现：当问题处于非孤立上下文条件下时，推理模型所生成的推理词元数量显著减少（最多减少至原来的 $1/2$）。对推理链的分析表明，这种压缩现象与自我验证及不确定性管理等行为（如反复核查）的减少密切相关。尽管推理轨迹的缩减可能在较简单问题上缓解过度推理，且不牺牲准确率，但在更具挑战性的任务中却会导致性能下降。"
+  },
+  {
+    "block_id": "p1_b13",
+    "page_idx": 1,
+    "order": 13,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We hope our findings draw additional attention to both the robustness of reasoning models and the problem of context management for LLMs and LLM-based agents.",
+    "zh_text": "我们希望本研究能进一步引起学界对推理模型鲁棒性，以及大语言模型与基于LLM的智能体之上下文管理问题的关注。"
+  },
+  {
+    "block_id": "p1_b14",
+    "page_idx": 1,
+    "order": 14,
+    "type": "title",
+    "translatable": true,
+    "source_text": "2 Background",
+    "zh_text": "# 2 背景"
+  },
+  {
+    "block_id": "p1_b15",
+    "page_idx": 1,
+    "order": 15,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Chain-of-Thought reasoning. Test-time scaling has brought a paradigm shift that enables long Chain-of-Thought reasoning and induces sophisticated reasoning behaviors, making models superior in competitive math and coding tasks. The central technique driving this revolution is large-scale RL, which elicits complex reasoning behaviors such as self-verification and iterative refinement [OpenAI et al., 2024, DeepSeek-AI et al., 2025, Shao et al., 2024, Yu et al., 2025, Kumar et al., 2024]. Subsequent works have explored additional approaches to achieve test-time scaling and strong reasoning performance [Muennighoff et al., 2025, Ye et al., 2025].",
+    "zh_text": "思维链推理（Chain-of-Thought reasoning）。测试时缩放带来了一场范式变革，使长程思维链推理成为可能，并激发了复杂的推理行为，从而显著提升模型在竞赛级数学与编程任务中的表现。推动这一变革的核心技术是大规模强化学习（large-scale RL），其可诱导出诸如自我验证与迭代精炼（iterative refinement）等复杂推理行为 [OpenAI et al., 2024, DeepSeek-AI et al., 2025, Shao et al., 2024, Yu et al., 2025, Kumar et al., 2024]。后续研究亦探索了其他实现测试时缩放与强推理性能的路径 [Muennighoff et al., 2025, Ye et al., 2025]。"
+  },
+  {
+    "block_id": "p1_b16",
+    "page_idx": 1,
+    "order": 16,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Additional thinking budget introduces new challenges in adjusting reasoning effort according to input problem complexity [Yang et al., 2025a]. Su et al. [2025] analyzed the relationship between reasoning length and answer correctness, finding that LLMs tend to overthink on simpler problems and underthink on harder ones, indicating that models may fail to calibrate their reasoning length accordingly. Aggarwal et al. [2025] proposed a unified benchmark that jointly evaluates overthinking and underthinking in LLMs.",
+    "zh_text": "额外的推理预算为根据输入问题的复杂度动态调整推理努力程度带来了新的挑战 [Yang 等, 2025a]。Su 等 [2025] 分析了推理长度与答案正确性之间的关系，发现大语言模型（LLMs）在较简单的问题上倾向于过度推理，在较难的问题上则推理不足，表明模型可能无法据此校准其推理长度。Aggarwal 等 [2025] 提出了一种统一基准，可联合评估 LLMs 中的过度推理与推理不足现象。"
+  },
+  {
+    "block_id": "p1_b17",
+    "page_idx": 1,
+    "order": 17,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To analyze how LLMs tackle hard reasoning problems within their long CoT traces, Venhoff et al. [2025] define distinct reasoning functions within a reasoning trace and use an LLM judge to classify each sentence according to its functional role. Adopting their framework, Bogdan et al. [2025] propose analyzing long reasoning traces by identifying steps that guide the trajectory of reasoning, organizing sentences into different categories and measuring their causal impact, highlighting the importance of planning or uncertainty management sentences. Muennighoff et al. [2025] also demonstrated that enforcing self-reflection by intervening in the reasoning trace when the model attempts to stop may lead to improved performance. Subsequent works have investigated the relationship between accuracy and high-level characteristics of reasoning traces, such as length, review ratio, and others [Wu et al., 2025, Hassid et al., 2025, Feng et al., 2025].",
+    "zh_text": "为分析 LLMs 如何在其冗长的思维链（CoT）轨迹中应对高难度推理问题，Venhoff 等 [2025] 在单条推理轨迹内定义了若干不同的推理功能，并利用一个 LLM 判定器对每句话按其功能角色进行分类。Bogdan 等 [2025] 借鉴该框架，提出通过识别引导推理路径走向的关键步骤，将句子归入不同类别并量化其因果影响，来分析长推理轨迹；该研究特别强调了规划类语句或不确定性管理类语句的重要性。Muennighoff 等 [2025] 同样证明：当模型试图终止推理时，若人为干预其推理轨迹以强制其进行自我反思，则可能提升模型性能。后续研究进一步探讨了准确性与推理轨迹高层特征（如长度、复核比例等）之间的关系 [Wu 等, 2025；Hassid 等, 2025；Feng 等, 2025]。"
+  },
+  {
+    "block_id": "p1_b18",
+    "page_idx": 1,
+    "order": 18,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Long context and context management. Recent years have witnessed remarkable growth in model context length [Dubey et al., 2024, Anthropic, 2024, Google DeepMind, 2025b]. Despite this impressive scaling of context extension, a significant gap remains between the context length these models claim to support and the actual context length they can process effectively [Liu et al., 2025b]. Common limitations typically involve retrieval-based evaluations [Kamradt, 2023] and multi-hop tracing and aggregation [Hsieh et al., 2024]. However, Du et al. [2025] shows that long contexts may degrade performance despite perfect retrieval, even in a synthetic setting where models are forced to attend only to relevant tokens. Laban et al. [2026] demonstrates significant performance drops in multi-turn settings using sharded simulation - a set of smaller instructions that collectively convey the same information as the original instruction. In this setting, models tend to overly rely on incorrect assumptions they made in earlier turns.",
+    "zh_text": "长上下文与上下文管理。近年来，模型支持的上下文长度实现了显著增长 [Dubey 等, 2024；Anthropic, 2024；Google DeepMind, 2025b]。尽管上下文长度的扩展令人瞩目，但这些模型所宣称支持的上下文长度与其实际能有效处理的上下文长度之间仍存在显著差距 [Liu 等, 2025b]。常见局限通常体现在基于检索的评估任务 [Kamradt, 2023] 以及多跳追踪与聚合任务 [Hsieh 等, 2024] 中。然而，Du 等 [2025] 表明，即使在完美完成检索的合成设定下（即模型被强制仅关注相关 token），长上下文仍可能导致性能下降。Laban 等 [2026] 则通过分片模拟（sharded simulation）——即用一组较小的指令共同传达原始指令的全部信息——在多轮对话设定中观察到显著的性能下降。在此设定下，模型往往过度依赖其在前几轮中做出的错误假设。"
+  },
+  {
+    "block_id": "p2_b20",
+    "page_idx": 2,
+    "order": 20,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Multiple methods have been proposed to overcome the limitations of long contexts and unlock further scaling of test-time compute, including context compaction, iterative summarization, and external memory modules [Anthropic, 2025, Liu et al., 2025a, Yan et al., 2025, Tekparmak and Ömer Kaya, 2025]. A parallel line of work takes advantage of problems that can be split into isolated subproblems by delegating them to recursive self-calls, which may improve efficiency and naturally allow for maintaining compact context representations [Yang et al., 2025b, Jin et al., 2025, Ning et al., 2024, Zheng et al., 2025].",
+    "zh_text": "为克服长上下文的固有局限并进一步释放测试时计算资源的扩展潜力，研究者提出了多种方法，包括上下文压缩、迭代式摘要生成以及外部记忆模块 [Anthropic, 2025；Liu 等, 2025a；Yan 等, 2025；Tekparmak 和 Ömer Kaya, 2025]。另一条并行的研究路线则充分利用可被拆分为相互独立子问题的任务特性，通过递归式自调用（recursive self-calls）将子问题交由模型自身分别处理；该策略不仅可提升效率，还能自然地维持紧凑的上下文表征 [Yang 等, 2025b；Jin 等, 2025；Ning 等, 2024；Zheng 等, 2025]。"
+  },
+  {
+    "block_id": "p2_b21",
+    "page_idx": 2,
+    "order": 21,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3 Experiments",
+    "zh_text": "# 3 实验"
+  },
+  {
+    "block_id": "p2_b22",
+    "page_idx": 2,
+    "order": 22,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.1 Setup",
+    "zh_text": "# 3.1 实验设置"
+  },
+  {
+    "block_id": "p2_b23",
+    "page_idx": 2,
+    "order": 23,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This section presents experiments designed to answer a key question: Can a model solve an isolated subproblem as effectively when surrounded by irrelevant context as it does in isolation? This inquiry is motivated by two observations. First, complex reasoning tasks can often be decomposed into independent subtasks that do not require global context. Second, long-running agents increasingly operate within broad, general contexts that inevitably contain details irrelevant to specific user queries or subtasks.",
+    "zh_text": "本节实验旨在回答一个关键问题：当一个模型在充斥着无关上下文的环境中求解某个孤立子问题时，其表现是否仍能与在无干扰的孤立环境下相当？该问题的提出基于两项观察：第一，复杂的推理任务通常可被分解为若干彼此独立、无需全局上下文即可求解的子任务；第二，长期运行的智能体日益频繁地工作于宽泛而通用的上下文中，而这类上下文不可避免地包含大量与特定用户查询或子任务无关的细节信息。"
+  },
+  {
+    "block_id": "p2_b24",
+    "page_idx": 2,
+    "order": 24,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To evaluate model’s ability to reason about the same problems under different context conditions, we compare the following setups:",
+    "zh_text": "为评估模型在不同上下文条件下对同一问题的推理能力，我们比较以下四种实验设定："
+  },
+  {
+    "block_id": "p2_b25",
+    "page_idx": 2,
+    "order": 25,
+    "type": "list",
+    "translatable": true,
+    "source_text": "• Baseline: model is given a single user message containing a problem with a standard prompt.\n• Subtask: model is given a single user message containing two independent problems to solve.\n• Long input: model is given a single user message containing a long chunk of irrelevant data followed by a problem with a standard prompt.\n• Multi-turn: model is given a multi-turn chat history, where each user message asks for solving the a new problem with the Baseline prompt. We only evaluate the second turn.",
+    "zh_text": "- • 基线设定（Baseline）：模型仅接收一条用户消息，其中包含一个标准提示下的问题；  \n- • 子任务设定（Subtask）：模型仅接收一条用户消息，其中包含两个需独立求解的问题；  \n- • 长输入设定（Long input）：模型仅接收一条用户消息，其中先是一大段无关数据，随后才是标准提示下的问题；  \n- • 多轮对话设定（Multi-turn）：模型接收一段多轮对话历史，其中每条用户消息均使用基线提示要求模型求解一个新问题；我们仅评估第二轮的响应表现。"
+  },
+  {
+    "block_id": "p2_b26",
+    "page_idx": 2,
+    "order": 26,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p2_b26_cap",
+    "page_idx": 2,
+    "order": 26,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 1: Model performance with accuracy and average amount of generated reasoning tokens, IMOAnswerBench. Background color represents the relative change from the baseline values.",
+    "zh_text": "表 1：各模型在 IMOAnswerBench 上的表现（准确率及平均生成推理 token 数量）。背景色表示相对于基线设定值的相对变化幅度。"
+  },
+  {
+    "block_id": "p2_b27",
+    "page_idx": 2,
+    "order": 27,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "For our main experiment, we evaluate the following models on a IMOAnswerBench [Luong et al., 2025]: Qwen3.5-27B [Qwen Team, 2026], GPT-OSS-120B [Agarwal et al., 2025], Gemini 3 Flash Preview Google DeepMind [2025a], and Kimi K2 Thinking [Moonshot AI, 2025]. For each model, we report both accuracy and the amount of reasoning tokens generated. We use Gemini 3 Pro Preview Google DeepMind [2025a] as a judge for automatic evaluation.",
+    "zh_text": "在主实验中，我们在 IMOAnswerBench 基准 [Luong 等, 2025] 上评估以下模型：Qwen3.5-27B [Qwen 团队, 2026]、GPT-OSS-120B [Agarwal 等, 2025]、Gemini 3 Flash Preview（Google DeepMind, 2025a）以及 Kimi K2 Thinking（Moonshot AI, 2025）。对每个模型，我们同时报告其准确率与生成的推理 token 数量。我们采用 Gemini 3 Pro Preview（Google DeepMind, 2025a）作为自动评估的判定模型（judge）。"
+  },
+  {
+    "block_id": "p2_b28",
+    "page_idx": 2,
+    "order": 28,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "For Subtask scenario, model solves two independent problems within the same query - we report average accuracy of solving both problems and the amount of reasoning tokens divided by two, representing the average amount of reasoning tokens spent on a single task.",
+    "zh_text": "在子任务设定中，模型需在同一查询中求解两个独立问题；我们报告两个问题的平均准确率，以及生成的推理 token 总数除以二的结果，即模型在单个任务上平均消耗的推理 token 数量。"
+  },
+  {
+    "block_id": "p2_b29",
+    "page_idx": 2,
+    "order": 29,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Please refer to Appendix A for further details on experiment setup.",
+    "zh_text": "有关实验设置的更多细节，请参见附录 A。"
+  },
+  {
+    "block_id": "p2_b30",
+    "page_idx": 2,
+    "order": 30,
+    "type": "title",
+    "translatable": true,
+    "source_text": "3.2 Results",
+    "zh_text": "# 3.2 实验结果"
+  },
+  {
+    "block_id": "p2_b31",
+    "page_idx": 2,
+    "order": 31,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Results are presented in Table 1. Interestingly, we observe a slight performance drop in all Subtask and Long input scenarios: degradation of $12 \\%$for Qwen-3.5-27B, $9 \\%$for GPT-OSS-120B, $15 \\%$for Gemini 3 Flash Preview and $9 \\%$for Kimi K2 Thinking. We report a detailed evaluation of the Subtask scenario in Appendix B.",
+    "zh_text": "实验结果汇总于表 1。有趣的是，我们在所有子任务设定与长输入设定中均观察到轻微的性能下降：Qwen-3.5-27B 下降 $12\\%$，GPT-OSS-120B 下降 $9\\%$，Gemini 3 Flash Preview 下降 $15\\%$，Kimi K2 Thinking 下降 $9\\%$。子任务设定的详细评估结果见附录 B。"
+  },
+  {
+    "block_id": "p3_b33",
+    "page_idx": 3,
+    "order": 33,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Importantly, all models covered produce much shorter reasoning traces under different non-baseline context conditions, generating up to $50 \\%$fewer reasoning tokens for the same problems. Please see Figure 3 for task-wise comparison of the amount of generated tokens.",
+    "zh_text": "尤为重要的是，所有被测模型在各类非基线上下文条件下生成的推理轨迹均显著缩短，针对相同问题所生成的推理 token 数量最多减少达 $50\\%$。图 3 展示了各任务下生成 token 数量的逐项对比。"
+  },
+  {
+    "block_id": "p3_b34",
+    "page_idx": 3,
+    "order": 34,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We additionally plot how the average reasoning length changes with different sizes of irrelevant data in the Long Input scenario, showing that even short distractions (hundreds of tokens) may be enough to reduce the average reasoning length by $18 \\%$, while further increasing the prompt size reduces reasoning by $50 \\%$(see Figure 1).",
+    "zh_text": "我们还绘制了在“长输入”（Long Input）场景下，平均推理长度随无关数据规模变化的趋势图，结果表明：即使较短的干扰内容（数百个 token）也可能使平均推理长度减少 $18\\%$；而进一步增大提示词（prompt）规模则会使推理长度减少 $50\\%$（参见图 1）。"
+  },
+  {
+    "block_id": "p3_b35",
+    "page_idx": 3,
+    "order": 35,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We also conduct additional experiments to determine whether this effect is specific to reasoning mode. For this purpose, we evaluate a model with integrated thinking and non-thinking modes, Qwen3.5-27B, on the MATH500 benchmark using the Long input scenario (see Figure 2 for a task-wise comparison of the amount of generated tokens). For non-thinking mode, we report the response length. Qwen3.5-27B demonstrates a $19 \\%$reduction in response length in non-thinking mode (1664 tokens for Baseline vs. 1348 tokens for Long input) and a $53 \\%$reduction in reasoning length (8003 vs. 3762). While both thinking and non-thinking modes exhibit statistical changes under different context conditions, we observe that the described phenomenon is markedly more pronounced in thinking mode.",
+    "zh_text": "我们还开展了额外实验，以检验该效应是否特属于推理模式（thinking mode）。为此，我们在 MATH500 基准测试上，采用“长输入”场景对具备集成式推理与非推理模式的模型 Qwen3.5-27B 进行评估（图 2 展示了各 MATH500 任务中生成 token 数量的任务级对比）。对于非推理模式，我们报告响应长度（response length）。Qwen3.5-27B 在非推理模式下响应长度减少了 $19\\%$（基线为 1664 个 token，长输入为 1348 个 token），而在推理模式下推理长度减少了 $53\\%$（8003 vs. 3762）。尽管推理与非推理两种模式在不同上下文条件下均表现出统计意义上的变化，但我们观察到，前述现象在推理模式中尤为显著。"
+  },
+  {
+    "block_id": "p3_b36",
+    "page_idx": 3,
+    "order": 36,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p3_b36_cap",
+    "page_idx": 3,
+    "order": 36,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Figure 1: Average reasoning length for Qwen3.5-27B on MATH500 under varying number of inserted tokens in Long input setup.",
+    "zh_text": "图 1：Qwen3.5-27B 在 MATH500 数据集上、不同插入 token 数量的“长输入”设置下的平均推理长度。"
+  },
+  {
+    "block_id": "p3_b37",
+    "page_idx": 3,
+    "order": 37,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Focusing on reasoning mode, we analyze checkpoints from different stages of post-training to examine how they affect reasoning shifts under varying context conditions. For this purpose, we evaluate different checkpoints of the Olmo3 model Olmo et al. [2025]. In short, we observe the described phenomenon across all reasoning checkpoints. The results are presented in Table 2.",
+    "zh_text": "聚焦于推理模式，我们分析了后训练（post-training）不同阶段所保存的检查点（checkpoints），以考察其在不同上下文条件下对推理行为偏移的影响。为此，我们评估了 Olmo3 模型（Olmo et al. [2025]）的多个检查点。简言之，我们在所有推理检查点上均观测到了前述现象。相关结果见表 2。"
+  },
+  {
+    "block_id": "p3_b39",
+    "page_idx": 3,
+    "order": 39,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p3_b39_cap",
+    "page_idx": 3,
+    "order": 39,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 2: Model performance with accuracy and average amount of generated reasoning tokens, MATH-500. For Instruct model, the average amount of response tokens is reported. Background color represents the relative change from the baseline values.",
+    "zh_text": "表 2：MATH-500 数据集上的模型性能，包括准确率及平均生成推理 token 数量。对于指令微调模型（Instruct model），报告的是平均响应 token 数量。背景色表示相对于基线值的相对变化幅度。"
+  },
+  {
+    "block_id": "p3_b40",
+    "page_idx": 3,
+    "order": 40,
+    "type": "title",
+    "translatable": true,
+    "source_text": "4 Analysis",
+    "zh_text": "# 4 分析"
+  },
+  {
+    "block_id": "p3_b41",
+    "page_idx": 3,
+    "order": 41,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Our experiments in Section 3 demonstrate a significant difference in the amount of reasoning tokens generated for the same problems under different context conditions. In this section, we analyze the differences between these traces, by inspecting the reasoning traces produced by Qwen3-32B for MATH500 problems under Baseline and Long input setups.",
+    "zh_text": "第 3 节中的实验表明，在不同上下文条件下，同一问题所生成的推理 token 数量存在显著差异。本节将通过检查 Qwen3-32B 在 Baseline 与 Long input 设置下针对 MATH500 问题所生成的推理轨迹（reasoning traces），来深入分析这些轨迹之间的差异。"
+  },
+  {
+    "block_id": "p3_b42",
+    "page_idx": 3,
+    "order": 42,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "First, we manually inspect the traces to find any evidence of how the context might affect the reasoning - we did not find any indication that the model became confused by the query or failed to understand the task. Specifically, when investigating the reasoning traces produced by Qwen3-32B under Long input prompts, we find only brief references to the irrelevant prompt part; we report several examples in Appendix E. These are all brief, dismissive acknowledgments: the model notices the prefix, labels it irrelevant, and moves on immediately. We found zero evidence of the model actually engaging with or being influenced by the inserted content at a semantic level.",
+    "zh_text": "首先，我们人工检查了这些推理轨迹，以寻找上下文可能影响推理过程的任何证据——我们并未发现模型因查询内容而产生困惑或未能理解任务的迹象。具体而言，在考察 Qwen3-32B 在“长输入”提示下生成的推理轨迹时，我们仅发现其对无关提示部分有极短暂的提及；若干示例见附录 E。这些提及均为简短且带有否定意味的确认：模型注意到前缀内容，将其标记为“无关”，并立即转向后续推理。我们未发现任何证据表明模型在语义层面实际参与或受到所插入内容的影响。"
+  },
+  {
+    "block_id": "p4_b44",
+    "page_idx": 4,
+    "order": 44,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p4_b44_cap",
+    "page_idx": 4,
+    "order": 44,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(a) Number of response tokens, no thinking mode.",
+    "zh_text": "(a) 响应 token 数量，非推理模式。"
+  },
+  {
+    "block_id": "p4_b45",
+    "page_idx": 4,
+    "order": 45,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p4_b45_cap",
+    "page_idx": 4,
+    "order": 45,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(b) Number of reasoning tokens, thinking mode. Figure 2: Number of generated tokens for Qwen3.5-27B for each MATH-500 task. X-axis: Baseline, Y-Axis: Long input.",
+    "zh_text": "(b) 推理 token 数量，推理模式。图 2：Qwen3.5-27B 在每个 MATH-500 任务中生成的 token 数量。横轴：Baseline，纵轴：Long input。"
+  },
+  {
+    "block_id": "p4_b46",
+    "page_idx": 4,
+    "order": 46,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Then, we compare whether Basline traces need more time to arrive at the answer or are longer because they exhibit stronger verification patterns after a candidate answer is found. For this purpose, we identify the position within each trace where the first candidate answer is stated. Interestingly, despite significant differences in average reasoning lengths (3824 tokens vs 2741 tokens), the average and median positions of the first answer candidate are nearly equal (925 tokens vs 939 tokens on average, with a median near 400 tokens for both setups). We note that we did not evaluate the correctness of the first answer candidate due to the small performance differences of the model on this benchmark (96.5 vs 95.0). Analyzing this effect on less straightforward problems is of interest for future work.",
+    "zh_text": "接着，我们比较 Baseline 轨迹是否因在候选答案得出后展现出更强的验证模式，而导致其抵达最终答案所需时间更长或整体长度更长。为此，我们在每条轨迹中识别出首个候选答案出现的位置。有趣的是，尽管平均推理长度存在显著差异（3824 个 token vs. 2741 个 token），但首个候选答案位置的平均值与中位数却几乎一致（平均分别为 925 与 939 个 token，两种设置下的中位数均接近 400 个 token）。需指出的是，由于该模型在本基准测试上的性能差异较小（96.5 vs. 95.0），我们未评估首个候选答案的正确性。未来工作可考虑在更具挑战性的问题上进一步分析该效应。"
+  },
+  {
+    "block_id": "p4_b47",
+    "page_idx": 4,
+    "order": 47,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To understand the nature of the significant differences in reasoning length, we adopt the framework from [Venhoff et al., 2025] to perform sentence-level analysis of long reasoning traces. We classify each sentence within the traces into the following categories: problem setup, plan generation, fact retrieval, active computation, result consolidation, uncertainty management, and final answer emission. We investigate the transition matrices of these labels within the reasoning traces. Figure 4 demonstrates the difference in transition heatmaps for the Baseline and Long input setups. We note the absolute largest value in this heatmap: the transition from final answer emission to the end of the thinking trace $5 7 \\%$for Baseline vs. $68 \\%$for Long input), which may indicate a significant behavioral difference: once the final answer is stated, Long input traces finish more often, whereas Baseline traces have a greater probability of initiating additional self-checks.",
+    "zh_text": "为深入理解推理长度显著差异的本质，我们采用 [Venhoff et al., 2025] 提出的框架，对长推理轨迹开展句子级分析。我们将每条轨迹中的每个句子归类为以下类别之一：问题设定（problem setup）、计划生成（plan generation）、事实检索（fact retrieval）、主动计算（active computation）、结果整合（result consolidation）、不确定性管理（uncertainty management）以及最终答案输出（final answer emission）。我们进一步考察这些标签在推理轨迹内部的转移矩阵（transition matrices）。图 4 展示了 Baseline 与 Long input 设置下转移热力图的差异。值得注意的是，该热力图中绝对值最大的一项为“最终答案输出 → 推理轨迹结束”的转移概率：Baseline 下为 $57\\%$，而 Long input 下升至 $68\\%$。这可能揭示了一种显著的行为差异：一旦最终答案被陈述，Long input 的轨迹更倾向于就此终止；而 Baseline 轨迹则更可能启动额外的自我核查步骤。"
+  },
+  {
+    "block_id": "p4_b48",
+    "page_idx": 4,
+    "order": 48,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "However, these changes might be influenced by the content of the reasoning traces themselves rather than by the context conditions. To test this, we conduct a resampling experiment: we take the traces produced under Long input conditions, remove small portion of last tokens (last 50 tokens) from the reasoning part, and resample the same amount of tokens under different context conditions: Baseline, Long input, and a condition similar to Long input but with a shorter prompt (only 128 inserted tokens). For the resampled traces, we compare the ratio of finished traces. The results are presented in Table 3. The ratio of finished traces for Long input is $46 \\%$, compared to $21 \\%$for Baseline, which is also accompanied by re-",
+    "zh_text": "然而，这些变化可能源于推理轨迹自身的内容特征，而非上下文条件本身。为验证这一点，我们开展了一项重采样实验（resampling experiment）：我们取 Long input 条件下生成的推理轨迹，从其推理部分末尾移除少量 token（最后 50 个 token），然后在三种不同上下文条件下重新采样相同数量的 token：Baseline、Long input，以及一种类似 Long input 但提示更短的条件（仅插入 128 个 token）。对于重采样所得的轨迹，我们比较其中“已完成推理”（即包含推理结束或自我验证 token）的轨迹比例。结果见表 3。Long input 条件下完成推理的轨迹比例为 $46\\%$，而 Baseline 条件下仅为 $21\\%$，该差异亦伴随……"
+  },
+  {
+    "block_id": "p4_b49",
+    "page_idx": 4,
+    "order": 49,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p4_b49_cap",
+    "page_idx": 4,
+    "order": 49,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 3: Resampling from the same reasoning traces but under varying numbers of inserted prompt tokens in the Long Input setup. The table presents the ratio of traces containing the end of reasoning or self-verification tokens.",
+    "zh_text": "表 3：基于相同原始推理轨迹进行重采样，但在“长输入”设置下插入不同数量 prompt token 的实验结果。表格展示了包含推理结束或自我验证 token 的轨迹比例。"
+  },
+  {
+    "block_id": "p4_b50",
+    "page_idx": 4,
+    "order": 50,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "duced frequencies of words used during self-verification and uncertainty management, such as \"wait,\" \"alternatively,\" and \"but.\" Please refer to Appendix F for the examples of the resampled samples.",
+    "zh_text": "降低了在自我验证和不确定性管理过程中所用词汇的出现频率，例如“等待”、“另有一种可能”和“但是”。有关重采样样本的示例，请参见附录 F。"
+  },
+  {
+    "block_id": "p5_b52",
+    "page_idx": 5,
+    "order": 52,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "These results suggest that, for the same reasoning prefixes, different context conditions may suppress high-level reasoning patterns, such as self-verification and uncertainty management. We leave a deeper analysis of the mechanism behind this shift for future work.",
+    "zh_text": "这些结果表明，对于相同的推理前缀，不同的上下文条件可能会抑制高层次的推理模式，例如自我验证和不确定性管理。我们将在未来工作中对导致这一变化的内在机制展开更深入的分析。"
+  },
+  {
+    "block_id": "p5_b53",
+    "page_idx": 5,
+    "order": 53,
+    "type": "title",
+    "translatable": true,
+    "source_text": "5 Discussion",
+    "zh_text": "# 5 讨论"
+  },
+  {
+    "block_id": "p5_b54",
+    "page_idx": 5,
+    "order": 54,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this working paper, we find that different context conditions may affect the way reasoning LLMs tackle the same problems. In particular, we demonstrate that the distribution of high-level behavioral patterns, such as uncertainty management and self-verification, is fragile and can be suppressed by non-relevant context in the prompt. While for easier problems this may reduce overthinking, such behavioral shifts degrade performance on more challenging tasks.",
+    "zh_text": "在本工作论文中，我们发现不同的上下文条件可能影响推理型大语言模型（LLM）解决同一问题的方式。具体而言，我们证实了诸如不确定性管理与自我验证等高层次行为模式的分布具有脆弱性，容易被提示（prompt）中无关的上下文所抑制。尽管对于较简单的问题，这种抑制可能减少过度推理，但此类行为转变却会降低模型在更具挑战性的任务上的表现。"
+  },
+  {
+    "block_id": "p5_b55",
+    "page_idx": 5,
+    "order": 55,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Limitations and future work We wish to highlight several important limitations of the current version of this paper. First, our context conditions are relatively simple and synthetic: demonstrating and analyzing the described reasoning shift \"in the wild\" (using more realistic scenarios, including agentic ones) is of great interest for future work. Second, our analysis in Section 4 focuses only on a single model, the shorter reasoning of other models can be related to other reasons. Also, current version covers only math problems, omitting other reasoning-intensive domains, such as coding or natural sciences. Lastly, we do not currently cover or develop any methods to mitigate the reasoning shift, such as prompt tuning, more stable training techniques or context management methods, including those based on recursive self-calls [Yang et al., 2025b, Jin et al., 2025, Ning et al., 2024, Zheng et al., 2025, Zhang et al., 2025].",
+    "zh_text": "局限性与未来工作  \n我们希望强调本文当前版本存在的若干重要局限性。首先，我们所采用的上下文条件相对简单且为人工构造；在未来工作中，亟需在更真实的情境（包括具身智能体（agentic）场景）中演示并分析上述推理转变现象——即所谓“野外环境”（in the wild）下的研究。其次，第 4 节中的分析仅聚焦于单一模型；其他模型推理长度较短的原因可能另有他因。此外，当前版本仅涵盖数学问题，尚未涉及其他对推理能力要求较高的领域，例如编程或自然科学。最后，本文目前既未涵盖也未提出任何缓解该推理转变的方法，例如提示调优（prompt tuning）、更稳定的训练技术，或上下文管理方法（包括基于递归自调用的方法 [Yang et al., 2025b; Jin et al., 2025; Ning et al., 2024; Zheng et al., 2025; Zhang et al., 2025]）。"
+  },
+  {
+    "block_id": "p5_b56",
+    "page_idx": 5,
+    "order": 56,
+    "type": "title",
+    "translatable": true,
+    "source_text": "References",
+    "zh_text": "# 参考文献"
+  },
+  {
+    "block_id": "p5_b57",
+    "page_idx": 5,
+    "order": 57,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K Arora, Yu Bai, Bowen Baker, Haiming Bao, et al. gpt-oss-120b & gpt-oss-20b model card. arXiv preprint arXiv:2508.10925, 2025.\nPranjal Aggarwal, Seungone Kim, Jack Lanchantin, Sean Welleck, Jason Weston, Ilia Kulikov, and Swarnadeep Saha. Optimalthinkingbench: Evaluating over and underthinking in llms. arXiv preprint arXiv:2508.13141, 2025.\nAnthropic. Introducing the next generation of claude, March 2024. URL https://www.anthropic. com/news/claude-3-family. Accessed: 2025-05-18.\nAnthropic. Effective context engineering for ai agents, 2025. URL https://www.anthropic.com/ engineering/effective-context-engineering-for-ai-agents.\nP. C. Bogdan, U. Macar, N. Nanda, and A. Conmy. Thought anchors: Which LLM reasoning steps matter? arXiv preprint arXiv:2506.19143, jun 2025. Preprint.\nDeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, and Xiao Bi et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning, 2025. URL https://arxiv.org/abs/2501. 12948.\nYufeng Du, Minyang Tian, Srikanth Ronanki, Subendhu Rongali, Sravan Bodapati, Aram Galstyan, Azton Wells, Roy Schwartz, Eliu A Huerta, and Hao Peng. Context length alone hurts llm performance despite perfect retrieval. arXiv preprint arXiv:2510.05381, 2025.\nAbhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783, 2024.\nYunzhen Feng, Julia Kempe, Cheng Zhang, Parag Jain, and Anthony Hartshorn. What characterizes effective reasoning? revisiting length, review, and structure of cot. arXiv preprint arXiv:2509.19284, 2025.\nKanishk Gandhi, Ayush Chakravarthy, Anikait Singh, Nathan Lile, and Noah D Goodman. Cognitive behaviors that enable self-improving reasoners, or, four habits of highly effective stars. arXiv preprint arXiv:2503.01307, 2025.",
+    "zh_text": "- Sandhini Agarwal, Lama Ahmad, Jason Ai, Sam Altman, Andy Applebaum, Edwin Arbus, Rahul K Arora, Yu Bai, Bowen Baker, Haiming Bao, et al. gpt-oss-120b & gpt-oss-20b model card. arXiv preprint arXiv:2508.10925, 2025.  \n- Pranjal Aggarwal, Seungone Kim, Jack Lanchantin, Sean Welleck, Jason Weston, Ilia Kulikov, and Swarnadeep Saha. Optimalthinkingbench: Evaluating over and underthinking in llms. arXiv preprint arXiv:2508.13141, 2025.  \n- Anthropic. Introducing the next generation of claude, March 2024. URL https://www.anthropic.com/news/claude-3-family. Accessed: 2025-05-18.  \n- Anthropic. Effective context engineering for ai agents, 2025. URL https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents.  \n- P. C. Bogdan, U. Macar, N. Nanda, and A. Conmy. Thought anchors: Which LLM reasoning steps matter? arXiv preprint arXiv:2506.19143, jun 2025. Preprint.  \n- DeepSeek-AI, Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, and Xiao Bi et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning, 2025. URL https://arxiv.org/abs/2501.12948.  \n- Yufeng Du, Minyang Tian, Srikanth Ronanki, Subendhu Rongali, Sravan Bodapati, Aram Galstyan, Azton Wells, Roy Schwartz, Eliu A Huerta, and Hao Peng. Context length alone hurts llm performance despite perfect retrieval. arXiv preprint arXiv:2510.05381, 2025.  \n- Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Amy Yang, Angela Fan, et al. The llama 3 herd of models. arXiv preprint arXiv:2407.21783, 2024.  \n- Yunzhen Feng, Julia Kempe, Cheng Zhang, Parag Jain, and Anthony Hartshorn. What characterizes effective reasoning? revisiting length, review, and structure of cot. arXiv preprint arXiv:2509.19284, 2025.  \n- Kanishk Gandhi, Ayush Chakravarthy, Anikait Singh, Nathan Lile, and Noah D Goodman. Cognitive behaviors that enable self-improving reasoners, or, four habits of highly effective stars. arXiv preprint arXiv:2503.01307, 2025."
+  },
+  {
+    "block_id": "p6_b59",
+    "page_idx": 6,
+    "order": 59,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Google DeepMind. A new era of intelligence with gemini 3, 2025a. URL https://blog.google/ products-and-platforms/products/gemini/gemini-3/#note-from-ceo.\nGoogle DeepMind. Gemini 2.5: Our Newest Gemini Model with Thinking. https://blog.google/ technology/google-deepmind/gemini-model-thinking-updates-march-2025/ #gemini-2-5-thinking, 2025b. Accessed: 2025-04-07.\nMichael Hassid, Gabriel Synnaeve, Yossi Adi, and Roy Schwartz. Don’t overthink it. preferring shorter thinking chains for improved llm reasoning. arXiv preprint arXiv:2505.17813, 2025.\nCheng-Ping Hsieh, Simeng Sun, Samuel Kriman, Shantanu Acharya, Dima Rekesh, Fei Jia, and Boris Ginsburg. RULER: What’s the real context size of your long-context language models? In First Conference on Language Modeling, 2024. URL https://openreview.net/forum?id= kIoBbc76Sy.\nTian Jin, Ellie Y. Cheng, Zack Ankner, Nikunj Saunshi, Blake M. Elias, Amir Yazdanbakhsh, Jonathan Ragan-Kelley, Suvinay Subramanian, and Michael Carbin. Learning to keep a promise: Scaling language model decoding parallelism with learned asynchronous decoding, 2025. URL https://arxiv.org/abs/2502.11517.\nGreg Kamradt. Needle in a haystack - pressure testing llms. https://github.com/gkamradt/ LLMTest_NeedleInAHaystack, 2023.\nAndrej Karpathy. char-rnn. https://github.com/karpathy/char-rnn, 2015.\nTakeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large language models are zero-shot reasoners. ArXiv, abs/2205.11916, 2022. URL https://api. semanticscholar.org/CorpusID:249017743.\nAviral Kumar, Vincent Zhuang, Rishabh Agarwal, Yi Su, John D Co-Reyes, Avi Singh, Kate Baumli, Shariq Iqbal, Colton Bishop, Rebecca Roelofs, et al. Training language models to self-correct via reinforcement learning. arXiv preprint arXiv:2409.12917, 2024.\nPhilippe Laban, Hiroaki Hayashi, Yingbo Zhou, and Jennifer Neville. LLMs get lost in multi-turn conversation. In The Fourteenth International Conference on Learning Representations, 2026. URL https://openreview.net/forum?id=VKGTGGcwl6.\nTianle Li, Ge Zhang, Quy Duc Do, Xiang Yue, and Wenhu Chen. Long-context llms struggle with long in-context learning. arXiv preprint arXiv:2404.02060, 2024.\nZhan Ling, Kang Liu, Kai Yan, Yifan Yang, Weijian Lin, Ting-Han Fan, Lingfeng Shen, Zhengyin Du, and Jiecao Chen. Longreason: A synthetic long-context reasoning benchmark via context expansion. arXiv preprint arXiv:2501.15089, 2025.\nAixin Liu, Aoxue Mei, Bangcai Lin, Bing Xue, Bingxuan Wang, Bingzheng Xu, Bochao Wu, Bowei Zhang, Chaofan Lin, Chen Dong, et al. Deepseek-v3. 2: Pushing the frontier of open large language models. arXiv preprint arXiv:2512.02556, 2025a.\nJiaheng Liu, Dawei Zhu, Zhiqi Bai, Yancheng He, Huanxuan Liao, Haoran Que, Zekun Wang, Chenchen Zhang, Ge Zhang, Jiebin Zhang, et al. A comprehensive survey on long context language modeling. arXiv preprint arXiv:2503.17407, 2025b.\nMinh-Thang Luong, Dawsen Hwang, Hoang H Nguyen, Golnaz Ghiasi, Yuri Chervonyi, Insuk Seo, Junsu Kim, Garrett Bingham, Jonathan Lee, Swaroop Mishra, et al. Towards robust mathematical reasoning. In Proceedings of the 2025 Conference on Empirical Methods in Natural Language Processing, pages 35406–35430, 2025.\nMoonshot AI. Introducing kimi k2 thinking, 2025. URL https://www.kimi.com/blog/ kimi-k2-thinking.\nNiklas Muennighoff, Zitong Yang, Weijia Shi, Xiang Lisa Li, Li Fei-Fei, Hannaneh Hajishirzi, Luke Zettlemoyer, Percy Liang, Emmanuel Candès, and Tatsunori Hashimoto. s1: Simple test-time scaling. arXiv preprint arXiv:2501.19393, 2025.",
+    "zh_text": "- Google DeepMind。Gemini 3：智能新纪元，2025a。网址 https://blog.google/products-and-platforms/products/gemini/gemini-3/#note-from-ceo。  \n- Google DeepMind。Gemini 2.5：我们最新推出的具备“思考”能力的 Gemini 模型。https://blog.google/technology/google-deepmind/gemini-model-thinking-updates-march-2025/#gemini-2-5-thinking，2025b。访问日期：2025年4月7日。  \n- Michael Hassid、Gabriel Synnaeve、Yossi Adi 和 Roy Schwartz。《勿过度思考：偏好更短的推理链以提升大语言模型推理能力》。arXiv 预印本 arXiv:2505.17813，2025。  \n- Cheng-Ping Hsieh、Simeng Sun、Samuel Kriman、Shantanu Acharya、Dima Rekesh、Fei Jia 和 Boris Ginsburg。RULER：您的长上下文语言模型真实上下文容量究竟有多大？载于首届语言建模会议（First Conference on Language Modeling），2024。网址 https://openreview.net/forum?id=kIoBbc76Sy。  \n- Tian Jin、Ellie Y. Cheng、Zack Ankner、Nikunj Saunshi、Blake M. Elias、Amir Yazdanbakhsh、Jonathan Ragan-Kelley、Suvinay Subramanian 和 Michael Carbin。《学会信守承诺：借助学习所得的异步解码技术扩展语言模型解码并行性》，2025。网址 https://arxiv.org/abs/2502.11517。  \n- Greg Kamradt。《针尖藏 haystack——对大语言模型的压力测试》。https://github.com/gkamradt/LLMTest_NeedleInAHaystack，2023。  \n- Andrej Karpathy。char-rnn。https://github.com/karpathy/char-rnn，2015。  \n- Takeshi Kojima、Shixiang Shane Gu、Machel Reid、Yutaka Matsuo 和 Yusuke Iwasawa。《大语言模型即零样本推理器》。ArXiv，abs/2205.11916，2022。网址 https://api.semanticscholar.org/CorpusID:249017743。  \n- Aviral Kumar、Vincent Zhuang、Rishabh Agarwal、Yi Su、John D Co-Reyes、Avi Singh、Kate Baumli、Shariq Iqbal、Colton Bishop、Rebecca Roelofs 等。《通过强化学习训练语言模型实现自我修正》。arXiv 预印本 arXiv:2409.12917，2024。  \n- Philippe Laban、Hiroaki Hayashi、Yingbo Zhou 和 Jennifer Neville。《大语言模型在多轮对话中迷失方向》。载于第十四届国际学习表征会议（The Fourteenth International Conference on Learning Representations），2026。网址 https://openreview.net/forum?id=VKGTGGcwl6。  \n- Tianle Li、Ge Zhang、Quy Duc Do、Xiang Yue 和 Wenhu Chen。《长上下文大语言模型在长上下文学习中表现乏力》。arXiv 预印本 arXiv:2404.02060，2024。  \n- Zhan Ling、Kang Liu、Kai Yan、Yifan Yang、Weijian Lin、Ting-Han Fan、Lingfeng Shen、Zhengyin Du 和 Jiecao Chen。《LongReason：一种基于上下文扩展构建的合成式长上下文推理基准》。arXiv 预印本 arXiv:2501.15089，2025。  \n- Aixin Liu、Aoxue Mei、Bangcai Lin、Bing Xue、Bingxuan Wang、Bingzheng Xu、Bochao Wu、Bowei Zhang、Chaofan Lin、Chen Dong 等。《DeepSeek-V3.2：推动开源大语言模型前沿边界》。arXiv 预印本 arXiv:2512.02556，2025a。  \n- Jiaheng Liu、Dawei Zhu、Zhiqi Bai、Yancheng He、Huanxuan Liao、Haoran Que、Zekun Wang、Chenchen Zhang、Ge Zhang、Jiebin Zhang 等。《长上下文语言建模综述》。arXiv 预印本 arXiv:2503.17407，2025b。  \n- Minh-Thang Luong、Dawsen Hwang、Hoang H Nguyen、Golnaz Ghiasi、Yuri Chervonyi、Insuk Seo、Junsu Kim、Garrett Bingham、Jonathan Lee、Swaroop Mishra 等。《迈向鲁棒的数学推理》。载于 2025 年自然语言处理经验方法会议（EMNLP 2025）论文集，第 35406–35430 页，2025。  \n- Moonshot AI。《发布 Kimi K2 思考能力》，2025。网址 https://www.kimi.com/blog/kimi-k2-thinking。  \n- Niklas Muennighoff、Zitong Yang、Weijia Shi、Xiang Lisa Li、Li Fei-Fei、Hannaneh Hajishirzi、Luke Zettlemoyer、Percy Liang、Emmanuel Candès 和 Tatsunori Hashimoto。《S1：简易测试时缩放方法》。arXiv 预印本 arXiv:2501.19393，2025。"
+  },
+  {
+    "block_id": "p7_b61",
+    "page_idx": 7,
+    "order": 61,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Xuefei Ning, Zinan Lin, Zixuan Zhou, Zifu Wang, Huazhong Yang, and Yu Wang. Skeleton-ofthought: Prompting LLMs for efficient parallel generation. In The Twelfth International Conference on Learning Representations, 2024. URL https://openreview.net/forum?id=mqVgBbNCm9.\nTeam Olmo, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David Heineman, Dirk Groeneveld, Faeze Brahman, Finbarr Timbers, Hamish Ivison, et al. Olmo 3. arXiv preprint arXiv:2512.13961, 2025.\nOpenAI, :, Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Aleksander Madry, and Alex Beutel et al. Openai o1 system card, 2024. URL https://arxiv.org/abs/2412.16720.\nQwen Team. Qwen3.5: Accelerating productivity with native multimodal agents, February 2026. URL https://qwen.ai/blog?id=qwen3.5.\nZhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK Li, Yang Wu, et al. Deepseekmath: Pushing the limits of mathematical reasoning in open language models. arXiv preprint arXiv:2402.03300, 2024.\nZhihong Shao, Yuxiang Luo, Chengda Lu, ZZ Ren, Jiewen Hu, Tian Ye, Zhibin Gou, Shirong Ma, and Xiaokang Zhang. Deepseekmath-v2: Towards self-verifiable mathematical reasoning. arXiv preprint arXiv:2511.22570, 2025.\nJinyan Su, Jennifer Healey, Preslav Nakov, and Claire Cardie. Between underthinking and overthinking: An empirical study of reasoning length and correctness in llms. arXiv preprint arXiv:2505.00127, 2025.\nKimi Team, Yifan Bai, Yiping Bao, Y Charles, Cheng Chen, Guanduo Chen, Haiting Chen, Huarong Chen, Jiahao Chen, Ningxin Chen, et al. Kimi k2: Open agentic intelligence. arXiv preprint arXiv:2507.20534, 2025.\nAtakan Tekparmak and Ömer Kaya. mem-agent: Equipping llm agents with memory using rl, October 2025. URL https://huggingface.co/blog/driaforall/mem-agent-blog. Community Article.\nC. Venhoff, I. Arcuschin, P. Torr, A. Conmy, and N. Nanda. Understanding reasoning in thinking language models via steering vectors. In Workshop on Reasoning and Planning for Large Language Models at ICLR 2025, 2025. URL https://arxiv.org/abs/2506.18167.\nJason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in neural information processing systems, 35:24824–24837, 2022.\nYuyang Wu, Yifei Wang, Ziyu Ye, Tianqi Du, Stefanie Jegelka, and Yisen Wang. When more is less: Understanding chain-of-thought length in llms. arXiv preprint arXiv:2502.07266, 2025.\nYuchen Yan, Yongliang Shen, Yang Liu, Jin Jiang, Mengdi Zhang, Jian Shao, and Yueting Zhuang. Inftythink: Breaking the length limits of long-context reasoning in large language models. arXiv preprint arXiv:2503.06692, 2025.\nAn Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao, Chengen Huang, Chenxu Lv, Chujie Zheng, Dayiheng Liu, Fan Zhou, Fei Huang, Feng Hu, Hao Ge, Haoran Wei, Huan Lin, Jialong Tang, Jian Yang, Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jing Zhou, Jingren Zhou, Junyang Lin, Kai Dang, Keqin Bao, Kexin Yang, Le Yu, Lianghao Deng, Mei Li, Mingfeng Xue, Mingze Li, Pei Zhang, Peng Wang, Qin Zhu, Rui Men, Ruize Gao, Shixuan Liu, Shuang Luo, Tianhao Li, Tianyi Tang, Wenbiao Yin, Xingzhang Ren, Xinyu Wang, Xinyu Zhang, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yinger Zhang, Yu Wan, Yuqiong Liu, Zekun Wang, Zeyu Cui, Zhenru Zhang, Zhipeng Zhou, and Zihan Qiu. Qwen3 technical report, 2025a. URL https://arxiv.org/abs/2505.09388.\nChenxiao Yang, Nathan Srebro, David McAllester, and Zhiyuan Li. Pencil: Long thoughts with short memory. arXiv preprint arXiv:2503.14337, 2025b.",
+    "zh_text": "- 宁雪飞、林子楠、周子轩、王梓夫、杨华中、王瑜。Skeleton-of-Thought：面向大语言模型的高效并行生成提示方法。载于《第十二届国际学习表征会议》（ICLR 2024），2024年。URL https://openreview.net/forum?id=mqVgBbNCm9。  \n- Olmo 团队、Allyson Ettinger、Amanda Bertsch、Bailey Kuehl、David Graham、David Heineman、Dirk Groeneveld、Faeze Brahman、Finbarr Timbers、Hamish Ivison 等。Olmo 3。arXiv 预印本 arXiv:2512.13961，2025年。  \n- OpenAI、Aaron Jaech、Adam Kalai、Adam Lerer、Adam Richardson、Ahmed El-Kishky、Aiden Low、Alec Helyar、Aleksander Madry、Alex Beutel 等。OpenAI o1 系统说明文档，2024年。URL https://arxiv.org/abs/2412.16720。  \n- 通义千问团队。Qwen3.5：以原生多模态智能体加速生产力提升，2026年2月。URL https://qwen.ai/blog?id=qwen3.5。  \n- 邵志宏、王培毅、朱启豪、徐润欣、宋俊潇、毕潇、张浩炜、张明川、YK Li、吴洋 等。DeepSeekMath：在开源语言模型中推动数学推理能力的边界。arXiv 预印本 arXiv:2402.03300，2024年。  \n- 邵志宏、罗宇翔、卢成达、ZZ Ren、胡杰文、叶天、苟志斌、马世荣、张晓康。DeepSeekMath-v2：迈向可自我验证的数学推理。arXiv 预印本 arXiv:2511.22570，2025年。  \n- 苏金岩、Jennifer Healey、Preslav Nakov、Claire Cardie。在“思考不足”与“过度思考”之间：关于大语言模型中推理长度与正确性关系的经验研究。arXiv 预印本 arXiv:2505.00127，2025年。  \n- Kimi 团队、白一凡、包一平、Y Charles、陈诚、陈冠铎、陈海挺、陈华荣、陈佳浩、陈宁馨 等。Kimi K2：开放型智能体智能。arXiv 预印本 arXiv:2507.20534，2025年。  \n- Atakan Tekparmak 与 Ömer Kaya。mem-agent：利用强化学习为大语言模型智能体配备记忆能力，2025年10月。URL https://huggingface.co/blog/driaforall/mem-agent-blog。社区文章。  \n- C. Venhoff、I. Arcuschin、P. Torr、A. Conmy、N. Nanda。通过引导向量理解思维型语言模型中的推理机制。载于《2025年国际学习表征会议（ICLR）大语言模型推理与规划研讨会》，2025年。URL https://arxiv.org/abs/2506.18167。  \n- 魏Jason、王学志、Dale Schuurmans、Maarten Bosma、夏飞、Ed Chi、Quoc V Le、周丹尼 等。“思维链”提示激发大语言模型的推理能力。《神经信息处理系统进展》（NeurIPS），35卷：24824–24837，2022年。  \n- 吴宇阳、王一飞、叶子宇、杜天奇、Stefanie Jegelka、王屹森。当更多反而更少：理解大语言模型中“思维链”长度的影响机制。arXiv 预印本 arXiv:2502.07266，2025年。  \n- 严雨晨、沈永亮、刘洋、蒋进、张梦迪、邵健、庄越挺。InftyThink：突破大语言模型长上下文推理的长度限制。arXiv 预印本 arXiv:2503.06692，2025年。  \n- 杨安、李安峰、杨宝松、张北辰、惠彬源、郑博、于 Bowen、高畅、黄晨恩、吕晨旭、郑楚杰、刘代恒、周帆、黄飞、胡峰、葛昊、魏浩然、林焕、唐嘉隆、杨健、涂建宏、张建伟、杨建新、杨家翔、周静、周景仁、林俊阳、党凯、包克勤、杨克鑫、于乐、邓良浩、李梅、薛明峰、李明泽、张沛、王鹏、朱钦、门瑞、高睿泽、刘世轩、罗爽、李天浩、唐天翊、尹文彪、任星章、王新宇、张新宇、任宣丞、范阳、苏阳、张一昌、张英儿、万宇、刘玉琼、王泽坤、崔泽宇、张振儒、周志鹏、邱子涵 等。Qwen3 技术报告，2025a。URL https://arxiv.org/abs/2505.09388。  \n- 杨晨骁、Nathan Srebro、David McAllester、李志远。Pencil：以短记忆实现长思考。arXiv 预印本 arXiv:2503.14337，2025b。"
+  },
+  {
+    "block_id": "p8_b63",
+    "page_idx": 8,
+    "order": 63,
+    "type": "list",
+    "translatable": true,
+    "source_text": "Yixin Ye, Zhen Huang, Yang Xiao, Ethan Chern, Shijie Xia, and Pengfei Liu. Limo: Less is more for reasoning, 2025. URL https://arxiv.org/abs/2502.03387.\nQiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et al. Dapo: An open-source llm reinforcement learning system at scale. arXiv preprint arXiv:2503.14476, 2025.\nAlex L Zhang, Tim Kraska, and Omar Khattab. Recursive language models. arXiv preprint arXiv:2512.24601, 2025.\nTong Zheng, Hongming Zhang, Wenhao Yu, Xiaoyang Wang, Runpeng Dai, Rui Liu, Huiwen Bao, Chengsong Huang, Heng Huang, and Dong Yu. Parallel-r1: Towards parallel thinking via reinforcement learning, 2025. URL https://arxiv.org/abs/2509.07980.",
+    "zh_text": "- 叶一欣、黄震、肖阳、Ethan Chern、夏世杰、刘鹏飞。Limo：推理，少即是多，2025年。URL https://arxiv.org/abs/2502.03387。  \n- 于淇颖、张政、朱若飞、袁宇峰、左晓晨、岳宇、戴伟楠、范甜甜、刘高宏、刘凌君 等。Dapo：一个大规模开源大语言模型强化学习系统。arXiv 预印本 arXiv:2503.14476，2025年。  \n- Alex L Zhang、Tim Kraska、Omar Khattab。递归式语言模型。arXiv 预印本 arXiv:2512.24601，2025年。  \n- 郑彤、张宏明、于文浩、王潇洋、代润鹏、刘瑞、包慧文、黄成松、黄恒、于东。Parallel-R1：借助强化学习实现并行化思维，2025年。URL https://arxiv.org/abs/2509.07980。"
+  },
+  {
+    "block_id": "p9_b65",
+    "page_idx": 9,
+    "order": 65,
+    "type": "title",
+    "translatable": true,
+    "source_text": "A Experiment details",
+    "zh_text": "# A 实验细节"
+  },
+  {
+    "block_id": "p9_b66",
+    "page_idx": 9,
+    "order": 66,
+    "type": "title",
+    "translatable": true,
+    "source_text": "A.1 Prompt details",
+    "zh_text": "# A.1 提示细节"
+  },
+  {
+    "block_id": "p9_b67",
+    "page_idx": 9,
+    "order": 67,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b68",
+    "page_idx": 9,
+    "order": 68,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b69",
+    "page_idx": 9,
+    "order": 69,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p9_b70",
+    "page_idx": 9,
+    "order": 70,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "For Long input setup, we insert 64000 tokens of Shakespeare’s plays from the [Karpathy, 2015] to the prompt.",
+    "zh_text": "在“长输入”设置下，我们在提示中插入了来自 [Karpathy, 2015] 的莎士比亚戏剧文本，共计 64,000 个词元。"
+  },
+  {
+    "block_id": "p9_b71",
+    "page_idx": 9,
+    "order": 71,
+    "type": "title",
+    "translatable": true,
+    "source_text": "A.2 Inference details",
+    "zh_text": "# A.2 推理细节"
+  },
+  {
+    "block_id": "p9_b72",
+    "page_idx": 9,
+    "order": 72,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "We use OpenRouter API for running the main experiments. For each model, we use a single fixed vendor: Qwen-3.5-27B - Alibaba Cloud Int., GPT-OSS-120B - Together AI, Gemini 3 Flash Preview - Google AI Studio, Kimi K2 Thinking - Moonshot AI.",
+    "zh_text": "我们使用 OpenRouter API 运行主实验。对每个模型，我们固定使用单一供应商服务：Qwen-3.5-27B —— 阿里云国际版；GPT-OSS-120B —— Together AI；Gemini 3 Flash Preview —— Google AI Studio；Kimi K2 Thinking —— 月之暗面（Moonshot AI）。"
+  },
+  {
+    "block_id": "p9_b73",
+    "page_idx": 9,
+    "order": 73,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "For each model, we use default sampling parameters and thinking budget of 80, 000 tokens.",
+    "zh_text": "对每个模型，我们采用默认采样参数，并设定推理预算（thinking budget）为 80,000 个词元。"
+  },
+  {
+    "block_id": "p9_b74",
+    "page_idx": 9,
+    "order": 74,
+    "type": "title",
+    "translatable": true,
+    "source_text": "B Subtask evaluation details",
+    "zh_text": "# B 子任务评估细节"
+  },
+  {
+    "block_id": "p9_b75",
+    "page_idx": 9,
+    "order": 75,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "To evaluate average performance in the Subtask scenario, we use two separate judge calls, evaluating the correctness of each subproblem. Results are presented in Table 4.",
+    "zh_text": "为评估子任务场景下的平均性能，我们进行两次独立的裁判调用（judge call），分别评估每个子问题解答的正确性。结果见表 4。"
+  },
+  {
+    "block_id": "p10_b77",
+    "page_idx": 10,
+    "order": 77,
+    "type": "table",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b77_fn",
+    "page_idx": 10,
+    "order": 77,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Table 4: Model accuracy on each subproblem in the Subproblem setup. Background color represents the relative change from the baseline values.",
+    "zh_text": "表 4：子问题设置下各模型在每个子问题上的准确率。背景色表示相对于基线值的相对变化幅度。"
+  },
+  {
+    "block_id": "p10_b78",
+    "page_idx": 10,
+    "order": 78,
+    "type": "title",
+    "translatable": true,
+    "source_text": "C Task-wise comparison of reasoning lengths",
+    "zh_text": "# C 按任务划分的推理长度对比"
+  },
+  {
+    "block_id": "p10_b79",
+    "page_idx": 10,
+    "order": 79,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b79_cap",
+    "page_idx": 10,
+    "order": 79,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(a) Qwen3.5-27B",
+    "zh_text": "(a) Qwen3.5-27B"
+  },
+  {
+    "block_id": "p10_b80",
+    "page_idx": 10,
+    "order": 80,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b80_cap",
+    "page_idx": 10,
+    "order": 80,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(b) GPT-OSS-120B",
+    "zh_text": "(b) GPT-OSS-120B"
+  },
+  {
+    "block_id": "p10_b81",
+    "page_idx": 10,
+    "order": 81,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b81_cap",
+    "page_idx": 10,
+    "order": 81,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(c) Gemini 3 Flash Preview",
+    "zh_text": "(c) Gemini 3 Flash Preview"
+  },
+  {
+    "block_id": "p10_b82",
+    "page_idx": 10,
+    "order": 82,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p10_b82_cap",
+    "page_idx": 10,
+    "order": 82,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "(d) Kimi K2 Thinking Figure 3: Number of generated tokens for each IMOAnswerBench task. X-axis: Baseline, Y-Axis: Long input.",
+    "zh_text": "(d) Kimi K2 Thinking 图 3：各 IMOAnswerBench 任务所生成的词元数量。横轴：基线设置；纵轴：“长输入”设置。"
+  },
+  {
+    "block_id": "p10_b83",
+    "page_idx": 10,
+    "order": 83,
+    "type": "title",
+    "translatable": true,
+    "source_text": "D Transition heatmap",
+    "zh_text": "# D 转移概率热力图"
+  },
+  {
+    "block_id": "p10_b84",
+    "page_idx": 10,
+    "order": 84,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Figure 4 represents the difference of transition probability matrices. Positive values mean that Long input setup has more probability of transition of this type than the Baseline.",
+    "zh_text": "图 4 展示了转移概率矩阵的差值。正值表示在“长输入”设置下，该类状态转移发生的概率高于基线设置。"
+  },
+  {
+    "block_id": "p11_b86",
+    "page_idx": 11,
+    "order": 86,
+    "type": "image",
+    "translatable": false,
+    "source_text": "",
+    "zh_text": ""
+  },
+  {
+    "block_id": "p11_b86_cap",
+    "page_idx": 11,
+    "order": 86,
+    "type": "caption",
+    "translatable": true,
+    "source_text": "Figure 4: Difference of transition probabilities matrices (Long input - Baseline). Qwen3-32B, MATH500 problems.",
+    "zh_text": "图 4：转移概率矩阵差值（“长输入”减去“基线”）。Qwen3-32B，MATH500 问题集。"
+  },
+  {
+    "block_id": "p11_b87",
+    "page_idx": 11,
+    "order": 87,
+    "type": "title",
+    "translatable": true,
+    "source_text": "E Long input references",
+    "zh_text": "# E 长输入参考文献"
+  },
+  {
+    "block_id": "p11_b88",
+    "page_idx": 11,
+    "order": 88,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this section, we provide all references to the inserted prompt tokens in the Long input setup made by Qwen3-32B on MATH500 problems. We note that other models might have different patterns of prompt analysis. For example, Qwen3.5-27B usually tends to formulate the whole structure of the prompt before starting to solve the task, immediately pointing to the presence of distractor tokens. However, we did not find any examples of the model actually engaging with or being influenced by the inserted content at a semantic level.",
+    "zh_text": "本节中，我们汇总了 Qwen3-32B 模型在 MATH500 问题上采用长输入设置时，所有对所插入提示词（prompt tokens）的引用。需指出的是，其他模型可能表现出不同的提示分析模式。例如，Qwen3.5-27B 通常倾向于在开始解题前即整体构建提示结构，并立即识别出干扰性令牌（distractor tokens）的存在。然而，我们并未发现该模型在语义层面实际接触或受所插入内容影响的任何实例。"
+  },
+  {
+    "block_id": "p11_b89",
+    "page_idx": 11,
+    "order": 89,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 203",
+    "zh_text": "# 任务 203"
+  },
+  {
+    "block_id": "p11_b90",
+    "page_idx": 11,
+    "order": 90,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...>",
+    "zh_text": "<...>"
+  },
+  {
+    "block_id": "p11_b91",
+    "page_idx": 11,
+    "order": 91,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Therefore, since $\\operatorname { f } ( - 2 ) = 1 2$, the remainder is 12. Therefore, the answer is 12.",
+    "zh_text": "因此，由于 $\\operatorname{f}(-2) = 12$，余数为 12。故答案为 12。"
+  },
+  {
+    "block_id": "p11_b92",
+    "page_idx": 11,
+    "order": 92,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "But let me think if there’s any trick here. The problem is from Shakespeare’s Coriolanus? Wait, no, the original problem is just a math problem. The “old data” was the play’s text, but the new task is a math problem. Maybe that was just to set the context? Anyway, regardless, the math seems straightforward.",
+    "zh_text": "但让我再思考一下：此处是否存在某种陷阱？该问题源自莎士比亚的悲剧《科利奥兰纳斯》？等等，不对——原始问题本身仅是一道数学题。“旧数据”是该剧文本，而新任务却是数学问题。或许那段文本仅用于设定上下文？无论如何，就数学部分而言，其推导过程看似直接明了。"
+  },
+  {
+    "block_id": "p11_b93",
+    "page_idx": 11,
+    "order": 93,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Alternatively, perhaps there is a mistake in assuming that the exponents can be evaluated directly? <...>",
+    "zh_text": "或者，假设指数可被直接计算，这一前提本身是否存在错误？<...>"
+  },
+  {
+    "block_id": "p11_b94",
+    "page_idx": 11,
+    "order": 94,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 264",
+    "zh_text": "# 任务 264"
+  },
+  {
+    "block_id": "p11_b95",
+    "page_idx": 11,
+    "order": 95,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...>",
+    "zh_text": "<...>"
+  },
+  {
+    "block_id": "p12_b97",
+    "page_idx": 12,
+    "order": 97,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "This suggests that the construction in the Asymptote code might have an error, or \"bisectorpoint\" is not what I think it is. Given the time I’ve spent and the complexity, I might need to switch strategies.",
+    "zh_text": "这表明 Asymptote 代码中的几何构图可能存在错误，抑或 “bisectorpoint” 并非我所理解的含义。鉴于已投入的时间与问题复杂度，我可能需要转换解题策略。"
+  },
+  {
+    "block_id": "p12_b98",
+    "page_idx": 12,
+    "order": 98,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Let me recall that in the problem, after the battle, Coriolanus is made consul, and the citizens are angry, leading to his exile, but this is unrelated to the geometry problem. Focus on the geometry.",
+    "zh_text": "让我回顾一下题目背景：战后，科利奥兰纳斯被推举为执政官，公民因此愤怒并最终将其放逐——但此情节与当前几何问题无关。请聚焦于几何部分。"
+  },
+  {
+    "block_id": "p12_b99",
+    "page_idx": 12,
+    "order": 99,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Given the square CDEG with $\\mathrm { C D } = 3$, and rectangle BEFH with $\\mathrm { B E } = 5$, find BH.",
+    "zh_text": "已知正方形 CDEG 的边长 $\\mathrm{CD} = 3$，矩形 BEFH 的边长 $\\mathrm{BE} = 5$，求 BH 的长度。"
+  },
+  {
+    "block_id": "p12_b100",
+    "page_idx": 12,
+    "order": 100,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 296",
+    "zh_text": "# 任务 296"
+  },
+  {
+    "block_id": "p12_b101",
+    "page_idx": 12,
+    "order": 101,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...>",
+    "zh_text": "<...>"
+  },
+  {
+    "block_id": "p12_b102",
+    "page_idx": 12,
+    "order": 102,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Therefore, equation B has the largest x. But let me check another angle.",
+    "zh_text": "因此，方程 B 的解具有最大的 $x$ 值。但让我再从另一角度验证。"
+  },
+  {
+    "block_id": "p12_b103",
+    "page_idx": 12,
+    "order": 103,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Wait, the problem is from the SAT or similar? Wait, the original problem is from the Coriolanus play? No, the original data is the play, but the new task is a math problem. Anyway, according to my reasoning, equation B should be the answer. But let me check once more.",
+    "zh_text": "等等，该题是否出自 SAT 或类似标准化考试？还是说原题确实出自《科利奥兰纳斯》？不，原始数据虽为该剧文本，但新任务实为一道数学题。无论如何，依据我的推理，方程 B 应为正确答案。不过，我仍需再次核查。"
+  },
+  {
+    "block_id": "p12_b104",
+    "page_idx": 12,
+    "order": 104,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Wait, equation $\\mathrm { E } \\colon \\mathit { b a s e } _ { E } \\ = \\ 1 + \\ 1 / r$. For r approaching 0, this goes to infinity $< . . . >$",
+    "zh_text": "等等，方程 $\\mathrm{E} \\colon \\mathit{base}_E = 1 + 1/r$。当 $r$ 趋近于 0 时，该底数趋于无穷大 $<...>$"
+  },
+  {
+    "block_id": "p12_b105",
+    "page_idx": 12,
+    "order": 105,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 420",
+    "zh_text": "# 任务 420"
+  },
+  {
+    "block_id": "p12_b106",
+    "page_idx": 12,
+    "order": 106,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "$< . . . >$Alternatively, given that the answer requires boxed, maybe they want the scalar? Let me check the problem again.",
+    "zh_text": "$<...>$ 或者，鉴于答案需以带框形式呈现，或许题目所求为标量值？让我重新审阅题目。"
+  },
+  {
+    "block_id": "p12_b107",
+    "page_idx": 12,
+    "order": 107,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Wait, in the initial problem statement, the user provided a lot of text from Shakespeare’s Coriolanus, but the actual math problem is separate. So maybe the problem is from a math textbook, and the user just included some old data. Anyway, focusing on the math problem.",
+    "zh_text": "注意，在初始问题陈述中，用户提供了大量出自莎士比亚《科利奥兰纳斯》的文本，但实际数学问题却是独立的。因此，该数学题很可能源自某本数学教材，而用户仅附带引入了部分历史数据。无论如何，我们应专注于数学问题本身。"
+  },
+  {
+    "block_id": "p12_b108",
+    "page_idx": 12,
+    "order": 108,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Given that the problem says \"projection of a onto b,\" and given that the dot product is given <...>",
+    "zh_text": "已知题目要求计算向量 $\\mathbf{a}$ 在向量 $\\mathbf{b}$ 上的投影，且已给出点积信息 <...>"
+  },
+  {
+    "block_id": "p12_b109",
+    "page_idx": 12,
+    "order": 109,
+    "type": "title",
+    "translatable": true,
+    "source_text": "F Examples of resampled traces",
+    "zh_text": "# F 重采样轨迹示例"
+  },
+  {
+    "block_id": "p12_b110",
+    "page_idx": 12,
+    "order": 110,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "In this section, we provide several examples of resampled traces, described in Section 4.",
+    "zh_text": "本节提供若干重采样轨迹（resampled traces）的示例，相关内容详见第 4 节。"
+  },
+  {
+    "block_id": "p12_b111",
+    "page_idx": 12,
+    "order": 111,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 3",
+    "zh_text": "# 任务 3"
+  },
+  {
+    "block_id": "p12_b112",
+    "page_idx": 12,
+    "order": 112,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Baseline:",
+    "zh_text": "# 基线方法（Baseline）："
+  },
+  {
+    "block_id": "p12_b113",
+    "page_idx": 12,
+    "order": 113,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...> That’s 9 combinations, which correspond to the 9 divisors. So that’s another way to see it. So that confirms it again.",
+    "zh_text": "<...> 共有 9 种组合，对应 9 个正因数。这是另一种理解方式，再次印证了前述结论。"
+  },
+  {
+    "block_id": "p12_b114",
+    "page_idx": 12,
+    "order": 114,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Therefore, I think the answer is 9. But let me just check once more. <...>",
+    "zh_text": "因此，我认为答案是 9。但为稳妥起见，我再复核一次。<...>"
+  },
+  {
+    "block_id": "p12_b115",
+    "page_idx": 12,
+    "order": 115,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Long input (128 tokens inserted):",
+    "zh_text": "# 长输入（插入 128 个 token）："
+  },
+  {
+    "block_id": "p12_b116",
+    "page_idx": 12,
+    "order": 116,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "$< . . . >$That’s $3 ^ { * } 3 { = } 9$divisors, which again gives me 9. So that’s consistent. Therefore, I think 9 is the right answer.",
+    "zh_text": "$<...>$ 即 $3^{*}3 = 9$ 个因数，结果仍为 9。该结果具有一致性。因此，我确信 9 是正确答案。"
+  },
+  {
+    "block_id": "p13_b118",
+    "page_idx": 13,
+    "order": 118,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "But just to be thorough, maybe I can check another way. <...>",
+    "zh_text": "但为确保万无一失，我或许可尝试另一种验证方法。<...>"
+  },
+  {
+    "block_id": "p13_b119",
+    "page_idx": 13,
+    "order": 119,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Long input (16k tokens inserted):",
+    "zh_text": "# 长输入（插入 16k 个 token）："
+  },
+  {
+    "block_id": "p13_b120",
+    "page_idx": 13,
+    "order": 120,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...> That’s nine combinations, so nine divisors. Yep, that checks out. So I think the answer is 9.",
+    "zh_text": "<...> 共有九种组合，即九个正因数。没错，验证无误。因此，我认为答案是 9。"
+  },
+  {
+    "block_id": "p13_b121",
+    "page_idx": 13,
+    "order": 121,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "**Final Answer** The number of positive whole-number divisors of 196 is 9 . </think>",
+    "zh_text": "**最终答案** 196 的正整数因数个数为 9。 </think>"
+  },
+  {
+    "block_id": "p13_b122",
+    "page_idx": 13,
+    "order": 122,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Task 6",
+    "zh_text": "# 任务 6"
+  },
+  {
+    "block_id": "p13_b123",
+    "page_idx": 13,
+    "order": 123,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Baseline:",
+    "zh_text": "# 基线方法（Baseline）："
+  },
+  {
+    "block_id": "p13_b124",
+    "page_idx": 13,
+    "order": 124,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...> multiples of 3, 27 must be the smallest.",
+    "zh_text": "<...> 其中 27 是满足条件的最小的 3 的倍数。"
+  },
+  {
+    "block_id": "p13_b125",
+    "page_idx": 13,
+    "order": 125,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "But let me think again. Let me check for example negative integers. <...>",
+    "zh_text": "但我再重新思考一下。例如，让我检验负整数是否可能成立。<...>"
+  },
+  {
+    "block_id": "p13_b126",
+    "page_idx": 13,
+    "order": 126,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Long input (128 tokens inserted):",
+    "zh_text": "# 长输入（插入 128 个 token）："
+  },
+  {
+    "block_id": "p13_b127",
+    "page_idx": 13,
+    "order": 127,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...> multiples of 3, 27 is the smallest.",
+    "zh_text": "<...> 其中 27 是满足条件的最小的 3 的倍数。"
+  },
+  {
+    "block_id": "p13_b128",
+    "page_idx": 13,
+    "order": 128,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "But wait, just to make sure, let me check if maybe 0 is considered. <...>",
+    "zh_text": "但稍等，为确保严谨，我再确认零是否被纳入考虑范围。<...>"
+  },
+  {
+    "block_id": "p13_b129",
+    "page_idx": 13,
+    "order": 129,
+    "type": "title",
+    "translatable": true,
+    "source_text": "Long input (16k tokens inserted):",
+    "zh_text": "# 长输入（插入 16k 个 token）："
+  },
+  {
+    "block_id": "p13_b130",
+    "page_idx": 13,
+    "order": 130,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "<...> multiples of 3, 27 is the smallest.",
+    "zh_text": "<...> 其中 27 是满足条件的最小的 3 的倍数。"
+  },
+  {
+    "block_id": "p13_b131",
+    "page_idx": 13,
+    "order": 131,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "Therefore, the answer is 27.",
+    "zh_text": "因此，答案为 27。"
+  },
+  {
+    "block_id": "p13_b132",
+    "page_idx": 13,
+    "order": 132,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "**Final Answer**",
+    "zh_text": "**最终答案**"
+  },
+  {
+    "block_id": "p13_b133",
+    "page_idx": 13,
+    "order": 133,
+    "type": "paragraph",
+    "translatable": true,
+    "source_text": "The smallest positive perfect cube that can be written as the sum of three consecutive integers is 27 . </think>",
+    "zh_text": "可表示为三个连续整数之和的最小正整数完全立方数是 27。 </think>"
+  }
+]

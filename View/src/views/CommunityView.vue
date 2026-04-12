@@ -184,7 +184,7 @@ function formatTime(iso: string): string {
     <Transition name="fade">
       <button
         v-if="!showSidebar"
-        class="fixed top-[100px] left-0 z-10 flex items-center justify-center w-11 h-11 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+        class="fixed top-[calc(var(--navbar-h)+2.5rem)] left-0 z-10 flex items-center justify-center w-11 h-11 bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
         title="展开侧边栏"
         @click="showSidebar = true"
       >

@@ -1,0 +1,2982 @@
+[
+    {
+        "type": "text",
+        "text": "VISTA: Visualization of Token Attribution via Efficient Analysis ",
+        "text_level": 1,
+        "bbox": [
+            106,
+            135,
+            890,
+            213
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Syed Ahmed syed_ahmed12@infosys.com ",
+        "bbox": [
+            184,
+            229,
+            385,
+            260
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Bharathi Vokkaliga Ganesh bharathi_ganesh01@infosys.com ",
+        "bbox": [
+            423,
+            229,
+            645,
+            260
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Jagadish Babu P jagadish.p02@infosys.com ",
+        "bbox": [
+            656,
+            229,
+            841,
+            260
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Karthick Selvaraj karthick.s50@infosys.com ",
+        "bbox": [
+            187,
+            268,
+            367,
+            299
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Praneeth Talluri praneeth.talluri@infosys.com ",
+        "bbox": [
+            423,
+            268,
+            620,
+            299
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Sanket Hingne sankethemraj.hingne@infosys.com ",
+        "bbox": [
+            658,
+            268,
+            892,
+            299
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Anubhav Kumar anubhav.kumar03@infosys.com ",
+        "bbox": [
+            187,
+            309,
+            403,
+            338
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Anushka Yadav anushka.yadav01@infosys.com ",
+        "bbox": [
+            423,
+            309,
+            635,
+            338
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Pratham Kumar Verma prathamkumar.verma@infosys.com ",
+        "bbox": [
+            658,
+            309,
+            897,
+            338
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Kiranmayee Janardhan kiranmayee.j@infosys.com ",
+        "bbox": [
+            187,
+            348,
+            370,
+            377
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Mandanna A N mandanna_an@infosys.com ",
+        "bbox": [
+            423,
+            348,
+            612,
+            377
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Responsible AI Office ",
+        "bbox": [
+            423,
+            387,
+            573,
+            402
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Infosys Limited, Bangalore, India ",
+        "bbox": [
+            385,
+            415,
+            611,
+            430
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "ABSTRACT ",
+        "text_level": 1,
+        "bbox": [
+            225,
+            460,
+            315,
+            474
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "Understanding how Large Language Models (LLMs) process information from prompts remains a significant challenge. To shed light on this \"black box,\" attention visualization techniques have been developed [1], [14] to capture neuronlevel perceptions and interpret how models focus on different parts of input data. However, many existing techniques are tailored to specific model architectures, particularly within the Transformer family, and often require backpropagation [5], resulting in nearly double the GPU memory usage and increased computational cost. A lightweight, model-agnostic approach for attention visualization remains lacking [25]. ",
+        "bbox": [
+            68,
+            508,
+            473,
+            705
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "In this paper, we introduce a model-agnostic token importance visualization technique to better understand how generative AI systems perceive and prioritize information from input text, without incurring additional computational cost. Our method leverages perturbation-based [11] strategies combined with a three-matrix analytical framework to generate relevance maps that illustrate token-level contributions to model predictions. The framework ",
+        "bbox": [
+            68,
+            726,
+            473,
+            869
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "comprises: (1) the Angular Deviation Matrix, which captures shifts in semantic direction; (2) the Magnitude Deviation Matrix, which measures changes in semantic intensity; and (3) the Dimensional Importance Matrix, which evaluates contributions across individual vector dimensions. By systematically removing each token and measuring the resulting impact across these three complementary dimensions, we derive a composite importance score that provides a nuanced and mathematically grounded measure of token significance. To support reproducibility and foster wider adoption, we provide open-source implementations of all proposed and utilized explainability techniques, with code and resources publicly available at https://github.com/Infosys/Infosys-Responsible-AI-Toolkit ",
+        "bbox": [
+            522,
+            498,
+            929,
+            750
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1. INTRODUCTION ",
+        "text_level": 1,
+        "bbox": [
+            643,
+            787,
+            787,
+            801
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "1.1 Background and Motivation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            825,
+            740,
+            840
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "The emergence of Large Language Models (LLMs) including GPT [3], BERT [2], and their successive variants has ",
+        "bbox": [
+            522,
+            861,
+            928,
+            895
+        ],
+        "page_idx": 0
+    },
+    {
+        "type": "text",
+        "text": "fundamentally redefined the landscape of computational linguistics, enabling unprecedented performance across comprehension and text generation tasks. Despite their impressive performance across a wide array of tasks, the internal workings of these models remain largely opaque, often described as \"black boxes [17].\" This opacity creates a fundamental tension between model capability and practical deployability, as organizations in domains requiring auditability, such as patient care, financial regulation, and legal compliance. ",
+        "bbox": [
+            68,
+            79,
+            473,
+            258
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Understanding how these models perceive and prioritize different parts of an input prompt is critical not only for transparency, but also for debugging, model auditing, and bias detection [15]. A key approach to demystifying model behavior has been attention visualization [22], which attempts to reveal how and where models focus during inference. While these techniques have offered valuable insights, they are often tightly coupled with specific architectures typically Transformers [14] and rely on attention weights [12] or backpropagation-based methods. These constraints introduce challenges: they demand deeper access to the model's internals, are often computationally intensive, and tend to double memory usage, limiting their practicality in real-time or resource-constrained applications [26]. ",
+        "bbox": [
+            68,
+            279,
+            473,
+            549
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "To address these limitations, we propose a model-agnostic token importance visualization technique [6] that is lightweight, efficient, and architecture-independent. Our approach does not require any access to the model's internal gradients [8] or attention mechanisms. Instead, it leverages a perturbation-based strategy [11] paired with a multidimensional analytical framework to evaluate token importance. By systematically removing individual tokens from the input sentence and measuring the resulting change across three complementary matrices: Angular Deviation, Magnitude Deviation, and Dimensional Importance. This enables a measurable assessment of each token's contribution to the aggregate semantic representation of the input prompt, revealing which words exert the greatest influence on the embedding structure. The greater the shifts in the sentence's semantic representation across these dimensions, the more important the removed token is. ",
+        "bbox": [
+            68,
+            569,
+            473,
+            876
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This technique is designed to be both computationally efficient and highly interpretable, rendering the approach practical for integration into production-grade generative AI pipelines without imposing significant computational overhead. Additionally, by filtering out common or semantically lightweight words, our method ensures that only the most impactful tokens are highlighted in the final relevance map. ",
+        "bbox": [
+            522,
+            79,
+            928,
+            223
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1.2 Research Objectives ",
+        "text_level": 1,
+        "bbox": [
+            526,
+            243,
+            687,
+            258
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "This paper details a methodology for calculating a token's importance score based on its impact on the prompt's collective semantic meaning. Our specific objectives are: ",
+        "bbox": [
+            522,
+            279,
+            926,
+            330
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1. To develop a model-agnostic framework for token importance quantification ",
+        "bbox": [
+            522,
+            352,
+            926,
+            385
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2. To capture multiple dimensions of semantic contribution (direction, intensity, and dimensional balance) ",
+        "bbox": [
+            522,
+            388,
+            926,
+            421
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "3. To provide mathematically rigorous and interpretable importance metrics ",
+        "bbox": [
+            522,
+            425,
+            926,
+            458
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "4. To establish a foundation for automated prompt optimization ",
+        "bbox": [
+            522,
+            460,
+            926,
+            494
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "1.3 Approach Overview ",
+        "text_level": 1,
+        "bbox": [
+            526,
+            515,
+            687,
+            530
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "We utilize GloVe (Global Vectors for Word Representation) to transform tokens into a high-dimensional vector space. The core of our method is perturbation-based [11] analysis: we systematically ablate each token and quantify the resulting geometric and semantic shifts in the prompt's aggregate embedding through three complementary analytical matrices. ",
+        "bbox": [
+            522,
+            551,
+            928,
+            676
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2. THEORETICAL FOUNDATION ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            714,
+            769,
+            729
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "2.1 Vector Space Semantics ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            751,
+            712,
+            766
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "Our methodology is grounded in the distributional hypothesis of linguistics, which posits that words appearing in similar contexts tend to have similar meanings. GloVe embeddings capture this principle by representing each word as a dense vector in a high-dimensional space, where geometric ",
+        "bbox": [
+            522,
+            787,
+            928,
+            876
+        ],
+        "page_idx": 1
+    },
+    {
+        "type": "text",
+        "text": "relationships (distances and angles) correspond to semantic relationships. ",
+        "bbox": [
+            68,
+            79,
+            470,
+            114
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "For a vocabulary ?, GloVe learns a mapping: ",
+        "bbox": [
+            68,
+            133,
+            372,
+            151
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nw \\in V \\to E (w) \\in \\mathbb {R} ^ {\\wedge} d\n$$",
+        "text_format": "latex",
+        "bbox": [
+            179,
+            152,
+            362,
+            169
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "where $d$ is the embedding dimension (50 in our implementation). ",
+        "bbox": [
+            68,
+            189,
+            472,
+            223
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.2 Aggregate Prompt Representation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            244,
+            323,
+            261
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Given an input prompt $P$ consisting of $n$ tokens $T =$ $\\{ t _ { 1 } , t _ { 2 } , \\ldots , t _ { n } \\}$ , we represent the entire prompt as a single aggregate vector. This representation is computed as the vector sum of individual token embeddings: ",
+        "bbox": [
+            68,
+            280,
+            473,
+            351
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {o r i g} = \\sum_ {i = 1} ^ {n} E (t _ {\\mathrm {i}})\n$$",
+        "text_format": "latex",
+        "bbox": [
+            209,
+            371,
+            331,
+            415
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "This sum captures the collective semantic content of the prompt. While simple, this additive model has been shown to be effective in various NLP tasks and provides a tractable foundation for perturbation analysis. ",
+        "bbox": [
+            68,
+            435,
+            472,
+            506
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "2.3 Perturbation-Based Importance ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            526,
+            305,
+            542
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our methodology is founded on the principle that a token's importance is proportional to the semantic disruption its absence causes [11]. For each token $t _ { k }$ , we construct a \"perturbed\" prompt embedding by removing that token: ",
+        "bbox": [
+            68,
+            561,
+            472,
+            633
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {p e r t _ {k}} = E _ {o r i g} - E (t _ {k}) = \\sum_ {i = 1} ^ {n} E (t _ {\\mathrm {i}}) i \\neq k\n$$",
+        "text_format": "latex",
+        "bbox": [
+            122,
+            652,
+            418,
+            696
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The difference between $E _ { o r i g }$ and $E _ { p e r t _ { k } }$ quantifies the token's contribution to the prompt's overall semantic representation. However, a single scalar measure of this difference would be insufficient to capture the multifaceted nature of semantic contribution. Therefore, we decompose the impact into three distinct analytical dimensions. ",
+        "bbox": [
+            68,
+            715,
+            473,
+            825
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3. METHODOLOGY: THREE-MATRIX ANALYTICAL FRAMEWORK ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            845,
+            472,
+            878
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "Our comprehensive token importance score is derived from three complementary matrices, each capturing a distinct aspect of how a token's removal affects the prompt's semantic representation. ",
+        "bbox": [
+            522,
+            79,
+            926,
+            150
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1 THE ANGULAR DEVIATION MATRIX ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            170,
+            833,
+            185
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1.1 Conceptual Foundation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            207,
+            720,
+            220
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "The Angular Deviation Matrix measures how the removal of a token alters the overall semantic *direction* of the prompt in the embedding space. This component is critical because semantic direction encodes the primary topic or intent of the prompt. A significant change in direction implies the token was crucial for establishing the prompt's core meaning. ",
+        "bbox": [
+            522,
+            224,
+            928,
+            332
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1.2 Geometric Interpretation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            352,
+            728,
+            367
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "In vector space semantics, the angle between two vectors represents their semantic similarity. We quantify this directional relationship using the cosine function, which yields a scale-invariant similarity metric bounded between −1 ??? 1, unaffected by differences in vector length: ",
+        "bbox": [
+            522,
+            369,
+            926,
+            458
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\cos (\\theta) = \\frac {\\left(v _ {1} \\cdot v _ {2}\\right)}{\\left(\\left| \\left| v _ {1} \\right| \\right| \\times \\left| \\left| v _ {2} \\right| \\right|\\right)}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            627,
+            460,
+            823,
+            494
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "This formulation isolates the angular separation between two vectors, capturing purely orientational semantic alignment. ",
+        "bbox": [
+            522,
+            496,
+            926,
+            531
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "When $c o s ( \\theta ) = 1 \\quad$ , the vectors point in identical directions (perfect semantic alignment). When $c o s ( \\theta ) = 0$ , they are orthogonal (semantically unrelated). When $c o s ( \\theta ) = - 1$ , they point in opposite directions (antonymous or contradictory). ",
+        "bbox": [
+            522,
+            551,
+            928,
+            641
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "3.1.3 Mathematical Formulation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            661,
+            741,
+            674
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "For token $t _ { k }$ , we calculate the cosine angle between the original prompt embedding $E _ { o r i g }$ and the perturbed embedding ?()\"*!: $E _ { p e r t _ { k } }$ ",
+        "bbox": [
+            522,
+            679,
+            926,
+            736
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nc o s (\\theta_ {k}) = \\frac {(E _ {o r i g} \\cdot E _ {p e r t _ {k}})}{(| | E _ {o r i g} | | \\times | | E _ {p e r t _ {k}} | |)}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            602,
+            755,
+            849,
+            792
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "text",
+        "text": "To transform this into an importance score where higher values indicate greater importance, we apply the following transformation: ",
+        "bbox": [
+            522,
+            811,
+            928,
+            864
+        ],
+        "page_idx": 2
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS c o r e _ {a n g u l a r _ {k}} = \\frac {(1 - \\cos (\\theta_ {k}))}{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            153,
+            78,
+            387,
+            109
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "This normalization ensures: ",
+        "bbox": [
+            68,
+            130,
+            256,
+            143
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• ?????+%$,-+\"! ∈ [0, 1] ",
+            "$\\mathbf { \\nabla } \\cdot S c o r e _ { a n g u l a r _ { k } } = \\textbf { 0 }$ when the token causes no directional change $( c o s ( \\theta _ { k } ) = 1 )$ ",
+            "$\\mathbf { \\nabla } _ { \\cdot } S c o r e _ { a n g u l a r _ { k } } = \\ 1$ when the token causes maximum directional change $( c o s ( \\theta _ { k } ) = - 1 )$ "
+        ],
+        "bbox": [
+            68,
+            148,
+            470,
+            244
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1.4 Interpretation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            265,
+            200,
+            280
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "A high angular deviation score indicates that removing the token causes a significant shift in the prompt's semantic orientation. Such tokens typically include: ",
+        "bbox": [
+            68,
+            282,
+            470,
+            335
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Primary subject nouns (e.g., \"AI\", \"model\", \"system\") ",
+            "• Action verbs that define the task (e.g., \"analyze\", \"generate\", \"classify\") ",
+            "• Domain-specific terminology that anchors the prompt's context "
+        ],
+        "bbox": [
+            68,
+            337,
+            470,
+            424
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Conversely, low scores are assigned to tokens that do not substantially alter the direction, such as: ",
+        "bbox": [
+            68,
+            446,
+            472,
+            479
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Common stopwords (e.g., \"the\", \"a\", \"an\") ",
+            "• Auxiliary verbs (e.g., \"is\", \"are\", \"was\") ",
+            "• Generic modifiers that do not shift the core topic "
+        ],
+        "bbox": [
+            68,
+            482,
+            401,
+            534
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.1.5 Example Calculation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            555,
+            250,
+            570
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "Consider the prompt: \"The AI system processes natural language effectively\" ",
+        "bbox": [
+            68,
+            573,
+            470,
+            607
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "For the token \"AI\": ",
+        "bbox": [
+            68,
+            627,
+            200,
+            642
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. $E _ { o r i g }$ points in a direction representing the full semantic content ",
+            "2. $E _ { p e r t _ { A I } }$ excludes \"AI\", shifting toward a more generic \"system processes\" meaning ",
+            "3. The cosine angle between these vectors is significantly less than 1 ",
+            "4. The resulting $S c o r e _ { a n g u l a r _ { A I } }$ is high, reflecting \"AI\"'s importance in defining the prompt's topic "
+        ],
+        "bbox": [
+            68,
+            646,
+            470,
+            795
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2 THE MAGNITUDE DEVIATION MATRIX ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            833,
+            395,
+            847
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2.1 Conceptual Foundation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            869,
+            264,
+            885
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The Magnitude Deviation Matrix quantifies a token's contribution to the overall \"semantic intensity\" or \"weight\" of the prompt. In vector space models, the magnitude (?2 ????) of an embedding vector can be interpreted as a measure of semantic salience or informativeness. Tokens that significantly increase or decrease this magnitude are considered important contributors to the prompt's overall semantic strength. ",
+        "bbox": [
+            522,
+            79,
+            926,
+            223
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2.2 Geometric Interpretation ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            243,
+            730,
+            258
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "The ?2 ???? (Euclidean length) of a vector $v$ in ? - dimensional space is defined ",
+        "bbox": [
+            522,
+            261,
+            926,
+            295
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "as: ",
+        "bbox": [
+            524,
+            300,
+            547,
+            311
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\n| | v | | = \\sqrt {\\left(\\sum_ {i = 1} ^ {d} v _ {\\mathrm {i}} ^ {2}\\right)}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            656,
+            335,
+            795,
+            393
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "In the context of word embeddings, a larger magnitude often correlates with more semantically rich or specific content. Generic or weak semantic content tends to result in lower magnitude aggregate vectors. ",
+        "bbox": [
+            522,
+            415,
+            926,
+            486
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2.3 Mathematical Formulation ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            506,
+            741,
+            520
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "For token $t _ { k } .$ we calculate the absolute difference between the norms of the original and perturbed embeddings, normalized by the original norm: ",
+        "bbox": [
+            522,
+            523,
+            926,
+            575
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS c o r e _ {m a g n i t u d e _ {k}} = \\frac {| | | E _ {o r i g} | | - | | E _ {p e r t _ {k}} | | |}{| | E _ {o r i g} | |}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            571,
+            595,
+            877,
+            633
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "This normalization ensures: ",
+        "bbox": [
+            522,
+            652,
+            710,
+            667
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "$\\bullet s c o r e _ { m a g n i t u d e _ { k } } \\in [ 0 , 1 ]$ ",
+            "• The score is scale-invariant (independent of the absolute magnitudes) ",
+            "• The score reflects the *relative* change in semantic intensity "
+        ],
+        "bbox": [
+            522,
+            671,
+            926,
+            761
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "3.2.4 Interpretation ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            782,
+            656,
+            797
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "text",
+        "text": "A high magnitude deviation score indicates that the token substantially contributes to (or detracts from) the prompt's overall semantic weight. This can occur in two scenarios: ",
+        "bbox": [
+            522,
+            800,
+            926,
+            852
+        ],
+        "page_idx": 3
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "(a) Additive Contribution: The token's embedding vector is well-aligned with the rest of the prompt, amplifying the semantic signal. ",
+            "Example: In \"very important task\", the word \"important\" adds significant semantic weight to reinforce the urgency and priority. ",
+            "(b) Cancellation Effect: The token's embedding vector opposes some components of the aggregate, reducing the net magnitude but potentially sharpening the semantic focus. "
+        ],
+        "bbox": [
+            68,
+            79,
+            470,
+            258
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Example: In \"not insignificant\", \"not\" reduces the magnitude of \"insignificant\" but refines the meaning. ",
+        "bbox": [
+            68,
+            261,
+            470,
+            296
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Conversely, low scores indicate tokens whose removal has minimal effect on the overall semantic intensity: ",
+        "bbox": [
+            68,
+            315,
+            470,
+            348
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Tokens with small embedding magnitudes themselves ",
+            "• Tokens whose embeddings are orthogonal to the main semantic direction ",
+            "• Tokens that are redundant with other tokens in the prompt "
+        ],
+        "bbox": [
+            68,
+            352,
+            470,
+            421
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.2.5 Example Calculation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            443,
+            250,
+            457
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Consider the prompt: \"The AI system processes natural language effectively\" ",
+        "bbox": [
+            68,
+            460,
+            470,
+            494
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For the token \"effectively\": ",
+        "bbox": [
+            68,
+            515,
+            253,
+            529
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. $| | E _ { o r i g } | |$ represents the total semantic intensity of the prompt ",
+            "2. $| | E _ { p e r t _ { e f f e c t i v e l y } } | |$ is slightly lower, as \"effectively\" adds semantic weight to the action \"processes\" ",
+            "$3 . S c o r e _ { m a g n i t u d e _ { e f f e c t i v e l y } } = \\frac { | | E _ { o r i g } | | - | | E _ { p e r t _ { e f f e c t i v e l y } } | | } { | | E _ { o r i g } | | }$ 3. ?????/+$%#*,.)$%%$&'()$*+ ",
+            "4. This yields a moderate-to-high score, indicating \"effectively\" contributes meaningfully to the prompt's semantic strength "
+        ],
+        "bbox": [
+            68,
+            532,
+            470,
+            695
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For the token \"the\": ",
+        "bbox": [
+            68,
+            717,
+            202,
+            729
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "$1 . \\ | | E _ { p e r t _ { t h e } } | | \\approx \\ | | E _ { o r i g } | |$ (minimal change) ",
+            "2. ?????_?????????_?ℎ? $\\approx 0$ , reflecting \"the\"'s negligible contribution to semantic intensity "
+        ],
+        "bbox": [
+            68,
+            734,
+            470,
+            787
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3 THE DIMENSIONAL IMPORTANCE MATRIX ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            828,
+            426,
+            842
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3.1 Conceptual Foundation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            864,
+            263,
+            878
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "While the Angular Deviation and Magnitude Deviation matrices analyze the aggregate vector as a whole, the Dimensional Importance Matrix examines the token's influence at the level of individual embedding dimensions. This fine-grained analysis captures the nuanced role of tokens in shaping the prompt's semantic profile across the entire 50-dimensional space. ",
+        "bbox": [
+            522,
+            79,
+            926,
+            203
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "Each dimension in the GloVe embedding space encodes a latent semantic feature (e.g., abstractness vs. concreteness, positive vs. negative sentiment, temporal vs. spatial reference). A token's importance can be understood not just by its overall contribution, but by *how* it contributes across these various semantic axes. ",
+        "bbox": [
+            522,
+            224,
+            926,
+            329
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3.2 Dimensional Weighting Rationale ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            352,
+            790,
+            366
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The key insight of this matrix is that a token's importance on a given dimension is context-dependent. A token is particularly important if: ",
+        "bbox": [
+            522,
+            369,
+            924,
+            421
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• It contributes to a dimension where the prompt's aggregate vector has low energy (filling a semantic gap) ",
+            "• It counteracts a dimension where the prompt has high energy (providing semantic balance or contrast) "
+        ],
+        "bbox": [
+            522,
+            425,
+            924,
+            494
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "This weighting strategy rewards tokens that either: ",
+        "bbox": [
+            522,
+            515,
+            859,
+            529
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "(a) Introduce novel semantic features not strongly present in the rest of the prompt ",
+            "(b) Provide contrastive or qualifying information that balances the prompt's semantic profile "
+        ],
+        "bbox": [
+            522,
+            532,
+            924,
+            602
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "3.3.3 Mathematical Formulation ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            625,
+            740,
+            638
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "For each token $t _ { k }$ and each dimension $j \\in \\{ 0 , 1 , \\ldots , 4 9 \\}$ , we define a weight function that captures the token's contribution to that dimension: ",
+        "bbox": [
+            522,
+            642,
+            924,
+            693
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\nw e i g h t _ {j} \\left(t _ {k}\\right) = f \\left(E _ {o r i g} [ j ], E \\left(t _ {k}\\right) [ j ]\\right)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            607,
+            715,
+            856,
+            732
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "The exact form of $f$ varies by implementation, but a common approach is: ",
+        "bbox": [
+            522,
+            753,
+            924,
+            787
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} w e i g h t _ {j} \\left(t _ {k}\\right) = | E \\left(t _ {k}\\right) [ j ] | \\\\ \\times g \\left(\\operatorname {s i g n} \\left(E _ {\\text {o r i g}} [ j ]\\right), \\operatorname {s i g n} \\left(E \\left(t _ {k}\\right) [ j ]\\right)\\right) \\\\ \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            638,
+            808,
+            892,
+            845
+        ],
+        "page_idx": 4
+    },
+    {
+        "type": "text",
+        "text": "where $g$ is a function that assigns higher weight when $E _ { o r i g } [ j ]$ and $E ( t _ { k } ) [ j ]$ have opposite signs (indicating the token provides contrast on this dimension). ",
+        "bbox": [
+            68,
+            80,
+            473,
+            133
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The total dimensional importance score is the sum across all dimensions: ",
+        "bbox": [
+            68,
+            154,
+            472,
+            188
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS c o r e _ {d i m e n s i o n a l _ {k}} = \\sum_ {j = 0} ^ {4 9} w e i g h t _ {j} (t _ {k})\n$$",
+        "text_format": "latex",
+        "bbox": [
+            145,
+            208,
+            406,
+            255
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.3.4 Interpretation ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            275,
+            200,
+            290
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "A high dimensional importance score indicates that the token plays a crucial role in structuring the prompt's semantic representation across multiple latent ",
+        "bbox": [
+            68,
+            292,
+            473,
+            345
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "features. This often occurs for: ",
+        "bbox": [
+            68,
+            348,
+            276,
+            361
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Content words with rich, multi-faceted meanings (e.g., \"analyze\", \"create\", \"evaluate\") ",
+            "• Domain-specific terms that activate unique semantic dimensions ",
+            "• Modifiers that introduce important nuances (e.g., \"not\", \"very\", \"partially\") "
+        ],
+        "bbox": [
+            68,
+            366,
+            470,
+            489
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Low scores typically correspond to: ",
+        "bbox": [
+            68,
+            511,
+            308,
+            526
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Tokens with sparse or generic semantic profiles ",
+            "• Tokens that are redundant with other tokens across most dimensions ",
+            "• Functional words that do not carry substantial semantic content "
+        ],
+        "bbox": [
+            68,
+            529,
+            472,
+            614
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.3.5 Dimensional Balance and Semantic Refinement ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            638,
+            424,
+            652
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "This matrix captures a phenomenon not addressed by the first two: the role of tokens in achieving semantic *balance*. Consider the prompt: ",
+        "bbox": [
+            68,
+            656,
+            470,
+            708
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "\"The AI system does not process natural language effectively\" ",
+        "bbox": [
+            68,
+            710,
+            470,
+            744
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The token \"not\" may have: ",
+        "bbox": [
+            68,
+            765,
+            250,
+            780
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Low angular deviation (the prompt is still about AI processing language) ",
+            "• Low magnitude deviation (negations often have relatively small magnitude) ",
+            "• High dimensional importance (it flips the valence across multiple dimensions) "
+        ],
+        "bbox": [
+            68,
+            782,
+            470,
+            888
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "The Dimensional Importance Matrix ensures \"not\" receives appropriate weight despite low scores on the other two metrics. ",
+        "bbox": [
+            522,
+            80,
+            926,
+            130
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "3.3.6 Example Calculation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            152,
+            705,
+            167
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "Consider the prompt: \"The AI system processes natural language effectively\" ",
+        "bbox": [
+            522,
+            170,
+            926,
+            204
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For the token \"processes\": ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            224,
+            700,
+            239
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. Across the 50 dimensions, \"processes\" contributes significantly to action-oriented dimensions (verb semantics) ",
+            "2. It may oppose or balance object-oriented dimensions (noun semantics) present in \"AI\", \"system\", \"language\" ",
+            "3. The weighted sum across all dimensions yields a high ?????.#/)%5#!%+-/-,&$11$1 ",
+            "4. This reflects \"processes\" as a key action verb defining the prompt's task "
+        ],
+        "bbox": [
+            522,
+            243,
+            926,
+            388
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "For the token \"the\": ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            409,
+            658,
+            422
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. \"the\" has low values across most semantic dimensions (it's semantically weak) ",
+            "2. It does not provide contrastive information on any dimension ",
+            "3. ?????.#/)%5#!%+-'0$ is very low, confirming \"the\"'s minimal semantic contribution "
+        ],
+        "bbox": [
+            522,
+            426,
+            926,
+            534
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "image",
+        "img_path": "images/1acc417dbeeb8a15cfc2beed8a50405d33a3924a89681cd2cc978a9d7749a278.jpg",
+        "image_caption": [
+            "Figure 1: Token Importance "
+        ],
+        "image_footnote": [],
+        "bbox": [
+            531,
+            537,
+            972,
+            781
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4. COMPOSITE IMPORTANCE SCORE ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            828,
+            805,
+            842
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "4.1 Integration Strategy ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            864,
+            684,
+            880
+        ],
+        "page_idx": 5
+    },
+    {
+        "type": "text",
+        "text": "To derive a single, holistic measure of a token's importance, we combine the scores from the three analytical matrices. The choice of combination method is critical to ensure that the final score reflects a balanced assessment across all dimensions of importance. As stated in the image Figure 1 We employ multiplicative combination: ",
+        "bbox": [
+            68,
+            79,
+            473,
+            186
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\text {I m p o r t a n c e S c o r e} _ {k} = \\text {S c o r e} _ {\\text {a n g u l a r} k} \\times \\text {S c o r e} _ {\\text {m a g n i t u d e} k} \\\\ \\times S c o r e _ {d i m e n s i o n a l _ {k}} \\\\ \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            107,
+            205,
+            426,
+            237
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.2 Rationale for Multiplicative Combination Multiplicative combination offers several advantages: ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            257,
+            426,
+            291
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "(a) Robustness: A token must score well across *all three* dimensions to be considered highly important. Due to the multiplicative nature of this integration, a deficiency in any one dimension propagates through the entire composite, acting as a natural safeguard against inflated importance scores driven by a single metric in isolation. ",
+            "(b) Semantic Completeness: True token importance requires contribution to direction (topic), intensity (weight), and dimensional balance (nuance). Multiplication captures this requirement for multi-dimensional significance. ",
+            "(c) Dynamic Range: The multiplicative approach naturally creates a wide range of final scores, making it easier to distinguish between tokens of varying importance. ",
+            "(d) Interpretability: If a token has a very low final score, one can examine which of the three component scores is the bottleneck, providing diagnostic insight. "
+        ],
+        "bbox": [
+            68,
+            311,
+            473,
+            599
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.3 Score Distribution and Interpretation The final importance scores typically exhibit the following distribution: ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            619,
+            470,
+            671
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "• High Scores $( > 0 . 5 )$ : Core content words that define the prompt's topic, task, and key entities. These are often: ",
+        "bbox": [
+            68,
+            693,
+            470,
+            727
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Domain-specific nouns (e.g., \"AI\", \"model\", \"data\") ",
+            "- Primary verbs (e.g., \"analyze\", \"generate\", \"predict\") ",
+            "- Critical modifiers (e.g., \"accurate\", \"comprehensive\") "
+        ],
+        "bbox": [
+            76,
+            729,
+            442,
+            781
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "• Medium Scores (0.2 − 0.5): Supporting words that add important context or detail but are not central to the core meaning. These include: ",
+        "bbox": [
+            68,
+            801,
+            472,
+            854
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Secondary nouns and verbs ",
+            "- Descriptive adjectives and adverbs ",
+            "- Connective words that structure the prompt "
+        ],
+        "bbox": [
+            76,
+            857,
+            375,
+            909
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "• Low Scores $( < 0 . 2 )$ : Functional words with minimal semantic contribution: ",
+        "bbox": [
+            522,
+            98,
+            926,
+            131
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Articles (e.g., \"the\", \"a\", \"an\") ",
+            "- Auxiliary verbs (e.g., \"is\", \"are\", \"was\") ",
+            "- Generic prepositions (e.g., \"of\", \"in\", \"to\") "
+        ],
+        "bbox": [
+            532,
+            133,
+            825,
+            186
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4.4 Example: Complete Token Importance Analysis Prompt: \"The AI system processes natural language effectively\" ",
+        "bbox": [
+            522,
+            207,
+            926,
+            258
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "Token Analysis: ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            280,
+            637,
+            295
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "1. \"The\" ",
+        "bbox": [
+            526,
+            297,
+            584,
+            311
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.05 (minimal directional shift) ",
+            "- ?????/+$%#*,.): 0.03 (negligible intensity change) ",
+            "- ?????.#/)%5#!%+-: 1.20 (low semantic content) ",
+            "- ???????????????: $0 . 0 5 \\times 0 . 0 3 \\times 1 . 2 0 = 0 . 0 0 1 8$ ",
+            "???? ??? ?????????? (functional word) "
+        ],
+        "bbox": [
+            535,
+            316,
+            906,
+            409
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "2. \"AI\" ",
+        "bbox": [
+            524,
+            429,
+            576,
+            443
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.89 (major directional shift without \"AI\") ",
+            "-?????/+$%#*,.): 0.76 (significant intensity contribution) ",
+            "- ?????.#/)%5#!%+-: 15.67 (rich semantic profile) ",
+            "- ???????????????: $0 . 8 9 \\times 0 . 7 6 \\times 1 5 . 6 7 = 1 0 . 6 0$ ",
+            "???? ℎ??ℎ ?????????? (core topic word) "
+        ],
+        "bbox": [
+            535,
+            448,
+            924,
+            540
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "3. \"system\" ",
+        "bbox": [
+            524,
+            561,
+            604,
+            575
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.67 (moderate directional impact) ",
+            "- ?????/+$%#*,.): 0.54 (moderate intensity contribution) ",
+            "- ?????.#/)%5#!%+-: 8.32 (moderate semantic richness) ",
+            "- ???????????????: $0 . 6 7 \\times 0 . 5 4 \\times 8 . 3 2 = 3 . 0 1$ ",
+            "???ℎ ?????????? (key entity) "
+        ],
+        "bbox": [
+            535,
+            580,
+            913,
+            672
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "4. \"processes\" ",
+        "bbox": [
+            524,
+            693,
+            622,
+            708
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.82 (substantial directional shift) ",
+            "- ?????/+$%#*,.): 0.68 (notable intensity contribution) "
+        ],
+        "bbox": [
+            535,
+            712,
+            901,
+            748
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "- ?????.#/)%5#!%+-: 12.45 (action verb with rich semantics) ",
+        "bbox": [
+            524,
+            752,
+            926,
+            785
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ???????????????: $0 . 8 2 \\times 0 . 6 8 \\times 1 2 . 4 5 = 6 . 9 4$ ",
+            "???? ℎ??ℎ ?????????? (core action) "
+        ],
+        "bbox": [
+            535,
+            789,
+            897,
+            821
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "text",
+        "text": "5. \"natural\" ",
+        "bbox": [
+            524,
+            843,
+            604,
+            857
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.45 (moderate directional impact) ",
+            "- ?????/+$%#*,.): 0.38 (moderate intensity contribution) "
+        ],
+        "bbox": [
+            535,
+            862,
+            913,
+            898
+        ],
+        "page_idx": 6
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????.#/)%5#!%+-: 6.20 (qualifier with moderate semantics) ",
+            "- ???????????????: $0 . 4 5 \\times 0 . 3 8 \\times 6 . 2 0 = 1 . 0 6$ ",
+            "???????? ?????????? (key qualifier) "
+        ],
+        "bbox": [
+            68,
+            80,
+            470,
+            151
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "6. \"language\" ",
+        "bbox": [
+            68,
+            171,
+            163,
+            186
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.71 (significant directional shift) ",
+            "- ?????/+$%#*,.): 0.59 (notable intensity contribution) ",
+            "- ?????.#/)%5#!%+-: 10.12 (domain-specific noun) ",
+            "- ???????????????: $0 . 7 1 \\times 0 . 5 9 \\times 1 0 . 1 2 = 4 . 2 4$ ",
+            "???ℎ ?????????? (core concept) "
+        ],
+        "bbox": [
+            81,
+            189,
+            446,
+            282
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "7. \"effectively\" ",
+        "bbox": [
+            68,
+            301,
+            174,
+            319
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- ?????+%$,-+\": 0.52 (moderate directional impact) ",
+            "- ?????/+$%#*,.): 0.43 (moderate intensity contribution) ",
+            "- ?????.#/)%5#!%+-: 7.80 (adverb with moderate semantics) ",
+            "- ???????????????: $0 . 5 2 \\times 0 . 4 3 \\times 7 . 8 0 = 1 . 7 4$ ",
+            "???????? ?????????? (qualifier) "
+        ],
+        "bbox": [
+            81,
+            321,
+            470,
+            415
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Final Ranking by Importance: ",
+        "bbox": [
+            68,
+            434,
+            271,
+            450
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. \"AI\" (10.60) ",
+            "2. \"processes\" (6.94) ",
+            "3. \"language\" (4.24) ",
+            "4. \"system\" (3.01) ",
+            "5. \"effectively\" (1.74) ",
+            "6. \"natural\" (1.06) ",
+            "7. \"The\" (0.0018) "
+        ],
+        "bbox": [
+            71,
+            453,
+            217,
+            577
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5. GAM-BASED ENHANCEMENT FOR TOKEN IMPORTANCE ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            598,
+            470,
+            631
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.1 Motivation and Rationale While the three-matrix framework yields a composite importance score that is interpretable and efficient, it assumes a fixed multiplicative interaction between components. In practice, token contributions can exhibit non-linear relationships and context effects (e.g., position in the prompt) that are not fully captured by a single product. To model these effects without sacrificing interpretability, we incorporate a Generalized Additive Model (GAM). GAMs extend linear models by learning smooth functions over each feature and summing them, remaining transparent while capturing non-linearities. ",
+        "bbox": [
+            68,
+            648,
+            473,
+            848
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.2 Feature Set For each token ?, we compute the following features (derived from Sections 3 and 4): ",
+        "bbox": [
+            68,
+            864,
+            470,
+            898
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• $f _ { 1 }$ : Angular deviation $A ( t ) \\in [ 0 , 1 ]$ ",
+            "• $f _ { 2 }$ : Magnitude deviation $M ( t ) \\in [ 0 , 1 ]$ ",
+            "• $f _ { 3 }$ : Dimensional score $D ( t ) \\geq 0$ ",
+            "• $f _ { 4 }$ : Position percentile $p ( t ) \\in [ 0 , 1 0 0 ]$ (token index normalized by prompt length) "
+        ],
+        "bbox": [
+            522,
+            80,
+            926,
+            215
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.3 Model Formulation The target is the percentile rank of the token within the importance sequence. The GAM is: ",
+        "bbox": [
+            522,
+            232,
+            928,
+            266
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\text {P e r c e n t i l e} (t) = \\beta_ {0} + s _ {1} (A (t)) + s _ {2} (M (t)) \\\\ + s _ {3} (D (t)) + s _ {4} (p (t)) + \\varepsilon \\\\ \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            560,
+            282,
+            883,
+            319
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "where $s _ { 1 } \\ldots s _ { 4 }$ are smooth functions (e.g., cubic splines) learned from data, $\\beta _ { 0 }$ is the intercept, and $\\varepsilon$ is the residual. This structure preserves additivity and interpretability: each term shows how a feature influences the percentile, independent of the others. ",
+        "bbox": [
+            522,
+            335,
+            926,
+            426
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.4 Training Data Generation ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            441,
+            723,
+            458
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. For each prompt $P$ , compute importance scores via the current composite method (Section 4). ",
+            "2. Sort tokens by the composite score and assign percentile ranks ( $1 0 0 =$ most important). ",
+            "3. Record $( A ( t ) , M ( t ) , D ( t ) , p ( t ) ,$ , ??????????(?)) for all tokens across diverse prompts/domains. "
+        ],
+        "bbox": [
+            553,
+            476,
+            926,
+            583
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.5 Inference Pipeline ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            599,
+            674,
+            616
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "Given a new prompt and its feature computations per token, the trained GAM outputs a predicted importance percentile for each token. Tokens are then ranked by predicted percentile. ",
+        "bbox": [
+            522,
+            633,
+            926,
+            704
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.6 Advantages of the GAM Enhancement ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            722,
+            808,
+            737
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Captures non-linear effects: importance may grow rapidly after thresholds in $A , M$ , or $D$ . ",
+            "• Position-aware: accounts for structural cues (lead vs. trailing tokens). ",
+            "• Interpretable: Smooth functions can be plotted to show partial dependence per feature. ",
+            "• Efficient: Inference is $O ( k )$ per token ( $k =$ number of features) and adds negligible overhead. "
+        ],
+        "bbox": [
+            522,
+            739,
+            928,
+            883
+        ],
+        "page_idx": 7
+    },
+    {
+        "type": "text",
+        "text": "5.7 Example (Conceptual) ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            79,
+            246,
+            95
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For the prompt “The AI system processes natural language effectively,” tokens like ‘AI’ and ‘processes’ exhibit high $A , M$ , and $D$ and early positions, yielding $s _ { 1 } + s _ { 2 } + s _ { 3 } + s _ { 4 }$ values near the upper range, hence high predicted percentiles. Functional words like ‘The’ show low ? and $M$ and low $D$ , mapping to low percentiles. ",
+        "bbox": [
+            68,
+            97,
+            473,
+            205
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "5.8 Implementation Note ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            222,
+            240,
+            238
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "We use standard GAM tooling with spline terms and crossvalidation; production code loads a serialized model and predicts percentiles within the API layer. ",
+        "bbox": [
+            68,
+            255,
+            473,
+            309
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "image",
+        "img_path": "images/e634dc189ec78cae24788c3f7f81f8319a7881e6d84605446e9e1440915c0f68.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            70,
+            324,
+            473,
+            558
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6. ALGORITHMIC IMPLEMENTATION ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            575,
+            356,
+            590
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6.1 Preprocessing Pipeline ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            612,
+            248,
+            628
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 1: Tokenization ",
+        "bbox": [
+            68,
+            631,
+            210,
+            645
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Input prompt is split into tokens using whitespace and punctuation rules ",
+            "- Each token is normalized (lowercase, stemming and removal of stopwords if required) "
+        ],
+        "bbox": [
+            68,
+            648,
+            472,
+            718
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 2: Embedding Lookup ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            739,
+            254,
+            755
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Each token is mapped to its GloVe embedding vector ",
+            "- Out-of-vocabulary tokens are handled via: "
+        ],
+        "bbox": [
+            68,
+            757,
+            433,
+            790
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "(a) Character-level fallback ",
+            "(b) Subword tokenization ",
+            "(c) Zero vector (with appropriate logging) "
+        ],
+        "bbox": [
+            78,
+            792,
+            356,
+            845
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 3: Aggregate Embedding Computation ",
+        "bbox": [
+            68,
+            866,
+            359,
+            881
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "$- E _ { o r i g } \\ = \\ E E ( t _ { \\mathrm { i } } )$ for all tokens in the prompt ",
+        "bbox": [
+            68,
+            883,
+            383,
+            901
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6.2 Core Computation Loop ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            98,
+            714,
+            113
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For each token $t _ { k }$ in the prompt: ",
+        "bbox": [
+            524,
+            116,
+            738,
+            132
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 1: Compute perturbed embedding ",
+        "bbox": [
+            531,
+            135,
+            792,
+            150
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\nE _ {p e r t _ {k}} = E _ {o r i g} - E \\left(t _ {k}\\right)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            645,
+            152,
+            818,
+            170
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 2: Compute the directional similarity between the original and perturbed embeddings using the cosine function: ",
+        "bbox": [
+            524,
+            191,
+            926,
+            224
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\cos \\theta_ {k} = \\frac {\\langle E _ {o r i g} , E _ {p e r t _ {k}} \\rangle}{(\\| E _ {o r i g} \\| _ {2} \\cdot \\| E _ {p e r t _ {k}} \\| _ {2})}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            612,
+            227,
+            839,
+            263
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname {S c o r e} _ {\\text {a n g u l a r} k} = \\frac {(1 - \\cos_ {\\text {t h e t a} k})}{2}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            612,
+            263,
+            854,
+            296
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 3: Calculate Magnitude Deviation Score ",
+        "bbox": [
+            532,
+            316,
+            834,
+            332
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\nS c o r e _ {m a g n i t u d e _ {k}} = \\frac {| | E _ {o r i g} | | - | | E _ {p e r t _ {k}} | | |}{| | E _ {o r i g} | |}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            580,
+            334,
+            885,
+            369
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 4: Calculate Dimensional Importance Score ",
+        "text_level": 1,
+        "bbox": [
+            532,
+            390,
+            857,
+            406
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "For each dimension $j$ in [0, 49]: ",
+        "bbox": [
+            540,
+            409,
+            754,
+            425
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\nw e i g h t _ {j _ {k}} = c o m p u t e _ {d i m e n s i o n a l _ {w e i g h t}} \\left(E _ {o r i g} [ j ], E (t _ {k}) [ j ]\\right)\n$$",
+        "text_format": "latex",
+        "bbox": [
+            557,
+            436,
+            911,
+            455
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\operatorname {S c o r e} _ {\\text {d i m e n s i o n a l} _ {k}} = \\Sigma \\operatorname {w e i g h t} _ {j _ {k}}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            617,
+            467,
+            846,
+            484
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Step 5: Compute Composite Score ",
+        "bbox": [
+            532,
+            506,
+            764,
+            521
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "equation",
+        "text": "$$\n\\begin{array}{l} \\text {I m p o r t a n c e S c o r e} _ {k} = \\text {S c o r e} _ {\\text {a n g u l a r} _ {k}} \\times \\text {S c o r e} _ {\\text {m a g n i t u d e} _ {k}} \\\\ \\times S c o r e _ {d i m e n s i o n a l _ {k}} \\\\ \\end{array}\n$$",
+        "text_format": "latex",
+        "bbox": [
+            578,
+            523,
+            877,
+            553
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6.3 Computational Complexity ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            571,
+            733,
+            588
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Time Complexity: ? $\\mid ( n \\mid \\times d )$ ",
+        "bbox": [
+            522,
+            590,
+            728,
+            606
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "where $\\begin{array} { r l } { n } & { { } = } \\end{array}$ number of tokens, $\\begin{array} { r l } { d } & { { } = } \\end{array}$ embedding dimensionality (50) ",
+        "bbox": [
+            522,
+            609,
+            926,
+            643
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Embedding lookup: $O ( n )$ ",
+            "- Per-token perturbation analysis: $O \\ ( n \\times d )$ ",
+            "- Total: Linear in both prompt length and embedding dimension "
+        ],
+        "bbox": [
+            522,
+            646,
+            926,
+            715
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "Space Complexity: $O ( d )$ ",
+        "bbox": [
+            522,
+            737,
+            692,
+            753
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "- Storage for $E _ { o r i g } \\colon O ( d )$ ",
+            "- Storage for $E _ { p e r t }$ (recomputed for each token): $O ( d )$ ",
+            "- Total: Constant w.r.t. prompt length "
+        ],
+        "bbox": [
+            532,
+            755,
+            890,
+            811
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "6.4 Optimization Strategies ",
+        "text_level": 1,
+        "bbox": [
+            522,
+            832,
+            709,
+            848
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "text",
+        "text": "(a) Vectorization: All matrix operations are implemented using NumPy for efficient SIMD execution ",
+        "bbox": [
+            522,
+            849,
+            926,
+            883
+        ],
+        "page_idx": 8
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "(b) Caching: GloVe embeddings are loaded once and cached in memory ",
+            "(c) Parallel Processing: Token importance scores can be computed in parallel "
+        ],
+        "bbox": [
+            68,
+            79,
+            470,
+            148
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "7. SUMMARY AND GAP ANALYSIS: EXTENDING TOKEN IMPORTANCE TO QUALITY EVALUATION ",
+        "text_level": 1,
+        "bbox": [
+            68,
+            170,
+            470,
+            203
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "While token importance analysis provides insights into individual token contributions within a single text, many realworld applications require comparing two texts to assess quality, completeness, and semantic alignment. One critical use case is automatic summarization, where a generated summary must faithfully represent the key information from a source document or context. ",
+        "bbox": [
+            68,
+            205,
+            473,
+            330
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "Conventional summary assessment methods, notably ROUGE, rely on surface-level lexical overlap through ngram matching, which inherently overlooks deeper semantic correspondence between the source material and the generated summary. BLEU and METEOR consider surfacelevel similarity but are insensitive to missing critical concepts. BERTScore uses contextual embeddings but lacks interpretability and fine-grained diagnostic capabilities. ",
+        "bbox": [
+            68,
+            352,
+            472,
+            494
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "We extend our token importance methodology to address these limitations by introducing Summary and Gap Analysis, a framework that leverages token-level importance scores to: ",
+        "bbox": [
+            68,
+            515,
+            470,
+            566
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "1. Quantify semantic coverage of a summary relative to source content ",
+            "2. Identify specific tokens or concepts that are missing or irrelevant ",
+            "3. Provide actionable, interpretable feedback for summary improvement ",
+            "4. Enable automated quality assessment without human annotation "
+        ],
+        "bbox": [
+            68,
+            570,
+            470,
+            710
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "image",
+        "img_path": "images/bcacecf685a60e740b059b2bbe8ade89a565c75844e7acbade9f4920db0b6b94.jpg",
+        "image_caption": [],
+        "image_footnote": [],
+        "bbox": [
+            526,
+            79,
+            928,
+            282
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8. ADVANTAGES AND LIMITATIONS ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            303,
+            807,
+            318
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8.1 Advantages ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            340,
+            632,
+            354
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Model-Agnostic: Does not require access to model internals or attention weights [6] ",
+            "• Interpretable: Each component score has clear geometric and semantic meaning [17] ",
+            "• Efficient: Linear time complexity enables real-time analysis ",
+            "• Comprehensive: Captures multiple dimensions of token contribution ",
+            "• Deterministic: Produces consistent results for the same input "
+        ],
+        "bbox": [
+            522,
+            357,
+            926,
+            518
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "8.2 Limitations ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            540,
+            630,
+            553
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "list",
+        "sub_type": "text",
+        "list_items": [
+            "• Additive Assumption: Assumes prompt semantics can be modeled as vector sum ",
+            "• Static Embeddings: GloVe does not capture contextdependent meaning [2] ",
+            "• Token Independence: Does not explicitly model token interactions or dependencies [23] ",
+            "• Language-Specific: Requires pre-trained embeddings for each language "
+        ],
+        "bbox": [
+            522,
+            558,
+            926,
+            700
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "9. CONCLUSION ",
+        "text_level": 1,
+        "bbox": [
+            524,
+            739,
+            651,
+            753
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "text",
+        "text": "This paper has presented a novel, multi-dimensional methodology for quantifying token importance in LLM prompts. By decomposing a token's contribution into three distinct analytical matrices, Angular Deviation, Magnitude Deviation, and Dimensional Importance, we provide a nuanced and mathematically rigorous framework for understanding prompt semantics. ",
+        "bbox": [
+            522,
+            775,
+            926,
+            900
+        ],
+        "page_idx": 9
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "The methodology offers a deterministic, model-agnostic, and interpretable [11] approach to token importance analysis. It serves as a valuable tool for: ",
+            "• Researchers seeking to understand prompt structure and semantics ",
+            "• Practitioners engineering effective prompts for LLM applications ",
+            "• Organizations ensuring transparency and explainability in AI systems "
+        ],
+        "bbox": [
+            68,
+            79,
+            473,
+            239
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "The framework presented here represents a foundational step toward more transparent, controllable, and effective human-LLM interaction. ",
+        "bbox": [
+            68,
+            261,
+            472,
+            311
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "text",
+        "text": "REFERENCES ",
+        "text_level": 1,
+        "bbox": [
+            71,
+            333,
+            176,
+            347
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "[1] Vaswani, A., et al. (2017). Attention Is All You Need. NeurIPS. https://arxiv.org/abs/1706.03762 ",
+            "[2] Devlin, J., Chang, M.-W., Lee, K., & Toutanova, K. (2019). BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding. NAACL. https://arxiv.org/abs/1810.04805 ",
+            "[3] Brown, T. B., et al. (2020). Language Models are Few-Shot Learners. NeurIPS (GPT-3). https://arxiv.org/abs/2005.14165 ",
+            "[4] Touvron, H., et al. (2023). LLaMA: Open and Efficient Foundation Language Models. https://arxiv.org/abs/2302.13971 ",
+            "[5] Sundararajan, M., Taly, A., & Yan, Q. (2017). Axiomatic Attribution for Deep Networks (Integrated Gradients). ICML. https://arxiv.org/abs/1703.01365 ",
+            "[6] Ribeiro, M. T., Singh, S., & Guestrin, C. (2016). “Why Should I Trust You?”: Explaining the Predictions of Any Classifier (LIME). KDD. https://arxiv.org/abs/1602.04938 ",
+            "[7] Lundberg, S. M., & Lee, S.-I. (2017). A Unified Approach to Interpreting Model Predictions (SHAP). NeurIPS. https://arxiv.org/abs/1705.07874 ",
+            "[8] Shrikumar, A., Greenside, P., & Kundaje, A. (2017). Learning Important Features Through Propagating "
+        ],
+        "bbox": [
+            70,
+            351,
+            470,
+            893
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "Activation Differences (DeepLIFT). https://arxiv.org/abs/1704.02685 ",
+            "[9] Smilkov, D., Thorat, N., Kim, B., Viégas, F., & Wattenberg, M. (2017). SmoothGrad: removing noise by adding noise. https://arxiv.org/abs/1706.03825 ",
+            "[10] Bach, S., et al. (2015). On Pixel-Wise Explanations for Non-Linear Classifier Decisions by Layer-Wise Relevance Propagation. PLOS ONE. https://journals.plos.org/plosone/article?id=10.1371/journal. pone.0130140 ",
+            "[11] Li, J., Monroe, W., & Jurafsky, D. (2016). Understanding Neural Networks through Representation Erasure (token/feature ablation logic, very relevant to perturbation-based token importance). https://arxiv.org/abs/1612.08220 ",
+            "[12] Jain, S., & Wallace, B. C. (2019). Attention is not Explanation. https://arxiv.org/abs/1902.10186 ",
+            "Wiegreffe, S., & Pinter, Y. (2019). Attention is not not Explanation. ACL. https://aclanthology.org/D19-1002/ ",
+            "[13] Abnar, S., & Zuidema, W. (2020). Quantifying Attention Flow in Transformers (attention rollout/flow vs raw attention). ACL. https://arxiv.org/abs/2005.00928 ",
+            "[14] Chefer, H., Gur, S., & Wolf, L. (2021). Transformer Interpretability Beyond Attention Visualization. CVPR. https://arxiv.org/abs/2012.09838 ",
+            "[15] Adebayo, J., et al. (2018). Sanity Checks for Saliency Maps. NeurIPS. https://arxiv.org/abs/1810.03292 ",
+            "[16] Yeh, C.-K., et al. (2019). On the (In)fidelity and Sensitivity for Explanations. NeurIPS. https://arxiv.org/abs/1901.09392 ",
+            "[17] Jacovi, A., & Goldberg, Y. (2020). Towards Faithfully Interpretable NLP Systems: How should we define and evaluate faithfulness? ACL. https://arxiv.org/abs/2004.03685 "
+        ],
+        "bbox": [
+            526,
+            79,
+            926,
+            875
+        ],
+        "page_idx": 10
+    },
+    {
+        "type": "list",
+        "sub_type": "ref_text",
+        "list_items": [
+            "[18] DeYoung, J., et al. (2020). ERASER: A Benchmark to Evaluate Rationalized NLP Models. ACL. https://aclanthology.org/2020.acl-main.408/ ",
+            "[19] Kokhlikyan, N., et al. (2020). Captum: A unified and generic model interpretability library for PyTorch. https://arxiv.org/abs/2009.07896 ",
+            "[20] Captum (Project site / docs). Model Interpretability for PyTorch. https://captum.ai/ ",
+            "[21] Sarti, G., et al. (2023). Inseq: An Interpretability Toolkit for Sequence Generation Models. ACL (demo). https://aclanthology.org/2023.acl-demo.40/ ",
+            "Inseq (software repository). https://github.com/inseqteam/inseq ",
+            "[22] Vig, J. (2019). BertViz: A Tool for Visualizing Multi-Head Self-Attention in the BERT Model. (ICLR Debug-ML workshop / tech report). https://arxiv.org/pdf/1906.04341 ",
+            "BertViz (software repository). https://github.com/jessevig/bertviz ",
+            "[23] Guo, Z., et al. (2024). Attention Score is not All You Need for Token Importance… (token importance for KVcache pruning context; still relevant as “token importance $\\neq$ raw attention”). EMNLP. https://aclanthology.org/2024.emnlp-main.1178.pdf ",
+            "[24] TokenButler: Token Importance is Predictable. (2025). https://arxiv.org/html/2503.07518v1 ",
+            "[25] Rauba, P., Wei, Q., & van der Schaar, M. (2025). Visualizing token importance for black-box language models. https://arxiv.org/pdf/2512.11573 ",
+            "[26] (Black-box gradient-estimation style) GEEX: On Gradient-like Explanation under a Black-box Setting. (2024). https://arxiv.org/html/2308.09381v3 "
+        ],
+        "bbox": [
+            68,
+            78,
+            473,
+            821
+        ],
+        "page_idx": 11
+    }
+]

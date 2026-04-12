@@ -1,0 +1,1 @@
+import{Q as e}from"./index-sGttKZjb.js";async function s(){const{data:t}=await e.get("/dates");return t}async function c(t){const{data:a}=await e.get(`/papers/${t}`);return a}async function r(t){const{data:a}=await e.get(`/digest/${t}`);return a}export{r as a,c as b,s as f};

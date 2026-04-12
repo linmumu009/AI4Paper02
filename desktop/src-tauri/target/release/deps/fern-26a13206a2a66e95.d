@@ -1,0 +1,11 @@
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\desktop\src-tauri\target\release\deps\fern-26a13206a2a66e95.d: C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\lib.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\builders.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\errors.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\log_impl.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\meta.rs
+
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\desktop\src-tauri\target\release\deps\libfern-26a13206a2a66e95.rlib: C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\lib.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\builders.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\errors.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\log_impl.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\meta.rs
+
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\desktop\src-tauri\target\release\deps\libfern-26a13206a2a66e95.rmeta: C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\lib.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\builders.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\errors.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\log_impl.rs C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\meta.rs
+
+C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\lib.rs:
+C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\builders.rs:
+C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\errors.rs:
+C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\log_impl.rs:
+C:\Users\Liu\ Lin\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\fern-0.7.1\src\meta.rs:

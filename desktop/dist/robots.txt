@@ -1,0 +1,67 @@
+User-agent: *
+Allow: /
+Allow: /papers/
+Allow: /sitemap.xml
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /.well-known/
+
+Disallow: /admin/
+Disallow: /profile
+Disallow: /login
+Disallow: /register
+Disallow: /notes/
+Disallow: /api/
+
+# AI Crawlers: please read our machine-readable product descriptions
+# llms.txt (summary): https://ai4papers.com/llms.txt
+# llms-full.txt (detailed): https://ai4papers.com/llms-full.txt
+
+# Explicitly allow AI crawlers
+User-agent: GPTBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: ChatGPT-User
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Google-Extended
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Bytespider
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: CCBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: anthropic-ai
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: ClaudeBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Applebot-Extended
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+# Desktop SPA
+Sitemap: https://ai4papers.com/sitemap.xml

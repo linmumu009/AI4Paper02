@@ -348,49 +348,99 @@ def parse_data_v2(records):
         pid = paper.get("paper_id")
         title = paper.get("title")
         url = paper.get("url")
-        
-        # Method Parsing
+        blocks = paper.get("blocks", {})
+
+        # Method Parsing — new 13-key schema uses sub-fields directly;
+        # fall back to parsing old bullets format for legacy data.
+        method_block = blocks.get("method", {})
         method_data = {"ID": pid, "Title": title, "URL": url}
-        method_bullets = paper.get("blocks", {}).get("method", {}).get("bullets", [])
-        for b in method_bullets:
-            m = re.match(r"^\s*【(.*?)】[：:]\s*(.*)$", b)
-            if m: method_data[m.group(1).strip()] = m.group(2).strip()
-            
+
+        # New schema: use structured sub-fields when available
+        for sub_key, label in [
+            ("input",                   "输入"),
+            ("task_or_object",          "对象/任务"),
+            ("architecture_or_paradigm","架构"),
+            ("key_mechanisms",          "关键机制"),
+            ("training_required",       "是否训练"),
+            ("training_or_optimization","训练/优化"),
+            ("inference_strategy",      "推理策略"),
+            ("novelty",                 "创新点"),
+        ]:
+            val = method_block.get(sub_key)
+            if val:
+                if isinstance(val, list):
+                    method_data[label] = "；".join(str(v) for v in val if v)
+                else:
+                    method_data[label] = str(val)
+
+        # Legacy fallback: parse 【key】：value from bullets
+        if not any(k in method_data for k in ("是否训练", "架构", "关键机制")):
+            for b in method_block.get("bullets", []):
+                m = re.match(r"^\s*【(.*?)】[：:]\s*(.*)$", b)
+                if m:
+                    method_data[m.group(1).strip()] = m.group(2).strip()
+
         train_status = str(method_data.get("是否训练", ""))
-        if "否" in train_status or "No" in train_status: 
+        if "否" in train_status or "No" in train_status.lower():
             type_tag = "🟢 免训练"
             css_class = "success"
-        elif "是" in train_status or "Yes" in train_status: 
+        elif "是" in train_status or "yes" in train_status.lower():
             type_tag = "🔴 需训练"
             css_class = "danger"
-        else: 
+        else:
             type_tag = "⚪ 未知"
             css_class = "neutral"
-            
+
         method_data["Type_Tag"] = type_tag
-        method_data["CSS_Class"] = css_class # 用于卡片染色
+        method_data["CSS_Class"] = css_class
         methods_all_rows.append(method_data)
 
-        # Result Parsing
-        result_bullets = paper.get("blocks", {}).get("results", {}).get("bullets", [])
+        # Result Parsing — new schema: use numerical_results list directly;
+        # fall back to regex parsing on old bullets for legacy data.
+        results_block = blocks.get("results", {})
         paper_res_strs = []
-        for b in result_bullets:
-            m = re.search(r"(.*?)[：:](.*?)[=≈]\s*([\d\.]+%?)", b)
+
+        # New schema: numerical_results list (format: "task: metric = value")
+        num_results = results_block.get("numerical_results", [])
+        parsed_from_subfield = False
+        for entry in (num_results or []):
+            m = re.search(r"(.*?)[：:](.*?)[=≈]\s*([\d\.]+%?)", str(entry))
             if m:
                 task = m.group(1).strip()
                 metric = m.group(2).strip()
                 score_str = m.group(3).strip()
-                try: score_val = float(score_str.replace('%', '').replace('+', ''))
-                except: score_val = 0.0
-                
-                # 关键：ID转字符串，解决图表粘连
+                try:
+                    score_val = float(score_str.replace('%', '').replace('+', ''))
+                except ValueError:
+                    score_val = 0.0
                 results_all_rows.append({
-                    "ID": str(pid), 
-                    "Title": title, "Type_Tag": type_tag, "Task": task, 
-                    "Metric": metric, "Score_Raw": score_str, "Score_Val": score_val, "Raw_Text": b
+                    "ID": str(pid),
+                    "Title": title, "Type_Tag": type_tag, "Task": task,
+                    "Metric": metric, "Score_Raw": score_str, "Score_Val": score_val,
+                    "Raw_Text": entry,
                 })
-                res_str = f"{task}: {score_str}"
-                paper_res_strs.append(res_str)
+                paper_res_strs.append(f"{task}: {score_str}")
+                parsed_from_subfield = True
+
+        # Legacy fallback: parse bullets when numerical_results is absent
+        if not parsed_from_subfield:
+            for b in results_block.get("bullets", []):
+                m = re.search(r"(.*?)[：:](.*?)[=≈]\s*([\d\.]+%?)", b)
+                if m:
+                    task = m.group(1).strip()
+                    metric = m.group(2).strip()
+                    score_str = m.group(3).strip()
+                    try:
+                        score_val = float(score_str.replace('%', '').replace('+', ''))
+                    except ValueError:
+                        score_val = 0.0
+                    results_all_rows.append({
+                        "ID": str(pid),
+                        "Title": title, "Type_Tag": type_tag, "Task": task,
+                        "Metric": metric, "Score_Raw": score_str, "Score_Val": score_val,
+                        "Raw_Text": b,
+                    })
+                    paper_res_strs.append(f"{task}: {score_str}")
 
         main_row = method_data.copy()
         main_row["All_Results_Str"] = "\n".join(paper_res_strs) if paper_res_strs else "暂无数据"

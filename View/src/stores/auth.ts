@@ -1,5 +1,5 @@
 import { computed, reactive } from 'vue'
-import { authLogin, authLoginSms, authLogout, authMe, authRegister, authSendSms, authVerifySms, fetchAuthProfile, updateAuthProfile, setAuthPassword, changeAuthPassword, clearSessionToken } from '../api'
+import { authLogin, authLoginSms, authLogout, authMe, authRegister, authSendSms, authVerifySms, fetchAuthProfile, updateAuthProfile, setAuthPassword, changeAuthPassword, clearSessionToken, getSessionToken, setSessionToken } from '../api'
 import type { AuthUser } from '../types/paper'
 
 const state = reactive<{
@@ -41,7 +41,8 @@ export async function fetchMe() {
 }
 
 export async function ensureAuthInitialized() {
-  if (state.initialized) return
+  if (state.initialized && state.user) return
+  if (state.initialized && !getSessionToken()) return
   await fetchMe()
 }
 
@@ -49,9 +50,18 @@ export async function login(username: string, password: string) {
   state.loading = true
   try {
     const res = await authLogin({ username, password })
-    state.user = res.user
+    const rawRes = res as any
+    if (rawRes?.session_id && !getSessionToken()) {
+      setSessionToken(rawRes.session_id)
+    }
+    if (res.user) {
+      state.user = res.user
+    } else {
+      const meRes = await authMe()
+      state.user = meRes.authenticated ? meRes.user : null
+    }
     state.initialized = true
-    return res.user
+    return state.user
   } finally {
     state.loading = false
   }
@@ -61,7 +71,16 @@ export async function loginBySms(phone: string, code: string) {
   state.loading = true
   try {
     const res = await authLoginSms({ phone, code })
-    state.user = res.user
+    const rawRes = res as any
+    if (rawRes?.session_id && !getSessionToken()) {
+      setSessionToken(rawRes.session_id)
+    }
+    if (res.user) {
+      state.user = res.user
+    } else {
+      const meRes = await authMe()
+      state.user = meRes.authenticated ? meRes.user : null
+    }
     state.initialized = true
     state.isNewUser = res.is_new_user ?? false
     return res
@@ -78,10 +97,10 @@ export async function verifySms(phone: string, code: string) {
   return await authVerifySms({ phone, code })
 }
 
-export async function register(username: string, password: string, phone: string, smsCode: string) {
+export async function register(username: string, password: string, phone: string, smsToken: string) {
   state.loading = true
   try {
-    const res = await authRegister({ username, password, phone, sms_code: smsCode })
+    const res = await authRegister({ username, password, phone, sms_token: smsToken })
     return res.user
   } finally {
     state.loading = false

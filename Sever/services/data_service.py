@@ -510,9 +510,16 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 images = _list_paper_images_from_select_image(paper_id, date_str)
 
                 local_pdf_url = _find_local_pdf_url(paper_id)
+                _blocks = assets_row.get("blocks") if assets_row else None
                 return {
                     "summary": data,
-                    "paper_assets": assets_row.get("blocks"),
+                    "paper_assets": {
+                        "paper_id": paper_id,
+                        "title": assets_row.get("title", ""),
+                        "url": assets_row.get("url", ""),
+                        "year": assets_row.get("year"),
+                        "blocks": _blocks,
+                    } if assets_row and _blocks else None,
                     "date": date_str,
                     "images": images,
                     "arxiv_url": f"https://arxiv.org/abs/{paper_id}",

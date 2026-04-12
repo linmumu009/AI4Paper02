@@ -6,7 +6,7 @@ import { isAuthenticated } from '../stores/auth'
 
 const route = useRoute()
 const router = useRouter()
-const { isOpen, chatDrawerWidthPx, open, isDigestInPanelView, requestDigestReset } = useGlobalChat()
+const { isOpen, chatDrawerWidthPx, open, close, isPageInPanelView, requestDigestReset } = useGlobalChat()
 
 /** auth 页面：两个按钮都隐藏 */
 const isAuthPage = computed(() =>
@@ -16,16 +16,19 @@ const isAuthPage = computed(() =>
 /** 当前在推荐首页 */
 const isDigestPage = computed(() => route.name === 'digest')
 
+/** 当前在灵感发现页 */
+const isInspirationPage = computed(() => route.name === 'inspiration')
+
 /**
  * 显示「回到推荐」的场景：
  * 1. 深层内容页（从主导航进入的具体详情页）
- * 2. 推荐首页且处于面板视图（打开了论文详情、笔记编辑等）
+ * 2. 推荐首页或灵感发现页处于面板视图（打开了论文详情、笔记编辑、深度研究等）
  */
 const deepContentPages = new Set(['paper-detail', 'note-editor', 'idea-detail', 'my-papers', 'community-post', 'profile', 'advanced-settings'])
 const showBackToDigest = computed(() =>
   !isAuthPage.value && (
     deepContentPages.has(route.name as string) ||
-    (isDigestPage.value && isDigestInPanelView.value)
+    ((isDigestPage.value || isInspirationPage.value) && isPageInPanelView.value)
   ),
 )
 
@@ -63,9 +66,9 @@ function goToDigest() {
       v-if="isAuthenticated"
       type="button"
       class="w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-lg border-none cursor-pointer flex items-center justify-center text-xl sm:text-2xl bg-brand-gradient-br text-white hover:opacity-90 transition-opacity"
-      title="AI 助手"
-      aria-label="打开 AI 助手"
-      @click="open()"
+      :title="isOpen ? '收起 AI 助手' : '打开 AI 助手'"
+      :aria-label="isOpen ? '收起 AI 助手' : '打开 AI 助手'"
+      @click="isOpen ? close() : open()"
     >
       💬
     </button>

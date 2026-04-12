@@ -17,25 +17,31 @@ export interface BrowsingPaperContext {
   source: BrowsingPaperSource
 }
 
-const DRAWER_WIDTH_STORAGE_KEY = 'global-chat-drawer-width-px:v1'
-/** 与侧栏 lg:w-72 (288px) 对齐的默认倍数 */
-const SIDEBAR_BASE_PX = 288
-const SIDEBAR_WIDTH_MULTIPLIER = 1.68
-const DRAWER_MIN_PX = 320
+const DRAWER_WIDTH_STORAGE_KEY = 'global-chat-drawer-width-px:v2'
+/** Fluid drawer sizing: preferred = 32vw, clamped between min and 50vw */
+const DRAWER_PREFERRED_RATIO = 0.32
+const DRAWER_MAX_RATIO = 0.50
+
+function drawerMinPx(viewportW: number): number {
+  // Never go below 320px, but on very narrow screens cap at 85vw
+  return Math.min(320, Math.round(viewportW * 0.85))
+}
 
 function defaultDrawerWidthPx(viewportW: number): number {
-  const fromSidebar = Math.round(SIDEBAR_BASE_PX * SIDEBAR_WIDTH_MULTIPLIER)
-  const fromViewport = Math.round(viewportW * 0.92)
-  return Math.min(fromSidebar, fromViewport)
+  const preferred = Math.round(viewportW * DRAWER_PREFERRED_RATIO)
+  const max = Math.round(viewportW * DRAWER_MAX_RATIO)
+  const min = drawerMinPx(viewportW)
+  return Math.max(min, Math.min(preferred, max))
 }
 
 function maxDrawerWidthPx(viewportW: number): number {
-  return Math.round(viewportW * 0.92)
+  return Math.round(viewportW * DRAWER_MAX_RATIO)
 }
 
 function clampDrawerWidth(px: number, viewportW: number): number {
   const max = maxDrawerWidthPx(viewportW)
-  return Math.min(max, Math.max(DRAWER_MIN_PX, Math.round(px)))
+  const min = drawerMinPx(viewportW)
+  return Math.min(max, Math.max(min, Math.round(px)))
 }
 
 function loadStoredDrawerWidth(viewportW: number): number | null {
@@ -63,11 +69,30 @@ function persistDrawerWidth(px: number) {
 const isOpen = ref(false)
 const drawerMode = ref<GlobalChatDrawerMode>('general')
 
-/** DailyDigest 当前是否处于面板视图（查看论文详情、编辑笔记、对比等） */
-const isDigestInPanelView = ref(false)
+/** Incremented each time a note is saved from any PaperChat instance. Views watch this to refresh the KB sidebar. */
+const noteSavedSignal = ref(0)
+
+/** Incremented each time a message is sent from any PaperChat instance. Views watch this to record analyze engagement. */
+const messageSentSignal = ref(0)
+
+/** 深度研究请求信号：PaperChat 触发，页面组件 watch 并打开研究面板 */
+const researchRequest = ref<{ paperIds: string[]; titles: Record<string, string>; scope: string } | null>(null)
+
+/** 对比分析请求信号：PaperChat 触发，页面组件 watch 并打开对比面板 */
+const compareRequest = ref<{ paperIds: string[]; titles: Record<string, string> } | null>(null)
+
+/** 当前页面（DailyDigest / PaperList）是否处于面板视图（查看论文详情、编辑笔记、对比、深度研究等） */
+const isPageInPanelView = ref(false)
 
 /** 浮动按钮请求"回到推荐"时置 true，DailyDigest watch 后消费并重置为 false */
 const digestResetRequested = ref(false)
+
+/**
+ * Incremented each time the drawer opens on a narrow viewport (< 1280px).
+ * Pages that own a sidebar watch this signal and collapse their sidebar to
+ * prevent the sidebar + drawer from squeezing the main content area to near-zero.
+ */
+const collapseSidebarSignal = ref(0)
 
 const paperContext = ref<{
   paperId: string
@@ -152,11 +177,13 @@ export function useGlobalChat() {
     drawerMode.value = 'paper'
     manualPaperId.value = paperId
     isOpen.value = true
+    if (windowInnerWidth.value < 1280) collapseSidebarSignal.value++
   }
 
   function openGeneral() {
     drawerMode.value = 'general'
     isOpen.value = true
+    if (windowInnerWidth.value < 1280) collapseSidebarSignal.value++
   }
 
   function open() {
@@ -171,6 +198,7 @@ export function useGlobalChat() {
       drawerMode.value = 'paper'
     }
     isOpen.value = true
+    if (windowInnerWidth.value < 1280) collapseSidebarSignal.value++
   }
 
   function close() {
@@ -199,12 +227,36 @@ export function useGlobalChat() {
     return paperContext.value?.paperId ?? ''
   })
 
-  function setDigestInPanelView(inPanel: boolean) {
-    isDigestInPanelView.value = inPanel
+  function setPageInPanelView(inPanel: boolean) {
+    isPageInPanelView.value = inPanel
   }
 
   function requestDigestReset() {
     digestResetRequested.value = true
+  }
+
+  function signalNoteSaved() {
+    noteSavedSignal.value++
+  }
+
+  function signalMessageSent() {
+    messageSentSignal.value++
+  }
+
+  function requestResearch(paperIds: string[], titles: Record<string, string>, scope = 'kb') {
+    researchRequest.value = { paperIds, titles, scope }
+  }
+
+  function requestCompare(paperIds: string[], titles: Record<string, string>) {
+    compareRequest.value = { paperIds, titles }
+  }
+
+  function consumeResearchRequest() {
+    researchRequest.value = null
+  }
+
+  function consumeCompareRequest() {
+    compareRequest.value = null
   }
 
   return {
@@ -215,8 +267,9 @@ export function useGlobalChat() {
     effectivePaperId,
     browsingContext,
     chatDrawerWidthPx,
-    isDigestInPanelView,
+    isPageInPanelView,
     digestResetRequested,
+    collapseSidebarSignal,
     setDrawerWidth,
     resetDrawerWidthToDefault,
     open,
@@ -229,7 +282,17 @@ export function useGlobalChat() {
     setBrowsingContext,
     clearBrowsingContext,
     applyBrowsingToPaperContext,
-    setDigestInPanelView,
+    setPageInPanelView,
     requestDigestReset,
+    noteSavedSignal,
+    signalNoteSaved,
+    messageSentSignal,
+    signalMessageSent,
+    researchRequest,
+    compareRequest,
+    requestResearch,
+    requestCompare,
+    consumeResearchRequest,
+    consumeCompareRequest,
   }
 }

@@ -1,0 +1,39 @@
+{
+  "name": "ai4papers-desktop",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "preview": "vite preview",
+    "vite:dev": "vite",
+    "vite:build": "vite build"
+  },
+  "dependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "@tiptap/extension-code-block-lowlight": "^3.19.0",
+    "@tiptap/extension-image": "^3.19.0",
+    "@tiptap/extension-link": "^3.19.0",
+    "@tiptap/extension-placeholder": "^3.19.0",
+    "@tiptap/starter-kit": "^3.19.0",
+    "@tiptap/vue-3": "^3.19.0",
+    "axios": "^1.13.5",
+    "echarts": "^6.0.0",
+    "katex": "^0.16.44",
+    "lowlight": "^3.3.0",
+    "markdown-it": "^14.1.1",
+    "markdown-it-texmath": "^1.0.0",
+    "vue": "^3.5.27",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2",
+    "@types/markdown-it": "^14.1.2",
+    "@vitejs/plugin-vue": "^6.0.4",
+    "tailwindcss": "^4.1.18",
+    "typescript": "~5.9.3",
+    "vite": "^7.3.1"
+  }
+}

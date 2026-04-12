@@ -1,24 +1,41 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   fetchUserSettings, saveUserSettings,
-  fetchUserLlmPresets, createUserLlmPreset, updateUserLlmPreset, deleteUserLlmPreset,
-  fetchUserPromptPresets, createUserPromptPreset, updateUserPromptPreset, deleteUserPromptPreset,
+  fetchUserLlmPresets,
+  fetchUserPromptPresets,
   checkUsername, fetchSubscriptionStatus, redeemSubscriptionKey,
   fetchAnnouncements, fetchSubscriptionHistory,
+  fetchEngagementRewards,
+  fetchActivityCalendar,
 } from '../api'
-import type { UserLlmPreset, UserPromptPreset, Announcement, SubscriptionHistoryRecord } from '../types/paper'
+import type { ActivityCalendarDay } from '../api'
+import type { UserLlmPreset, UserPromptPreset, Announcement, SubscriptionHistoryRecord, EngagementRewardGrant } from '../types/paper'
 import { currentUser, saveProfile, setPassword, changePassword, refreshProfile } from '../stores/auth'
+import { useEngagement, isHonoraryReward, rewardIcon, rewardStatusLabel, rewardStatusClass, REWARD_USAGE_HINTS } from '../composables/useEngagement'
+import { useEntitlements } from '../composables/useEntitlements'
 import UserBar from '../components/UserBar.vue'
+import LlmPresetsPanel from '../components/LlmPresetsPanel.vue'
+import PromptPresetsPanel from '../components/PromptPresetsPanel.vue'
+import PresetSelector from '../components/PresetSelector.vue'
+// Entitlement & engagement organism components
+import UsageDashboard from '../components/entitlement/UsageDashboard.vue'
+import PricingTable from '../components/entitlement/PricingTable.vue'
+import StreakHeroCard from '../components/engagement/StreakHeroCard.vue'
+import MilestoneTimeline from '../components/engagement/MilestoneTimeline.vue'
+import ActivityCalendar from '../components/engagement/ActivityCalendar.vue'
+import RewardCard from '../components/engagement/RewardCard.vue'
+import AutoClassifyPanel from '../components/AutoClassifyPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 
 // ---------------------------------------------------------------------------
 // Page mode: /profile shows account items only; /advanced-settings shows the rest
 // ---------------------------------------------------------------------------
 
-const PROFILE_KEYS = new Set(['account_info', 'announcements', 'subscription'])
+const PROFILE_KEYS = new Set(['account_info', 'announcements', 'subscription', 'achievements'])
 
 const isAdvancedMode = computed(() => route.name === 'advanced-settings')
 
@@ -38,12 +55,14 @@ const navItems: NavItem[] = [
   { key: 'account_info', label: '资料设置', icon: 'user', enabled: true, group: '账号设置' },
   { key: 'announcements', label: '公告', icon: 'bell', enabled: true, group: '账号设置' },
   { key: 'subscription', label: '订阅', icon: 'credit-card', enabled: true, group: '账号设置' },
+  { key: 'achievements', label: '研究成就', icon: 'trophy', enabled: true, group: '账号设置' },
   { key: 'llm_presets', label: '模型预设', icon: 'cpu', enabled: true, group: '预设管理' },
   { key: 'prompt_presets', label: '提示词预设', icon: 'scroll', enabled: true, group: '预设管理' },
   { key: 'compare', label: '对比分析', icon: 'compare', enabled: true, group: '功能配置' },
   { key: 'inspiration', label: '灵感涌现', icon: 'lightbulb', enabled: true, group: '功能配置' },
   { key: 'idea_generate', label: '灵感生成', icon: 'zap', enabled: true, group: '功能配置' },
   { key: 'paper_recommend', label: '推荐论文参数', icon: 'star', enabled: true, group: '功能配置' },
+  { key: 'auto_classify', label: '自动分类', icon: 'folder-tree', enabled: true, group: '功能配置' },
   { key: 'paper_summary', label: '论文解读', icon: 'article', enabled: false, group: '功能配置' },
   { key: 'theme_filter', label: '主题筛选', icon: 'filter', enabled: false, group: '功能配置' },
 ]
@@ -509,197 +528,120 @@ const usePromptPresetMode = computed(() => {
 })
 
 // ---------------------------------------------------------------------------
-// LLM Presets state
+// LLM Presets — lightweight list used by feature settings pill selectors
+// Full CRUD is handled by LlmPresetsPanel component
 // ---------------------------------------------------------------------------
 
 const llmPresets = ref<UserLlmPreset[]>([])
-const llmPresetsLoading = ref(false)
-const llmPresetsError = ref('')
-
-// Editing
-const editingLlmPreset = ref<UserLlmPreset | null>(null)
-const showLlmForm = ref(false)
-const llmForm = reactive({
-  name: '',
-  base_url: '',
-  api_key: '',
-  model: '',
-  max_tokens: null as number | null,
-  temperature: null as number | null,
-  input_hard_limit: null as number | null,
-  input_safety_margin: null as number | null,
-})
-const llmFormSaving = ref(false)
-const showLlmFormApiKey = ref(false)
 
 async function loadLlmPresets() {
-  llmPresetsLoading.value = true
-  llmPresetsError.value = ''
   try {
     const res = await fetchUserLlmPresets()
     llmPresets.value = res.presets
-  } catch (e: any) {
-    llmPresetsError.value = e?.message || '加载模型预设失败'
-  } finally {
-    llmPresetsLoading.value = false
-  }
-}
-
-function openLlmForm(preset?: UserLlmPreset) {
-  if (preset) {
-    editingLlmPreset.value = preset
-    llmForm.name = preset.name
-    llmForm.base_url = preset.base_url
-    llmForm.api_key = preset.api_key
-    llmForm.model = preset.model
-    llmForm.max_tokens = preset.max_tokens ?? null
-    llmForm.temperature = preset.temperature ?? null
-    llmForm.input_hard_limit = preset.input_hard_limit ?? null
-    llmForm.input_safety_margin = preset.input_safety_margin ?? null
-  } else {
-    editingLlmPreset.value = null
-    llmForm.name = ''
-    llmForm.base_url = ''
-    llmForm.api_key = ''
-    llmForm.model = ''
-    llmForm.max_tokens = null
-    llmForm.temperature = null
-    llmForm.input_hard_limit = null
-    llmForm.input_safety_margin = null
-  }
-  showLlmFormApiKey.value = false
-  showLlmForm.value = true
-}
-
-function closeLlmForm() {
-  showLlmForm.value = false
-  editingLlmPreset.value = null
-}
-
-async function saveLlmPreset() {
-  if (!llmForm.name.trim()) return
-  llmFormSaving.value = true
-  try {
-    const payload: any = {
-      name: llmForm.name,
-      base_url: llmForm.base_url,
-      api_key: llmForm.api_key,
-      model: llmForm.model,
-      max_tokens: llmForm.max_tokens,
-      temperature: llmForm.temperature,
-      input_hard_limit: llmForm.input_hard_limit,
-      input_safety_margin: llmForm.input_safety_margin,
-    }
-    if (editingLlmPreset.value) {
-      await updateUserLlmPreset(editingLlmPreset.value.id, payload)
-    } else {
-      await createUserLlmPreset(payload)
-    }
-    await loadLlmPresets()
-    closeLlmForm()
-  } catch (e: any) {
-    llmPresetsError.value = e?.message || '保存失败'
-  } finally {
-    llmFormSaving.value = false
-  }
-}
-
-async function removeLlmPreset(preset: UserLlmPreset) {
-  if (!confirm(`确定要删除预设「${preset.name}」吗？`)) return
-  try {
-    await deleteUserLlmPreset(preset.id)
-    await loadLlmPresets()
-  } catch (e: any) {
-    llmPresetsError.value = e?.message || '删除失败'
-  }
-}
-
-function maskKey(key: string): string {
-  if (!key) return ''
-  if (key.length <= 8) return '••••••••'
-  return key.slice(0, 4) + '••••' + key.slice(-4)
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
-// Prompt Presets state
+// Prompt Presets — lightweight list used by feature settings pill selectors
+// Full CRUD is handled by PromptPresetsPanel component
 // ---------------------------------------------------------------------------
 
 const promptPresets = ref<UserPromptPreset[]>([])
-const promptPresetsLoading = ref(false)
-const promptPresetsError = ref('')
-
-const editingPromptPreset = ref<UserPromptPreset | null>(null)
-const showPromptForm = ref(false)
-const promptForm = reactive({
-  name: '',
-  prompt_content: '',
-})
-const promptFormSaving = ref(false)
 
 async function loadPromptPresets() {
-  promptPresetsLoading.value = true
-  promptPresetsError.value = ''
   try {
     const res = await fetchUserPromptPresets()
     promptPresets.value = res.presets
-  } catch (e: any) {
-    promptPresetsError.value = e?.message || '加载提示词预设失败'
-  } finally {
-    promptPresetsLoading.value = false
-  }
-}
-
-function openPromptForm(preset?: UserPromptPreset) {
-  if (preset) {
-    editingPromptPreset.value = preset
-    promptForm.name = preset.name
-    promptForm.prompt_content = preset.prompt_content
-  } else {
-    editingPromptPreset.value = null
-    promptForm.name = ''
-    promptForm.prompt_content = ''
-  }
-  showPromptForm.value = true
-}
-
-function closePromptForm() {
-  showPromptForm.value = false
-  editingPromptPreset.value = null
-}
-
-async function savePromptPreset() {
-  if (!promptForm.name.trim()) return
-  promptFormSaving.value = true
-  try {
-    const payload = {
-      name: promptForm.name,
-      prompt_content: promptForm.prompt_content,
-    }
-    if (editingPromptPreset.value) {
-      await updateUserPromptPreset(editingPromptPreset.value.id, payload)
-    } else {
-      await createUserPromptPreset(payload)
-    }
-    await loadPromptPresets()
-    closePromptForm()
-  } catch (e: any) {
-    promptPresetsError.value = e?.message || '保存失败'
-  } finally {
-    promptFormSaving.value = false
-  }
-}
-
-async function removePromptPreset(preset: UserPromptPreset) {
-  if (!confirm(`确定要删除预设「${preset.name}」吗？`)) return
-  try {
-    await deleteUserPromptPreset(preset.id)
-    await loadPromptPresets()
-  } catch (e: any) {
-    promptPresetsError.value = e?.message || '删除失败'
-  }
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
+// Achievements (engagement) state
+// ---------------------------------------------------------------------------
+
+const engagement = useEngagement()
+const ent = useEntitlements()
+const achievementRewards = ref<EngagementRewardGrant[]>([])
+const achievementsLoading = ref(false)
+const activityCalendar = ref<ActivityCalendarDay[]>([])
+const activityCalendarToday = ref('')
+
+const MILESTONES = [1, 2, 3, 4, 5, 7, 14, 30, 60, 100]
+
+async function loadAchievements() {
+  if (achievementsLoading.value) return
+  achievementsLoading.value = true
+  try {
+    const [, rewardsRes, calendarRes] = await Promise.all([
+      engagement.loadStatus(true),
+      fetchEngagementRewards({ limit: 200 }),
+      fetchActivityCalendar(60),
+    ])
+    achievementRewards.value = rewardsRes.rewards
+    activityCalendar.value = calendarRes.calendar
+    activityCalendarToday.value = calendarRes.today
+  } catch {
+    // Silent failure
+  } finally {
+    achievementsLoading.value = false
+  }
+}
+
+function calendarDayClass(day: ActivityCalendarDay): string {
+  if (day.completed) return 'bg-tinder-green/80'
+  if (day.partial) return 'bg-tinder-green/25'
+  return 'bg-bg-elevated'
+}
+
+function calendarDayTitle(day: ActivityCalendarDay): string {
+  const label = day.completed ? '全部完成' : day.partial ? `完成 ${day.tasks_done}/3` : '未记录'
+  return `${day.day_key} · ${label}`
+}
+
+// rewardStatusLabel, rewardStatusClass, isHonoraryReward, rewardIcon imported from useEngagement.ts (P5)
+
+function milestoneUnlocked(day: number): boolean {
+  return achievementRewards.value.some(r => r.streak_day === day)
+}
+
+function milestoneReward(day: number): EngagementRewardGrant | undefined {
+  return achievementRewards.value.find(r => r.streak_day === day)
+}
+
+// Computed helpers for new organism components
+const unlockedMilestoneDays = computed(() =>
+  new Set(achievementRewards.value.map(r => r.streak_day))
+)
+
+const nextMilestoneDay = computed(() =>
+  engagement.status.value?.streak?.next_milestones?.[0] ?? null
+)
+
+// Rewards grouped by status for the achievements page
+const activeAchievementRewards = computed(() =>
+  achievementRewards.value.filter(r => r.status === 'active')
+)
+const usedAchievementRewards = computed(() =>
+  achievementRewards.value.filter(r => r.status === 'used')
+)
+const expiredAchievementRewards = computed(() =>
+  achievementRewards.value.filter(r => r.status === 'expired')
+)
+
+function formatDate(iso: string | undefined | null): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const thisYear = new Date().getFullYear()
+    if (d.getFullYear() !== thisYear) {
+      return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+    }
+    return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
+  } catch {
+    return iso
+  }
+}
+
 // Announcements state
 // ---------------------------------------------------------------------------
 
@@ -860,10 +802,6 @@ watch(() => route.query.tab, (tabQuery) => {
 watch(activeNav, (feature) => {
   if (feature === 'compare' || feature === 'inspiration' || feature === 'idea_generate' || feature === 'paper_recommend') {
     loadSettings(feature)
-  } else if (feature === 'llm_presets') {
-    loadLlmPresets()
-  } else if (feature === 'prompt_presets') {
-    loadPromptPresets()
   } else if (feature === 'account_info') {
     initProfileForm()
     loadSubscription()
@@ -872,6 +810,9 @@ watch(activeNav, (feature) => {
   } else if (feature === 'subscription') {
     loadSubscription()
     loadSubscriptionHistory()
+    ent.refreshEntitlements(true)
+  } else if (feature === 'achievements') {
+    loadAchievements()
   }
 })
 
@@ -906,15 +847,15 @@ watch(() => currentUser.value, () => {
     <!-- ========== Left sidebar navigation ========== -->
     <aside
       :class="[
-        'z-30 md:z-auto w-56 h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300',
+        'z-30 lg:z-auto settings-sidebar h-full bg-bg-sidebar border-r border-border flex flex-col shrink-0 transition-transform duration-300',
         showSettingsSidebar
-          ? 'fixed md:relative inset-y-0 left-0 translate-x-0'
-          : 'fixed md:relative inset-y-0 left-0 -translate-x-full md:translate-x-0'
+          ? 'fixed lg:relative inset-y-0 left-0 translate-x-0'
+          : 'fixed lg:relative inset-y-0 left-0 -translate-x-full lg:translate-x-0'
       ]"
     >
-      <!-- Mobile close button -->
+      <!-- Mobile close button (hidden once sidebar is persistent at lg) -->
       <button
-        class="md:hidden absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-bg-hover text-text-muted hover:text-text-primary border-none cursor-pointer"
+        class="lg:hidden absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-full bg-bg-hover text-text-muted hover:text-text-primary border-none cursor-pointer"
         @click="showSettingsSidebar = false"
       >✕</button>
       <!-- Header -->
@@ -982,6 +923,11 @@ watch(() => currentUser.value, () => {
               <svg v-else-if="item.icon === 'star'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
+              <!-- Icon: folder-tree (自动分类) -->
+              <svg v-else-if="item.icon === 'folder-tree'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                <line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/>
+              </svg>
               <!-- Icon: article -->
               <svg v-else-if="item.icon === 'article'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><polyline points="10 9 9 9 8 9" />
@@ -998,12 +944,22 @@ watch(() => currentUser.value, () => {
               <svg v-else-if="item.icon === 'credit-card'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
               </svg>
+              <!-- Icon: trophy (研究成就) -->
+              <svg v-else-if="item.icon === 'trophy'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
+              </svg>
 
               <span class="truncate">{{ item.label }}</span>
               <span v-if="!item.enabled" class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted shrink-0">即将推出</span>
+              <!-- Lock indicator for gated preset sections -->
+              <span
+                v-else-if="(item.key === 'llm_presets' && ent.isGated('llm_preset')) || (item.key === 'prompt_presets' && ent.isGated('prompt_preset'))"
+                class="ml-auto text-amber-400/70 shrink-0"
+                title="需要 Pro 套餐"
+              >🔒</span>
 
               <!-- Active indicator -->
-              <div v-if="item.enabled && activeNav === item.key" class="ml-auto w-1.5 h-1.5 rounded-full bg-[#8b5cf6] shrink-0"></div>
+              <div v-else-if="item.enabled && activeNav === item.key" class="ml-auto w-1.5 h-1.5 rounded-full bg-[#8b5cf6] shrink-0"></div>
             </button>
           </div>
         </div>
@@ -1096,6 +1052,12 @@ watch(() => currentUser.value, () => {
             <!-- Card content -->
             <div v-if="expandedAnnouncements.has(item.id)" class="px-5 pb-5 border-t border-border/50">
               <p class="text-sm text-text-secondary whitespace-pre-wrap mt-4 leading-relaxed">{{ item.content }}</p>
+              <div class="mt-3 flex justify-end">
+                <button
+                  class="text-xs text-text-muted hover:text-tinder-pink transition-colors bg-transparent border-none cursor-pointer px-0"
+                  @click.stop="router.push(`/announcements/${item.id}`)"
+                >查看详情页 →</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1116,84 +1078,454 @@ watch(() => currentUser.value, () => {
           <p class="text-xs text-text-muted mt-1">查看套餐权益并开通会员</p>
         </div>
 
-        <!-- Section 1: Pricing -->
+        <!-- Section 1: Pricing comparison table — now uses PricingTable component -->
         <section class="mb-6 rounded-xl border border-border bg-bg-card p-5">
-          <h3 class="text-sm font-semibold text-text-primary mb-4">套餐方案</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <!-- Pro card -->
-            <div class="rounded-xl border border-blue-500/30 bg-blue-500/5 p-4 flex flex-col gap-3">
-              <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400">Pro</span>
-                <span class="text-text-muted text-xs">基础会员</span>
+          <h3 class="text-sm font-semibold text-text-primary mb-1">套餐方案</h3>
+          <p class="text-xs text-text-muted mb-4">订阅时长根据兑换码而定（通常为 30 / 90 / 365 天）</p>
+
+          <!-- Pricing comparison table component (responsive: table on md+, cards on mobile) -->
+          <PricingTable :current-tier="(subscriptionTier as 'free' | 'pro' | 'pro_plus')" />
+          <!-- LEGACY TABLE REMOVED (was ~200 lines) -->
+          <div class="hidden">
+            <table class="w-full min-w-[520px] text-xs border-collapse">
+              <!-- ── Column headers ── -->
+              <thead>
+                <tr>
+                  <th class="text-left text-text-muted font-medium py-2 px-3 w-[38%]"></th>
+                  <!-- Free -->
+                  <th class="text-center py-2 px-2 w-[20%]">
+                    <div
+                      class="rounded-lg py-2 px-1"
+                      :class="subscriptionTier === 'free' ? 'bg-border/60 border border-border-light' : ''"
+                    >
+                      <div class="font-semibold text-text-secondary text-[11px] mb-0.5">Free</div>
+                      <div class="text-text-muted text-[10px]">免费</div>
+                      <div v-if="subscriptionTier === 'free'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-border text-text-secondary inline-block">当前套餐</div>
+                    </div>
+                  </th>
+                  <!-- Pro -->
+                  <th class="text-center py-2 px-2 w-[20%]">
+                    <div
+                      class="rounded-lg py-2 px-1"
+                      :class="subscriptionTier === 'pro' ? 'bg-blue-500/10 border border-blue-500/40' : ''"
+                    >
+                      <div class="font-bold text-blue-400 text-[11px] mb-0.5">Pro</div>
+                      <div class="text-blue-400/70 text-[10px]">¥9.9 / 月</div>
+                      <div v-if="subscriptionTier === 'pro'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 inline-block">当前套餐</div>
+                    </div>
+                  </th>
+                  <!-- Pro+ -->
+                  <th class="text-center py-2 px-2 w-[22%]">
+                    <div
+                      class="rounded-lg py-2 px-1 relative"
+                      :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/10 border border-violet-500/40' : 'bg-violet-500/5 border border-violet-500/20'"
+                    >
+                      <div
+                        v-if="subscriptionTier !== 'pro_plus'"
+                        class="absolute -top-2 left-1/2 -translate-x-1/2 text-[9px] px-1.5 py-0.5 rounded-full font-semibold whitespace-nowrap"
+                        style="background: linear-gradient(135deg, #fd267a33, #a855f733); color: #d580ff; border: 1px solid #a855f730;"
+                      >推荐</div>
+                      <div class="font-bold text-[11px] mb-0.5" style="background: linear-gradient(135deg, #fd267a, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Pro+</div>
+                      <div class="text-violet-400/70 text-[10px]">¥19.9 / 月</div>
+                      <div v-if="subscriptionTier === 'pro_plus'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 inline-block">当前套餐</div>
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody class="divide-y divide-border/40">
+
+                <!-- ── Group: 浏览与发现 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">浏览与发现</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">每日浏览论文</td>
+                  <td class="px-2 py-2 text-center text-text-muted">5 篇</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">20 篇</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">50 篇</td>
+                </tr>
+
+                <!-- ── Group: AI 功能 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">AI 功能</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">AI 论文问答</td>
+                  <td class="px-2 py-2 text-center text-text-muted">10 条/天</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">无限</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">无限</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">通用 AI 助手</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary leading-snug">对比分析<span class="block text-[10px] text-text-muted">（每次最多篇数）</span></td>
+                  <td class="px-2 py-2 text-center text-text-muted leading-snug">3 次/月<span class="block text-[10px]">2 篇/次</span></td>
+                  <td class="px-2 py-2 text-center text-text-secondary leading-snug" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">30 次/月<span class="block text-[10px]">5 篇/次</span></td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium leading-snug" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">100 次/月<span class="block text-[10px] font-normal">8 篇/次</span></td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">深度研究</td>
+                  <td class="px-2 py-2 text-center text-text-muted">2 次/月</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">15 次/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">50 次/月</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">灵感生成</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 次/月</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">30 次/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">100 次/月</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">全文翻译</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">10 次/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">50 次/月</td>
+                </tr>
+
+                <!-- ── Group: 知识库与存储 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">知识库与存储</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">论文收藏</td>
+                  <td class="px-2 py-2 text-center text-text-muted">20 篇</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">100 篇</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">500 篇</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">文件夹</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 个</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">10 个</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">30 个</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">笔记</td>
+                  <td class="px-2 py-2 text-center text-text-muted">10 条</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">50 条</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">200 条</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">保存对比结果</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 条</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">20 条</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">100 条</td>
+                </tr>
+
+                <!-- ── Group: 论文上传 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">论文上传</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">上传自有论文</td>
+                  <td class="px-2 py-2 text-center text-text-muted">2 篇/月</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">30 篇/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">100 篇/月</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">笔记附件上传</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+
+                <!-- ── Group: 导出 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">导出</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">Markdown 导出</td>
+                  <td class="px-2 py-2 text-center text-tinder-green">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">DOCX / PDF 导出</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">批量导出</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+
+                <!-- ── Group: 高级设置与历史 ── -->
+                <tr class="bg-bg-elevated/40">
+                  <td colspan="4" class="px-3 py-1.5 text-[10px] font-semibold text-text-muted uppercase tracking-wide">高级设置与历史</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">自定义模型预设</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">自定义提示词预设</td>
+                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                </tr>
+                <tr class="hover:bg-bg-elevated/20 transition-colors">
+                  <td class="px-3 py-2 text-text-secondary">研究历史保留</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 天</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">14 天</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">30 天</td>
+                </tr>
+
+                <!-- ── CTA row ── -->
+                <tr>
+                  <td class="px-3 pt-4 pb-2 text-[10px] text-text-muted">扫码添加微信购买</td>
+                  <td class="px-2 pt-4 pb-2 text-center">
+                    <span v-if="subscriptionTier === 'free'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-border text-text-muted">当前套餐</span>
+                  </td>
+                  <td class="px-2 pt-4 pb-2 text-center" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">
+                    <span v-if="subscriptionTier === 'pro'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-blue-500/20 text-blue-300">当前套餐</span>
+                    <span v-else-if="subscriptionTier !== 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-blue-300" style="background: linear-gradient(135deg, #3b82f620, #2563eb20); border: 1px solid #3b82f640;">¥9.9 / 月起</span>
+                  </td>
+                  <td class="px-2 pt-4 pb-2 text-center" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">
+                    <span v-if="subscriptionTier === 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-violet-500/20 text-violet-300">当前套餐</span>
+                    <span v-else class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-violet-300" style="background: linear-gradient(135deg, #7c3aed20, #a855f720); border: 1px solid #a855f740;">¥19.9 / 月起</span>
+                  </td>
+                </tr>
+
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- Section 1b: Usage dashboard — now uses UsageDashboard component (was 220+ lines) -->
+        <section v-if="ent.loaded.value" class="mb-6 rounded-xl border border-border bg-bg-card p-5">
+          <h3 class="text-sm font-semibold text-text-primary mb-4">当前用量</h3>
+          <UsageDashboard />
+          <!-- LEGACY QUOTA ROWS REMOVED — rendered by UsageDashboard component -->
+          <div class="hidden">
+          <!-- Quota usage rows (legacy, kept for reference) -->
+          <div class="space-y-3">
+            <!-- chat -->
+            <div v-if="ent.limit('chat') !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">AI 论文问答</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="ent.quotaFraction('chat') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, ent.quotaFraction('chat') * 100)}%`"
+                />
               </div>
-              <div class="flex items-baseline gap-1">
-                <span class="text-2xl font-bold text-blue-400">¥9.9</span>
-                <span class="text-xs text-text-muted">/ 月</span>
-              </div>
-              <ul class="space-y-1.5 text-xs text-text-secondary">
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  每日论文 15 条浏览
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  AI 论文摘要与解读
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  知识库收藏与笔记
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  对比分析与个人预设
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-blue-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  灵感涌现（每日限量）
-                </li>
-              </ul>
-              <div class="mt-1 pt-2 border-t border-blue-500/20 text-[10px] text-text-muted">
-                订阅时长根据兑换码而定（通常为 30/90/365 天）
-              </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('chat') }}</span>
             </div>
-            <!-- Pro+ card -->
-            <div class="rounded-xl border border-violet-500/40 bg-violet-500/5 p-4 flex flex-col gap-3 relative overflow-hidden">
-              <div class="absolute top-2 right-2 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-400 font-semibold">推荐</div>
-              <div class="flex items-center gap-2">
-                <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-violet-500/20 text-violet-400">Pro+</span>
-                <span class="text-text-muted text-xs">高级会员</span>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">AI 论文问答</span>
+              <span class="text-[11px] text-tinder-green">不限次数</span>
+            </div>
+
+            <!-- compare -->
+            <div v-if="ent.limit('compare') !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">对比分析</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="ent.quotaFraction('compare') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, ent.quotaFraction('compare') * 100)}%`"
+                />
               </div>
-              <div class="flex items-baseline gap-1">
-                <span class="text-2xl font-bold text-violet-400">¥19.9</span>
-                <span class="text-xs text-text-muted">/ 月</span>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('compare') }}</span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">对比分析</span>
+              <span class="text-[11px] text-tinder-green">不限次数</span>
+            </div>
+
+            <!-- research -->
+            <div v-if="ent.limit('research') !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">深度研究</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="ent.quotaFraction('research') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, ent.quotaFraction('research') * 100)}%`"
+                />
               </div>
-              <ul class="space-y-1.5 text-xs text-text-secondary">
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  Pro 全部权益
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  每日论文无限制浏览
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  灵感涌现无限量
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  灵感生成（科研创意）
-                </li>
-                <li class="flex items-start gap-1.5">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-violet-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  优先体验新功能
-                </li>
-              </ul>
-              <div class="mt-1 pt-2 border-t border-violet-500/20 text-[10px] text-text-muted">
-                订阅时长根据兑换码而定（通常为 30/90/365 天）
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('research') }}</span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">深度研究</span>
+              <span class="text-[11px] text-tinder-green">不限次数</span>
+            </div>
+
+            <!-- idea_gen -->
+            <div v-if="ent.limit('idea_gen') !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">灵感生成</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="ent.quotaFraction('idea_gen') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, ent.quotaFraction('idea_gen') * 100)}%`"
+                />
               </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('idea_gen') }}</span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">灵感生成</span>
+              <span class="text-[11px] text-tinder-green">不限次数</span>
+            </div>
+
+            <!-- upload -->
+            <div v-if="ent.limit('upload') !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">论文上传</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="ent.quotaFraction('upload') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, ent.quotaFraction('upload') * 100)}%`"
+                />
+              </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('upload') }}</span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">论文上传</span>
+              <span class="text-[11px] text-tinder-green">不限次数</span>
+            </div>
+
+            <!-- translate quota -->
+            <template v-if="ent.gateAllowed('translate')">
+              <div v-if="ent.limit('translate') !== null" class="flex items-center gap-3">
+                <span class="text-xs text-text-secondary w-28 shrink-0">全文翻译</span>
+                <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                  <div
+                    class="h-full rounded-full transition-all"
+                    :class="ent.quotaFraction('translate') >= 0.8 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                    :style="`width: ${Math.min(100, ent.quotaFraction('translate') * 100)}%`"
+                  />
+                </div>
+                <span class="text-[11px] text-text-muted w-16 text-right shrink-0">{{ ent.quotaSummary('translate') }}</span>
+              </div>
+              <div v-else class="flex items-center gap-3">
+                <span class="text-xs text-text-secondary w-28 shrink-0">全文翻译</span>
+                <span class="text-[11px] text-tinder-green">不限次数</span>
+              </div>
+            </template>
+
+            <!-- KB papers storage -->
+            <div v-if="ent.kbPaperStorage.value.limit !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">知识库论文</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="(ent.kbPaperStorage.value.remaining ?? 1) <= 5 ? 'bg-amber-400' : 'bg-tinder-green'"
+                  :style="`width: ${Math.min(100, (ent.kbPaperStorage.value.used / (ent.kbPaperStorage.value.limit || 1)) * 100)}%`"
+                />
+              </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">
+                {{ ent.kbPaperStorage.value.used }}/{{ ent.kbPaperStorage.value.limit }} 篇
+              </span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">知识库论文</span>
+              <span class="text-[11px] text-tinder-green">不限篇数</span>
+            </div>
+
+            <!-- KB notes storage -->
+            <div v-if="ent.kbNoteStorage.value.limit !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">知识库笔记</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="(ent.kbNoteStorage.value.remaining ?? 1) <= 3 ? 'bg-amber-400' : 'bg-tinder-green'"
+                  :style="`width: ${Math.min(100, (ent.kbNoteStorage.value.used / (ent.kbNoteStorage.value.limit || 1)) * 100)}%`"
+                />
+              </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">
+                {{ ent.kbNoteStorage.value.used }}/{{ ent.kbNoteStorage.value.limit }} 篇
+              </span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">知识库笔记</span>
+              <span class="text-[11px] text-tinder-green">不限篇数</span>
+            </div>
+
+            <!-- KB compare results storage -->
+            <div v-if="ent.kbCompareResultStorage.value.limit !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">保存对比结果</span>
+              <div class="flex-1 h-1.5 bg-bg-elevated rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="(ent.kbCompareResultStorage.value.remaining ?? 1) <= 1 ? 'bg-amber-400' : 'bg-tinder-blue'"
+                  :style="`width: ${Math.min(100, (ent.kbCompareResultStorage.value.used / (ent.kbCompareResultStorage.value.limit || 1)) * 100)}%`"
+                />
+              </div>
+              <span class="text-[11px] text-text-muted w-16 text-right shrink-0">
+                {{ ent.kbCompareResultStorage.value.used }}/{{ ent.kbCompareResultStorage.value.limit }} 条
+              </span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">保存对比结果</span>
+              <span class="text-[11px] text-tinder-green">不限条数</span>
+            </div>
+
+            <!-- Browse limit -->
+            <div v-if="ent.browseLimit.value !== null" class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">每日浏览论文</span>
+              <span class="text-[11px] text-text-muted">每日最多 {{ ent.browseLimit.value }} 篇</span>
+            </div>
+            <div v-else class="flex items-center gap-3">
+              <span class="text-xs text-text-secondary w-28 shrink-0">每日浏览论文</span>
+              <span class="text-[11px] text-tinder-green">不限篇数</span>
             </div>
           </div>
+
+          <!-- Feature gates -->
+          <div class="mt-4 pt-4 border-t border-border grid grid-cols-2 gap-2 text-[11px]">
+            <div class="flex items-center gap-1.5">
+              <span :class="ent.gateAllowed('general_chat') ? 'text-tinder-green' : 'text-text-muted'">
+                {{ ent.gateAllowed('general_chat') ? '✓' : '✗' }}
+              </span>
+              <span :class="ent.gateAllowed('general_chat') ? 'text-text-secondary' : 'text-text-muted'">通用 AI 助手</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-tinder-green">✓</span>
+              <span class="text-text-secondary">
+                全文翻译 {{ ent.quotaSummary('translate') }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span :class="ent.gateAllowed('note_file_upload') ? 'text-tinder-green' : 'text-text-muted'">
+                {{ ent.gateAllowed('note_file_upload') ? '✓' : '✗' }}
+              </span>
+              <span :class="ent.gateAllowed('note_file_upload') ? 'text-text-secondary' : 'text-text-muted'">笔记附件上传</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span class="text-tinder-green">✓</span>
+              <span class="text-text-secondary">
+                导出 {{ ent.quotaSummary('export') }}
+              </span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span :class="ent.gateAllowed('batch_export') ? 'text-tinder-green' : 'text-text-muted'">
+                {{ ent.gateAllowed('batch_export') ? '✓' : '✗' }}
+              </span>
+              <span :class="ent.gateAllowed('batch_export') ? 'text-text-secondary' : 'text-text-muted'">批量导出</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span :class="ent.gateAllowed('llm_preset') ? 'text-tinder-green' : 'text-text-muted'">
+                {{ ent.gateAllowed('llm_preset') ? '✓' : '✗' }}
+              </span>
+              <span :class="ent.gateAllowed('llm_preset') ? 'text-text-secondary' : 'text-text-muted'">自定义模型预设</span>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <span :class="ent.gateAllowed('prompt_preset') ? 'text-tinder-green' : 'text-text-muted'">
+                {{ ent.gateAllowed('prompt_preset') ? '✓' : '✗' }}
+              </span>
+              <span :class="ent.gateAllowed('prompt_preset') ? 'text-text-secondary' : 'text-text-muted'">自定义提示词预设</span>
+            </div>
+          </div>
+          </div><!-- end hidden legacy quota rows -->
         </section>
 
         <!-- Section 2: Purchase method -->
@@ -1237,6 +1569,22 @@ watch(() => currentUser.value, () => {
         <section class="mb-6 rounded-xl border border-border bg-bg-card p-5">
           <h3 class="text-sm font-semibold text-text-primary mb-1">兑换会员</h3>
           <p class="text-xs text-text-muted mb-4">已有兑换码？输入下方即可立即激活会员权益。</p>
+
+          <!-- How to get a redeem code -->
+          <div class="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3 space-y-2">
+            <div class="flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <p class="text-xs font-semibold text-blue-300">如何获取兑换码？</p>
+            </div>
+            <p class="text-[11px] text-text-secondary leading-relaxed">
+              目前仅支持通过<strong class="text-text-primary">兑换码</strong>激活会员。兑换码通过以下方式获取：
+            </p>
+            <ul class="text-[11px] text-text-secondary space-y-1 pl-2">
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>内测邀请 / 内部发放渠道</li>
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>联系管理员或官方客服申请购买</li>
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>参与官方活动或合作推广</li>
+            </ul>
+          </div>
 
           <!-- Current subscription status -->
           <div class="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-3">
@@ -1333,6 +1681,149 @@ watch(() => currentUser.value, () => {
         </section>
       </div>
 
+      <!-- Account Info page              -->
+      <!-- ============================== -->
+      <!-- ============================== -->
+      <!-- Achievements page              -->
+      <!-- ============================== -->
+      <div v-if="activeNav === 'achievements'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+        <!-- Page header -->
+        <div class="mb-6">
+          <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#f59e0b]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
+            </svg>
+            研究成就
+          </h2>
+          <p class="text-xs text-text-muted mt-1">每日完成浏览、收藏、分析三项任务，连续研究可解锁对比扩展、深度分析等实用特权</p>
+        </div>
+
+        <!-- Loading -->
+        <div v-if="achievementsLoading" class="flex items-center justify-center py-16">
+          <svg class="w-6 h-6 animate-spin text-text-muted" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
+          </svg>
+        </div>
+
+        <template v-else>
+          <!-- Streak Hero Card — circular ring progress + goal text -->
+          <div class="mb-5">
+            <StreakHeroCard
+              :current-streak="engagement.status.value?.streak?.current ?? 0"
+              :longest-streak="engagement.status.value?.streak?.longest ?? 0"
+              :next-milestone-day="nextMilestoneDay"
+            />
+          </div>
+
+          <!-- Activity calendar heatmap — with week labels and month separators -->
+          <div v-if="activityCalendar.length > 0" class="rounded-xl border border-border bg-bg-card p-4 mb-5">
+            <h3 class="text-sm font-semibold text-text-primary mb-3">近 60 天研究记录</h3>
+            <ActivityCalendar
+              :days="activityCalendar"
+              :today="activityCalendarToday"
+            />
+          </div>
+
+          <!-- Milestone Timeline — vertical narrative timeline -->
+          <div class="rounded-xl border border-border bg-bg-card p-4 mb-5">
+            <h3 class="text-sm font-semibold text-text-primary mb-4">里程碑路线</h3>
+            <MilestoneTimeline
+              :current-streak="engagement.status.value?.streak?.current ?? 0"
+              :milestones="MILESTONES"
+              :unlocked-days="unlockedMilestoneDays"
+            />
+          </div>
+
+          <!-- Rewards list — grouped by status, using RewardCard component -->
+          <div class="rounded-xl border border-border bg-bg-card overflow-hidden mb-5">
+            <div class="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 class="text-sm font-semibold text-text-primary">奖励记录</h3>
+              <span v-if="activeAchievementRewards.length > 0" class="text-[11px] px-2 py-0.5 rounded-full bg-tinder-green/15 text-tinder-green">
+                {{ activeAchievementRewards.length }} 个可用
+              </span>
+            </div>
+            <div v-if="achievementRewards.length === 0" class="flex flex-col items-center justify-center py-12">
+              <span class="text-3xl mb-3">🎯</span>
+              <p class="text-sm text-text-muted">还没有奖励记录</p>
+              <p class="text-xs text-text-muted mt-1">每日完成浏览、收藏、分析三项任务，连续研究可解锁奖励</p>
+            </div>
+            <div v-else class="px-4 py-3 space-y-4">
+              <!-- Active rewards (highlighted) -->
+              <template v-if="activeAchievementRewards.length > 0">
+                <p class="text-[10px] font-semibold text-tinder-green uppercase tracking-wide">可使用</p>
+                <div class="space-y-3">
+                  <RewardCard
+                    v-for="r in activeAchievementRewards"
+                    :key="r.id ?? r.reward_code"
+                    :reward="r"
+                    :show-cta="true"
+                  />
+                </div>
+              </template>
+
+              <!-- Used rewards -->
+              <template v-if="usedAchievementRewards.length > 0">
+                <p class="text-[10px] font-semibold text-text-muted uppercase tracking-wide pt-2">已使用</p>
+                <div class="space-y-3">
+                  <RewardCard
+                    v-for="r in usedAchievementRewards"
+                    :key="r.id ?? r.reward_code"
+                    :reward="r"
+                    :show-cta="false"
+                  />
+                </div>
+              </template>
+
+              <!-- Expired rewards -->
+              <template v-if="expiredAchievementRewards.length > 0">
+                <p class="text-[10px] font-semibold text-text-muted uppercase tracking-wide pt-2">已过期</p>
+                <div class="space-y-3 opacity-60">
+                  <RewardCard
+                    v-for="r in expiredAchievementRewards"
+                    :key="r.id ?? r.reward_code"
+                    :reward="r"
+                    :show-cta="false"
+                  />
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <!-- Rules explanation -->
+          <div class="rounded-xl border border-border bg-bg-elevated/50 p-4">
+            <h3 class="text-sm font-semibold text-text-primary mb-3">激励规则说明</h3>
+            <ul class="space-y-2">
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-tinder-green">✓</span>
+                <span>每日完成 <strong class="text-text-primary">浏览 + 收藏 + 分析</strong> 三项任务，即可积累有效研究日</span>
+              </li>
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-tinder-green">✓</span>
+                <span>连续达到里程碑天数（1 / 2 / 3 / 4 / 5 / 7 / 14 / 30 / 60 / 100 天）时自动解锁对应奖励</span>
+              </li>
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
+                <span><strong class="text-text-primary">扩展对比券</strong>：使用后本次可对比最多 8 篇论文（默认限制 5 篇）</span>
+              </li>
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
+                <span><strong class="text-text-primary">深度研究加速券</strong>：使用后获得 1.5 倍分析上下文长度和更多论文精选范围</span>
+              </li>
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
+                <span><strong class="text-text-primary">快速处理加速券</strong>：上传论文时使用，论文将被优先处理分析</span>
+              </li>
+              <li class="flex items-start gap-2 text-xs text-text-secondary">
+                <span class="shrink-0 mt-0.5 text-text-muted">ℹ</span>
+                <span>功能券均有有效期（14-30 天），请及时使用；徽章类奖励永久保留</span>
+              </li>
+            </ul>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================== -->
       <!-- Account Info page              -->
       <!-- ============================== -->
       <div v-if="activeNav === 'account_info'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
@@ -1461,6 +1952,22 @@ watch(() => currentUser.value, () => {
           <h3 class="text-sm font-semibold text-text-primary mb-1">会员权限</h3>
           <p class="text-xs text-text-muted mb-4">仅支持 Pro / Pro+ 兑换开通，不影响管理员权限体系。</p>
 
+          <!-- How to get a redeem code -->
+          <div class="mb-4 rounded-lg border border-blue-500/20 bg-blue-500/5 px-4 py-3 space-y-2">
+            <div class="flex items-center gap-1.5">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 shrink-0 text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              <p class="text-xs font-semibold text-blue-300">如何获取兑换码？</p>
+            </div>
+            <p class="text-[11px] text-text-secondary leading-relaxed">
+              目前仅支持通过<strong class="text-text-primary">兑换码</strong>激活会员。兑换码通过以下方式获取：
+            </p>
+            <ul class="text-[11px] text-text-secondary space-y-1 pl-2">
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>内测邀请 / 内部发放渠道</li>
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>联系管理员或官方客服申请购买</li>
+              <li class="flex items-start gap-1.5"><span class="shrink-0 text-blue-400 mt-0.5">•</span>参与官方活动或合作推广</li>
+            </ul>
+          </div>
+
           <div class="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-3">
             <div class="flex items-center gap-2 text-sm">
               <span class="text-text-secondary">当前套餐：</span>
@@ -1587,373 +2094,20 @@ watch(() => currentUser.value, () => {
       <!-- ============================== -->
       <!-- LLM Presets page -->
       <!-- ============================== -->
-      <div v-else-if="activeNav === 'llm_presets'" class="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#8b5cf6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
-              </svg>
-              模型预设
-            </h2>
-            <p class="text-xs text-text-muted mt-1">管理你的 LLM 连接预设，在功能配置中快速切换使用</p>
-          </div>
-          <button
-            class="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white hover:opacity-90 shadow-lg shadow-[#8b5cf6]/20 transition-all flex items-center gap-1.5"
-            @click="openLlmForm()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            新建预设
-          </button>
-        </div>
-
-        <!-- Loading -->
-        <div v-if="llmPresetsLoading" class="flex items-center justify-center py-20">
-          <div class="relative w-10 h-10 flex items-center justify-center">
-            <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#8b5cf6] animate-spin"></div>
-          </div>
-        </div>
-
-        <!-- Error -->
-        <div v-else-if="llmPresetsError" class="text-center py-20">
-          <p class="text-sm text-tinder-pink">{{ llmPresetsError }}</p>
-        </div>
-
-        <!-- Empty state -->
-        <div v-else-if="llmPresets.length === 0 && !showLlmForm" class="text-center py-20">
-          <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#8b5cf6]/10 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-[#8b5cf6]/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-            </svg>
-          </div>
-          <h3 class="text-sm font-semibold text-text-secondary mb-1">还没有模型预设</h3>
-          <p class="text-xs text-text-muted mb-4">创建模型预设后，可以在对比分析和灵感涌现中快速选用</p>
-          <button
-            class="px-4 py-2 rounded-lg text-sm font-medium bg-[#8b5cf6]/10 text-[#8b5cf6] hover:bg-[#8b5cf6]/20 transition-colors"
-            @click="openLlmForm()"
-          >创建第一个预设</button>
-        </div>
-
-        <!-- Preset cards grid -->
-        <div v-else-if="!showLlmForm" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div
-            v-for="preset in llmPresets"
-            :key="preset.id"
-            class="group rounded-xl border border-border bg-bg-card p-5 hover:border-[#8b5cf6]/30 hover:shadow-lg hover:shadow-[#8b5cf6]/5 transition-all duration-200"
-          >
-            <!-- Card header -->
-            <div class="flex items-start justify-between mb-3">
-              <div class="flex items-center gap-2.5">
-                <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[#6366f1]/20 to-[#8b5cf6]/20 flex items-center justify-center shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 text-[#8b5cf6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" />
-                  </svg>
-                </div>
-                <div>
-                  <h4 class="text-sm font-semibold text-text-primary leading-tight">{{ preset.name }}</h4>
-                  <p class="text-[11px] text-text-muted mt-0.5 font-mono">{{ preset.model || '未设置模型' }}</p>
-                </div>
-              </div>
-              <!-- Actions -->
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  class="p-1.5 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
-                  title="编辑"
-                  @click="openLlmForm(preset)"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                </button>
-                <button
-                  class="p-1.5 rounded-md hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-colors"
-                  title="删除"
-                  @click="removeLlmPreset(preset)"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                </button>
-              </div>
-            </div>
-            <!-- Card details -->
-            <div class="space-y-1.5 text-xs">
-              <div class="flex items-center gap-2 text-text-muted">
-                <span class="w-14 shrink-0 text-text-muted/60">URL</span>
-                <span class="text-text-secondary font-mono truncate">{{ preset.base_url || '—' }}</span>
-              </div>
-              <div class="flex items-center gap-2 text-text-muted">
-                <span class="w-14 shrink-0 text-text-muted/60">Key</span>
-                <span class="text-text-secondary font-mono">{{ maskKey(preset.api_key) || '—' }}</span>
-              </div>
-              <div class="flex items-center gap-2 text-text-muted" v-if="preset.temperature != null">
-                <span class="w-14 shrink-0 text-text-muted/60">Temp</span>
-                <span class="text-text-secondary">{{ preset.temperature }}</span>
-              </div>
-              <div class="flex items-center gap-2 text-text-muted" v-if="preset.max_tokens != null">
-                <span class="w-14 shrink-0 text-text-muted/60">Tokens</span>
-                <span class="text-text-secondary">{{ preset.max_tokens }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- LLM Preset Form (slide-in panel) -->
-        <Transition
-          enter-active-class="transition duration-200 ease-out"
-          enter-from-class="opacity-0 translate-y-2"
-          enter-to-class="opacity-100 translate-y-0"
-          leave-active-class="transition duration-150 ease-in"
-          leave-from-class="opacity-100 translate-y-0"
-          leave-to-class="opacity-0 translate-y-2"
-        >
-          <div v-if="showLlmForm" class="rounded-xl border border-[#8b5cf6]/20 bg-bg-card p-6 shadow-xl shadow-[#8b5cf6]/5">
-            <div class="flex items-center justify-between mb-5">
-              <h3 class="text-sm font-semibold text-text-primary">
-                {{ editingLlmPreset ? '编辑模型预设' : '新建模型预设' }}
-              </h3>
-              <button class="p-1 rounded-md hover:bg-bg-hover text-text-muted" @click="closeLlmForm">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-
-            <div class="space-y-4">
-              <!-- Name -->
-              <div>
-                <label class="block text-xs font-medium text-text-secondary mb-1.5">预设名称 <span class="text-[#8b5cf6]">*</span></label>
-                <input
-                  v-model="llmForm.name"
-                  type="text"
-                  placeholder="例如: GPT-4o、Claude Sonnet、通义千问..."
-                  class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#8b5cf6] transition-colors"
-                />
-              </div>
-
-              <!-- URL + Key row -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API URL</label>
-                  <input
-                    v-model="llmForm.base_url"
-                    type="text"
-                    placeholder="https://api.openai.com/v1"
-                    class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#8b5cf6] transition-colors font-mono"
-                  />
-                </div>
-                <div>
-                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API Key</label>
-                  <div class="relative">
-                    <input
-                      v-model="llmForm.api_key"
-                      :type="showLlmFormApiKey ? 'text' : 'password'"
-                      placeholder="sk-..."
-                      class="w-full px-3 py-2.5 pr-9 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#8b5cf6] transition-colors font-mono"
-                    />
-                    <button type="button" class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary" @click="showLlmFormApiKey = !showLlmFormApiKey">
-                      <svg v-if="showLlmFormApiKey" xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>
-                      <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Model -->
-              <div>
-                <label class="block text-xs font-medium text-text-secondary mb-1.5">模型名称</label>
-                <input
-                  v-model="llmForm.model"
-                  type="text"
-                  placeholder="gpt-4o / claude-sonnet-4-20250514 / qwen-plus ..."
-                  class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#8b5cf6] transition-colors"
-                />
-              </div>
-
-              <!-- Advanced params row -->
-              <details class="group/adv">
-                <summary class="text-xs text-text-muted cursor-pointer hover:text-text-secondary transition-colors select-none flex items-center gap-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 transition-transform group-open/adv:rotate-90" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
-                  高级参数（可选）
-                </summary>
-                <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div>
-                    <label class="block text-[11px] text-text-muted mb-1">Temperature</label>
-                    <input v-model.number="llmForm.temperature" type="number" step="0.1" min="0" max="2" placeholder="1.0" class="w-full px-2.5 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#8b5cf6] transition-colors" />
-                  </div>
-                  <div>
-                    <label class="block text-[11px] text-text-muted mb-1">Max Tokens</label>
-                    <input v-model.number="llmForm.max_tokens" type="number" step="256" min="256" placeholder="4096" class="w-full px-2.5 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#8b5cf6] transition-colors" />
-                  </div>
-                  <div>
-                    <label class="block text-[11px] text-text-muted mb-1">Hard Limit</label>
-                    <input v-model.number="llmForm.input_hard_limit" type="number" step="1024" placeholder="129024" class="w-full px-2.5 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#8b5cf6] transition-colors" />
-                  </div>
-                  <div>
-                    <label class="block text-[11px] text-text-muted mb-1">Safety Margin</label>
-                    <input v-model.number="llmForm.input_safety_margin" type="number" step="256" placeholder="4096" class="w-full px-2.5 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#8b5cf6] transition-colors" />
-                  </div>
-                </div>
-              </details>
-            </div>
-
-            <!-- Form actions -->
-            <div class="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-border">
-              <button
-                class="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-bg-hover transition-colors"
-                @click="closeLlmForm"
-              >取消</button>
-              <button
-                class="px-5 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#6366f1] to-[#8b5cf6] text-white hover:opacity-90 shadow-lg shadow-[#8b5cf6]/20 transition-all disabled:opacity-50"
-                :disabled="!llmForm.name.trim() || llmFormSaving"
-                @click="saveLlmPreset"
-              >{{ llmFormSaving ? '保存中...' : '保存预设' }}</button>
-            </div>
-          </div>
-        </Transition>
-      </div>
+      <LlmPresetsPanel
+        v-else-if="activeNav === 'llm_presets'"
+        class="h-full overflow-y-auto"
+        @refresh="loadLlmPresets"
+      />
 
       <!-- ============================== -->
       <!-- Prompt Presets page -->
       <!-- ============================== -->
-      <div v-else-if="activeNav === 'prompt_presets'" class="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
-        <!-- Header -->
-        <div class="flex items-center justify-between mb-6">
-          <div>
-            <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#10b981]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v3h8" /><path d="M19 17V5a2 2 0 0 0-2-2H4" />
-              </svg>
-              提示词预设
-            </h2>
-            <p class="text-xs text-text-muted mt-1">管理你的 System Prompt 预设，在功能配置中快速切换使用</p>
-          </div>
-          <button
-            class="px-4 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#059669] to-[#10b981] text-white hover:opacity-90 shadow-lg shadow-[#10b981]/20 transition-all flex items-center gap-1.5"
-            @click="openPromptForm()"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-            新建预设
-          </button>
-        </div>
-
-        <!-- Loading -->
-        <div v-if="promptPresetsLoading" class="flex items-center justify-center py-20">
-          <div class="relative w-10 h-10 flex items-center justify-center">
-            <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#10b981] animate-spin"></div>
-          </div>
-        </div>
-
-        <!-- Error -->
-        <div v-else-if="promptPresetsError" class="text-center py-20">
-          <p class="text-sm text-tinder-pink">{{ promptPresetsError }}</p>
-        </div>
-
-        <!-- Empty state -->
-        <div v-else-if="promptPresets.length === 0 && !showPromptForm" class="text-center py-20">
-          <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-[#10b981]/10 flex items-center justify-center">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-[#10b981]/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v3h8" /><path d="M19 17V5a2 2 0 0 0-2-2H4" />
-            </svg>
-          </div>
-          <h3 class="text-sm font-semibold text-text-secondary mb-1">还没有提示词预设</h3>
-          <p class="text-xs text-text-muted mb-4">创建提示词预设后，可以在对比分析和灵感涌现中快速选用</p>
-          <button
-            class="px-4 py-2 rounded-lg text-sm font-medium bg-[#10b981]/10 text-[#10b981] hover:bg-[#10b981]/20 transition-colors"
-            @click="openPromptForm()"
-          >创建第一个预设</button>
-        </div>
-
-        <!-- Prompt preset cards -->
-        <div v-else-if="!showPromptForm" class="space-y-3">
-          <div
-            v-for="preset in promptPresets"
-            :key="preset.id"
-            class="group rounded-xl border border-border bg-bg-card p-5 hover:border-[#10b981]/30 hover:shadow-lg hover:shadow-[#10b981]/5 transition-all duration-200"
-          >
-            <div class="flex items-start justify-between mb-2">
-              <div class="flex items-center gap-2.5">
-                <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[#059669]/20 to-[#10b981]/20 flex items-center justify-center shrink-0">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4.5 h-4.5 text-[#10b981]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v3h8" /><path d="M19 17V5a2 2 0 0 0-2-2H4" />
-                  </svg>
-                </div>
-                <h4 class="text-sm font-semibold text-text-primary">{{ preset.name }}</h4>
-              </div>
-              <!-- Actions -->
-              <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  class="p-1.5 rounded-md hover:bg-bg-hover text-text-muted hover:text-text-primary transition-colors"
-                  title="编辑"
-                  @click="openPromptForm(preset)"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                </button>
-                <button
-                  class="p-1.5 rounded-md hover:bg-red-500/10 text-text-muted hover:text-red-400 transition-colors"
-                  title="删除"
-                  @click="removePromptPreset(preset)"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                </button>
-              </div>
-            </div>
-            <p class="text-xs text-text-muted line-clamp-3 font-mono leading-relaxed pl-[46px]">
-              {{ preset.prompt_content.substring(0, 200) }}{{ preset.prompt_content.length > 200 ? '...' : '' }}
-            </p>
-          </div>
-        </div>
-
-        <!-- Prompt Preset Form -->
-        <Transition
-          enter-active-class="transition duration-200 ease-out"
-          enter-from-class="opacity-0 translate-y-2"
-          enter-to-class="opacity-100 translate-y-0"
-          leave-active-class="transition duration-150 ease-in"
-          leave-from-class="opacity-100 translate-y-0"
-          leave-to-class="opacity-0 translate-y-2"
-        >
-          <div v-if="showPromptForm" class="rounded-xl border border-[#10b981]/20 bg-bg-card p-6 shadow-xl shadow-[#10b981]/5">
-            <div class="flex items-center justify-between mb-5">
-              <h3 class="text-sm font-semibold text-text-primary">
-                {{ editingPromptPreset ? '编辑提示词预设' : '新建提示词预设' }}
-              </h3>
-              <button class="p-1 rounded-md hover:bg-bg-hover text-text-muted" @click="closePromptForm">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-              </button>
-            </div>
-
-            <div class="space-y-4">
-              <div>
-                <label class="block text-xs font-medium text-text-secondary mb-1.5">预设名称 <span class="text-[#10b981]">*</span></label>
-                <input
-                  v-model="promptForm.name"
-                  type="text"
-                  placeholder="例如: 论文对比、深入分析、简要概括..."
-                  class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#10b981] transition-colors"
-                />
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-text-secondary mb-1.5">提示词内容</label>
-                <textarea
-                  v-model="promptForm.prompt_content"
-                  rows="14"
-                  placeholder="输入系统提示词内容..."
-                  class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#10b981] transition-colors resize-y leading-relaxed font-mono"
-                ></textarea>
-              </div>
-            </div>
-
-            <!-- Form actions -->
-            <div class="flex items-center justify-end gap-2 mt-6 pt-4 border-t border-border">
-              <button
-                class="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-bg-hover transition-colors"
-                @click="closePromptForm"
-              >取消</button>
-              <button
-                class="px-5 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-[#059669] to-[#10b981] text-white hover:opacity-90 shadow-lg shadow-[#10b981]/20 transition-all disabled:opacity-50"
-                :disabled="!promptForm.name.trim() || promptFormSaving"
-                @click="savePromptPreset"
-              >{{ promptFormSaving ? '保存中...' : '保存预设' }}</button>
-            </div>
-          </div>
-        </Transition>
-      </div>
+      <PromptPresetsPanel
+        v-else-if="activeNav === 'prompt_presets'"
+        class="h-full overflow-y-auto"
+        @refresh="loadPromptPresets"
+      />
 
       <!-- ============================== -->
       <!-- Feature settings: compare / inspiration -->
@@ -1993,40 +2147,14 @@ watch(() => currentUser.value, () => {
             <!-- Preset selector -->
             <div class="mb-5">
               <label class="block text-xs font-medium text-text-secondary mb-2">选择模型预设</label>
-              <div class="flex flex-wrap gap-2">
-                <!-- "Manual" pill -->
-                <button
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150"
-                  :class="!form.llm_preset_id
-                    ? `border-transparent text-white shadow-md`
-                    : 'border-border text-text-secondary hover:border-text-muted bg-transparent'"
-                  :style="!form.llm_preset_id ? { background: `linear-gradient(135deg, #6366f1, ${accentColor(activeNav)})` } : {}"
-                  @click="form.llm_preset_id = ''"
-                >
-                  手动配置
-                </button>
-                <!-- Preset pills -->
-                <button
-                  v-for="preset in llmPresets"
-                  :key="preset.id"
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150"
-                  :class="String(form.llm_preset_id) === String(preset.id)
-                    ? `border-transparent text-white shadow-md`
-                    : 'border-border text-text-secondary hover:border-text-muted bg-transparent'"
-                  :style="String(form.llm_preset_id) === String(preset.id) ? { background: `linear-gradient(135deg, #6366f1, ${accentColor(activeNav)})` } : {}"
-                  @click="form.llm_preset_id = preset.id"
-                >
-                  {{ preset.name }}
-                </button>
-                <!-- Link to create -->
-                <button
-                  v-if="llmPresets.length === 0"
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                  @click="activeNav = 'llm_presets'"
-                >
-                  + 创建预设
-                </button>
-              </div>
+              <PresetSelector
+                v-model="form.llm_preset_id"
+                :presets="llmPresets"
+                :none-option="{ label: '手动配置' }"
+                :show-model-hint="true"
+                :accent-color="accentColor(activeNav)"
+                :on-go-to-create="() => activeNav = 'llm_presets'"
+              />
               <p v-if="form.llm_preset_id" class="text-[11px] text-text-muted mt-2 flex items-center gap-1">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
                 使用预设「{{ llmPresets.find(p => p.id === Number(form.llm_preset_id))?.name || '—' }}」中的 URL、Key、Model 等连接参数
@@ -2092,37 +2220,13 @@ watch(() => currentUser.value, () => {
             <!-- Prompt preset selector -->
             <div class="mb-4">
               <label class="block text-xs font-medium text-text-secondary mb-2">选择提示词预设</label>
-              <div class="flex flex-wrap gap-2">
-                <!-- "Use default / custom" pill -->
-                <button
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150"
-                  :class="!form.prompt_preset_id
-                    ? 'border-transparent text-white shadow-md bg-gradient-to-r from-[#059669] to-[#10b981]'
-                    : 'border-border text-text-secondary hover:border-text-muted bg-transparent'"
-                  @click="form.prompt_preset_id = ''"
-                >
-                  自定义
-                </button>
-                <!-- Prompt preset pills -->
-                <button
-                  v-for="preset in promptPresets"
-                  :key="preset.id"
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border transition-all duration-150"
-                  :class="String(form.prompt_preset_id) === String(preset.id)
-                    ? 'border-transparent text-white shadow-md bg-gradient-to-r from-[#059669] to-[#10b981]'
-                    : 'border-border text-text-secondary hover:border-text-muted bg-transparent'"
-                  @click="form.prompt_preset_id = preset.id"
-                >
-                  {{ preset.name }}
-                </button>
-                <button
-                  v-if="promptPresets.length === 0"
-                  class="px-3 py-1.5 rounded-full text-xs font-medium border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                  @click="activeNav = 'prompt_presets'"
-                >
-                  + 创建预设
-                </button>
-              </div>
+              <PresetSelector
+                v-model="form.prompt_preset_id"
+                :presets="promptPresets"
+                :none-option="{ label: '自定义' }"
+                accent-color="#059669"
+                :on-go-to-create="() => activeNav = 'prompt_presets'"
+              />
               <p v-if="form.prompt_preset_id" class="text-[11px] text-text-muted mt-2 flex items-center gap-1">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>
                 使用预设「{{ promptPresets.find(p => p.id === Number(form.prompt_preset_id))?.name || '—' }}」作为系统提示词
@@ -2392,31 +2496,14 @@ watch(() => currentUser.value, () => {
               <!-- Global LLM preset selector -->
               <div class="mb-3">
                 <label class="block text-xs font-medium text-text-secondary mb-2">选择全局模型预设</label>
-                <div class="flex flex-wrap gap-1.5">
-                  <button
-                    class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                    :class="!form.llm_preset_id
-                      ? 'border-transparent text-white shadow-sm'
-                      : 'border-border text-text-secondary hover:border-[#f97316]/50 bg-transparent'"
-                    :style="!form.llm_preset_id ? { background: 'linear-gradient(135deg, #ea580c, #f97316)' } : {}"
-                    @click="form.llm_preset_id = ''"
-                  >手动配置</button>
-                  <button
-                    v-for="preset in llmPresets"
-                    :key="preset.id"
-                    class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                    :class="String(form.llm_preset_id) === String(preset.id)
-                      ? 'border-transparent text-white shadow-sm'
-                      : 'border-border text-text-secondary hover:border-[#f97316]/50 bg-transparent'"
-                    :style="String(form.llm_preset_id) === String(preset.id) ? { background: 'linear-gradient(135deg, #ea580c, #f97316)' } : {}"
-                    @click="form.llm_preset_id = preset.id"
-                  >{{ preset.name }}</button>
-                  <button
-                    v-if="llmPresets.length === 0"
-                    class="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                    @click="activeNav = 'llm_presets'"
-                  >+ 创建预设</button>
-                </div>
+                <PresetSelector
+                  v-model="form.llm_preset_id"
+                  :presets="llmPresets"
+                  :none-option="{ label: '手动配置' }"
+                  :show-model-hint="true"
+                  accent-color="#f97316"
+                  :on-go-to-create="() => activeNav = 'llm_presets'"
+                />
               </div>
               <!-- Manual config (when no preset) -->
               <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 max-h-0" enter-to-class="opacity-100 max-h-[300px]" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 max-h-[300px]" leave-to-class="opacity-0 max-h-0">
@@ -2472,38 +2559,20 @@ watch(() => currentUser.value, () => {
             <div class="divide-y divide-border/50">
               <!-- LLM preset row (only show module-specific rows, not the global "plan" row that uses llm_preset_id) -->
               <div v-if="mod.llmFormKey !== 'llm_preset_id'" class="px-5 py-3.5 flex items-start gap-3">
-                <div class="w-36 shrink-0 flex items-center gap-1.5 pt-1">
+                <div class="w-36 shrink-0 flex items-center gap-1.5 pt-1.5">
                   <span class="text-sm">🤖</span>
                   <span class="text-xs font-medium text-text-secondary">专用模型预设</span>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="preset in llmPresets"
-                      :key="preset.id"
-                      class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                      :class="String(form[mod.llmFormKey]) === String(preset.id)
-                        ? 'border-transparent text-white shadow-sm'
-                        : 'border-border text-text-secondary hover:border-[#f97316]/50 bg-transparent'"
-                      :style="String(form[mod.llmFormKey]) === String(preset.id) ? { background: 'linear-gradient(135deg, #ea580c, #f97316)' } : {}"
-                      @click="form[mod.llmFormKey] = preset.id"
-                    >{{ preset.name }}</button>
-                    <button
-                      v-if="llmPresets.length === 0"
-                      class="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                      @click="activeNav = 'llm_presets'"
-                    >+ 创建预设</button>
-                    <button
-                      v-if="form[mod.llmFormKey]"
-                      class="px-2 py-1 rounded-full text-[11px] border border-border/60 text-text-muted hover:text-red-400 hover:border-red-400/40 transition-colors leading-none"
-                      @click="form[mod.llmFormKey] = null"
-                    >✕</button>
-                  </div>
-                  <p v-if="form[mod.llmFormKey]" class="text-[11px] text-text-muted mt-1.5 flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-                    已选：{{ llmPresets.find(p => p.id === Number(form[mod.llmFormKey]))?.name || '—' }}
-                  </p>
-                  <template v-else-if="llmPresets.length > 0">
+                  <PresetSelector
+                    v-model="form[mod.llmFormKey]"
+                    :presets="llmPresets"
+                    :show-model-hint="true"
+                    accent-color="#f97316"
+                    placeholder="使用全局默认"
+                    :on-go-to-create="() => activeNav = 'llm_presets'"
+                  />
+                  <template v-if="!form[mod.llmFormKey] && llmPresets.length > 0">
                     <p v-if="mod.key !== 'ingest' && form.ingest_llm_preset_id" class="text-[11px] text-amber-400/80 mt-1.5 flex items-center gap-1 italic">
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                       继承自：原子抽取（{{ llmPresets.find(p => p.id === Number(form.ingest_llm_preset_id))?.name || '已配置' }}）
@@ -2515,37 +2584,19 @@ watch(() => currentUser.value, () => {
 
               <!-- Prompt preset rows -->
               <div v-for="prompt in mod.prompts" :key="prompt.formKey" class="px-5 py-3.5 flex items-start gap-3">
-                <div class="w-36 shrink-0 flex items-center gap-1.5 pt-1">
+                <div class="w-36 shrink-0 flex items-center gap-1.5 pt-1.5">
                   <span class="text-sm">📝</span>
                   <span class="text-xs font-medium text-text-secondary">{{ prompt.label }}</span>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="preset in promptPresets"
-                      :key="preset.id"
-                      class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                      :class="String(form[prompt.formKey]) === String(preset.id)
-                        ? 'border-transparent text-white shadow-sm bg-gradient-to-r from-[#ea580c] to-[#f97316]'
-                        : 'border-border text-text-secondary hover:border-[#f97316]/50 bg-transparent'"
-                      @click="form[prompt.formKey] = preset.id"
-                    >{{ preset.name }}</button>
-                    <button
-                      v-if="promptPresets.length === 0"
-                      class="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                      @click="activeNav = 'prompt_presets'"
-                    >+ 创建预设</button>
-                    <button
-                      v-if="form[prompt.formKey]"
-                      class="px-2 py-1 rounded-full text-[11px] border border-border/60 text-text-muted hover:text-red-400 hover:border-red-400/40 transition-colors leading-none"
-                      @click="form[prompt.formKey] = null"
-                    >✕</button>
-                  </div>
-                  <p v-if="form[prompt.formKey]" class="text-[11px] text-text-muted mt-1.5 flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-                    已选：{{ promptPresets.find(p => p.id === Number(form[prompt.formKey]))?.name || '—' }}
-                  </p>
-                  <p v-else-if="promptPresets.length > 0" class="text-[11px] text-text-muted/50 mt-1.5 italic">未选择，使用系统默认提示词</p>
+                  <PresetSelector
+                    v-model="form[prompt.formKey]"
+                    :presets="promptPresets"
+                    accent-color="#f97316"
+                    placeholder="使用系统默认提示词"
+                    :on-go-to-create="() => activeNav = 'prompt_presets'"
+                  />
+                  <p v-if="!form[prompt.formKey] && promptPresets.length > 0" class="text-[11px] text-text-muted/50 mt-1.5 italic">未选择，使用系统默认提示词</p>
                 </div>
               </div>
             </div>
@@ -2667,38 +2718,20 @@ watch(() => currentUser.value, () => {
             <div class="divide-y divide-border/50">
               <!-- LLM preset row -->
               <div class="px-5 py-3.5 flex items-start gap-3">
-                <div class="w-32 shrink-0 flex items-center gap-1.5 pt-1">
+                <div class="w-32 shrink-0 flex items-center gap-1.5 pt-1.5">
                   <span class="text-sm">🤖</span>
                   <span class="text-xs font-medium text-text-secondary">调用模型预设</span>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="preset in llmPresets"
-                      :key="preset.id"
-                      class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                      :class="String(form[mod.llmFormKey]) === String(preset.id)
-                        ? 'border-transparent text-white shadow-sm'
-                        : 'border-border text-text-secondary hover:border-[#ec4899]/50 bg-transparent'"
-                      :style="String(form[mod.llmFormKey]) === String(preset.id) ? { background: 'linear-gradient(135deg, #db2777, #ec4899)' } : {}"
-                      @click="form[mod.llmFormKey] = preset.id"
-                    >{{ preset.name }}</button>
-                    <button
-                      v-if="llmPresets.length === 0"
-                      class="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                      @click="activeNav = 'llm_presets'"
-                    >+ 创建预设</button>
-                    <button
-                      v-if="form[mod.llmFormKey]"
-                      class="px-2 py-1 rounded-full text-[11px] border border-border/60 text-text-muted hover:text-red-400 hover:border-red-400/40 transition-colors leading-none"
-                      @click="form[mod.llmFormKey] = null"
-                    >✕</button>
-                  </div>
-                  <p v-if="form[mod.llmFormKey]" class="text-[11px] text-text-muted mt-1.5 flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-                    已选：{{ llmPresets.find(p => p.id === Number(form[mod.llmFormKey]))?.name || '—' }}
-                  </p>
-                  <template v-else-if="llmPresets.length > 0">
+                  <PresetSelector
+                    v-model="form[mod.llmFormKey]"
+                    :presets="llmPresets"
+                    :show-model-hint="true"
+                    accent-color="#ec4899"
+                    placeholder="使用全局默认"
+                    :on-go-to-create="() => activeNav = 'llm_presets'"
+                  />
+                  <template v-if="!form[mod.llmFormKey] && llmPresets.length > 0">
                     <p v-if="mod.key !== 'theme_select' && form.theme_select_llm_preset_id" class="text-[11px] text-amber-400/80 mt-1.5 flex items-center gap-1 italic">
                       <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                       继承自：主题相关性评分（{{ llmPresets.find(p => p.id === Number(form.theme_select_llm_preset_id))?.name || '已配置' }}）
@@ -2710,37 +2743,19 @@ watch(() => currentUser.value, () => {
 
               <!-- Prompt preset rows -->
               <div v-for="prompt in mod.prompts" :key="prompt.formKey" class="px-5 py-3.5 flex items-start gap-3">
-                <div class="w-32 shrink-0 flex items-center gap-1.5 pt-1">
+                <div class="w-32 shrink-0 flex items-center gap-1.5 pt-1.5">
                   <span class="text-sm">📝</span>
                   <span class="text-xs font-medium text-text-secondary">{{ prompt.label }}</span>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex flex-wrap gap-1.5">
-                    <button
-                      v-for="preset in promptPresets"
-                      :key="preset.id"
-                      class="px-2.5 py-1 rounded-full text-xs font-medium border transition-all duration-150"
-                      :class="String(form[prompt.formKey]) === String(preset.id)
-                        ? 'border-transparent text-white shadow-sm bg-gradient-to-r from-[#059669] to-[#10b981]'
-                        : 'border-border text-text-secondary hover:border-[#10b981]/50 bg-transparent'"
-                      @click="form[prompt.formKey] = preset.id"
-                    >{{ preset.name }}</button>
-                    <button
-                      v-if="promptPresets.length === 0"
-                      class="px-2.5 py-1 rounded-full text-xs border border-dashed border-border text-text-muted hover:text-text-secondary hover:border-text-muted transition-colors"
-                      @click="activeNav = 'prompt_presets'"
-                    >+ 创建预设</button>
-                    <button
-                      v-if="form[prompt.formKey]"
-                      class="px-2 py-1 rounded-full text-[11px] border border-border/60 text-text-muted hover:text-red-400 hover:border-red-400/40 transition-colors leading-none"
-                      @click="form[prompt.formKey] = null"
-                    >✕</button>
-                  </div>
-                  <p v-if="form[prompt.formKey]" class="text-[11px] text-text-muted mt-1.5 flex items-center gap-1">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-emerald-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-                    已选：{{ promptPresets.find(p => p.id === Number(form[prompt.formKey]))?.name || '—' }}
-                  </p>
-                  <p v-else-if="promptPresets.length > 0" class="text-[11px] text-text-muted/50 mt-1.5 italic">未选择，使用系统默认配置</p>
+                  <PresetSelector
+                    v-model="form[prompt.formKey]"
+                    :presets="promptPresets"
+                    accent-color="#059669"
+                    placeholder="使用系统默认提示词"
+                    :on-go-to-create="() => activeNav = 'prompt_presets'"
+                  />
+                  <p v-if="!form[prompt.formKey] && promptPresets.length > 0" class="text-[11px] text-text-muted/50 mt-1.5 italic">未选择，使用系统默认配置</p>
                 </div>
               </div>
             </div>
@@ -2903,6 +2918,8 @@ watch(() => currentUser.value, () => {
       <!-- ============================== -->
       <!-- Placeholder for disabled features -->
       <!-- ============================== -->
+      <AutoClassifyPanel v-else-if="activeNav === 'auto_classify'" />
+
       <div v-else class="flex items-center justify-center h-full">
         <div class="text-center">
           <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-bg-elevated flex items-center justify-center">
@@ -2919,3 +2936,9 @@ watch(() => currentUser.value, () => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.settings-sidebar {
+  width: var(--settings-sidebar-w);
+}
+</style>

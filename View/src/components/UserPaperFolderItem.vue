@@ -94,32 +94,38 @@ function noteIcon(type: string): string {
   <div>
     <!-- Folder row -->
     <div
-      class="flex items-center gap-1.5 px-2 py-1.5 rounded-lg cursor-pointer select-none group transition-colors"
+      class="flex items-center gap-1.5 py-1.5 rounded-lg cursor-pointer select-none group transition-colors"
       :class="activeFolderId === folder.id
-        ? 'bg-tinder-blue/10 text-tinder-blue'
+        ? 'bg-tinder-gold/8 text-tinder-gold'
         : 'hover:bg-bg-hover text-text-secondary'"
-      :style="{ paddingLeft: `${8 + depth * 16}px` }"
+      :style="{ paddingLeft: `${8 + depth * 16}px`, paddingRight: '8px' }"
       @click.stop="emit('toggle-folder', folder.id); emit('select-folder', folder.id)"
     >
-      <!-- Expand arrow -->
+      <!-- Expand arrow (SVG chevron) -->
       <svg
-        class="w-3 h-3 shrink-0 transition-transform duration-150"
+        class="w-3 h-3 shrink-0 transition-transform duration-150 text-text-muted"
         :class="expandedFolders.has(folder.id) ? 'rotate-90' : ''"
-        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
         stroke-linecap="round" stroke-linejoin="round"
       >
         <polyline points="9 18 15 12 9 6"/>
       </svg>
 
-      <!-- Folder icon -->
-      <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <!-- Folder icon (stroke-only, tinder-gold for mypapers) -->
+      <svg
+        class="shrink-0 transition-colors"
+        style="width:18px;height:18px;"
+        :class="activeFolderId === folder.id ? 'text-tinder-gold' : 'text-text-secondary'"
+        viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+      >
         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
       </svg>
 
       <!-- Rename input -->
       <input
         v-if="renamingFolderId === folder.id"
-        class="flex-1 bg-bg-elevated border border-tinder-blue/50 rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none"
+        class="flex-1 bg-bg-elevated border border-tinder-gold/50 rounded px-1.5 py-0.5 text-xs text-text-primary focus:outline-none"
         :value="renamingFolderName"
         autofocus
         @input="emit('update:renamingFolderName', ($event.target as HTMLInputElement).value)"
@@ -134,9 +140,13 @@ function noteIcon(type: string): string {
         <span class="text-[10px] text-text-muted shrink-0">{{ folder.papers?.length ?? 0 }}</span>
         <!-- Menu button -->
         <button
-          class="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
+          class="w-5 h-5 flex items-center justify-center rounded-lg text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity"
           @click.stop="emit('open-folder-menu', $event, folder)"
-        >⋯</button>
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor" class="w-3.5 h-3.5">
+            <circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/>
+          </svg>
+        </button>
       </template>
     </div>
 
@@ -148,7 +158,9 @@ function noteIcon(type: string): string {
         class="flex items-center gap-2 px-2 py-2"
         :style="{ paddingLeft: `${8 + (depth + 1) * 16}px` }"
       >
-        <svg class="w-4 h-4 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+        <svg class="shrink-0 text-text-muted" style="width:18px;height:18px;"
+             viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
         <input

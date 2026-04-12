@@ -53,6 +53,10 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
     title: '帖子详情 - AI4Papers 社区',
     description: '查看社区帖子详情与回复。',
   },
+  'announcement-detail': {
+    title: '公告详情 - AI4Papers',
+    description: '查看 AI4Papers 平台公告详情。',
+  },
 }
 
 const DEFAULT_TITLE = 'AI4Papers - 免费 AI 论文推荐工具 | arXiv 每日论文 · 中文摘要 · 论文阅读助手'
@@ -142,6 +146,13 @@ const router = createRouter({
       path: '/community/post/:id',
       name: 'community-post',
       component: () => import('../views/CommunityPostView.vue'),
+      props: true,
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/announcements/:id',
+      name: 'announcement-detail',
+      component: () => import('../views/AnnouncementDetail.vue'),
       props: true,
       meta: { requiresAuth: true },
     },
