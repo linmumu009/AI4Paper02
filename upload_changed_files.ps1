@@ -75,7 +75,19 @@ if ($InstallPublicKey) {
   }
 
   Write-Host "Installing the public key on $Remote. Enter the server password once when prompted."
-  $installCommand = 'umask 077; mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"; IFS= read -r key; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
+  $publicKeyBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($publicKey))
+  $remoteScriptLines = @(
+    'set -eu',
+    'umask 077',
+    'mkdir -p "$HOME/.ssh"',
+    'chmod 700 "$HOME/.ssh"',
+    'touch "$HOME/.ssh/authorized_keys"',
+    'chmod 600 "$HOME/.ssh/authorized_keys"',
+    ('key=$(printf ''%s'' ''{0}'' | base64 -d)' -f $publicKeyBase64),
+    'grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf ''%s\n'' "$key" >> "$HOME/.ssh/authorized_keys"'
+  )
+  $remoteScript = $remoteScriptLines -join "`n"
+  $installPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
   $sshArgs = @(
     "-o","BatchMode=no",
     "-o","PubkeyAuthentication=no",
@@ -84,10 +96,10 @@ if ($InstallPublicKey) {
     "-o","ConnectTimeout=15",
     "-p",$Port,
     $Remote,
-    $installCommand
+    "base64 -d | sh"
   )
 
-  $publicKey | & ssh @sshArgs
+  $installPayload | & ssh @sshArgs
   if ($LASTEXITCODE -ne 0) { throw "Failed to install the SSH public key." }
 
   Write-Host "Public key installed. Verifying key-only authentication..."
