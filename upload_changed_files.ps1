@@ -11,7 +11,6 @@ param(
   [string]$LocalRoot     = "D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\",
   [string]$RemoteRoot    = "/projects/ArxivPaper4/",
   [string]$IdentityFile  = (Join-Path $env:USERPROFILE ".ssh\ai4papers_sync_ed25519"),
-  [string]$KnownHostsFile = (Join-Path $env:USERPROFILE ".ssh\known_hosts"),
   [switch]$InstallPublicKey,
   [switch]$DryRun
 )
@@ -53,7 +52,6 @@ function Get-RemoteDirChain([string]$dir) {
 $LocalRoot  = Normalize-LocalRoot $LocalRoot
 $RemoteRoot = Normalize-RemoteRoot $RemoteRoot
 $IdentityFile = [System.IO.Path]::GetFullPath($IdentityFile)
-$KnownHostsFile = [System.IO.Path]::GetFullPath($KnownHostsFile)
 
 if (-not (Test-Path -LiteralPath $ListFile)) { throw "List file not found: $ListFile" }
 if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
@@ -63,11 +61,6 @@ if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
 # Never allow a private key under the project root.
 if ($IdentityFile.StartsWith($LocalRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
   throw "Refusing to use a private key stored under LocalRoot: $IdentityFile"
-}
-
-$knownHostsDir = Split-Path -Parent $KnownHostsFile
-if (-not (Test-Path -LiteralPath $knownHostsDir)) {
-  New-Item -ItemType Directory -Path $knownHostsDir -Force | Out-Null
 }
 
 if ($InstallPublicKey) {
@@ -88,7 +81,6 @@ if ($InstallPublicKey) {
     "-o","PubkeyAuthentication=no",
     "-o","PreferredAuthentications=password,keyboard-interactive",
     "-o","StrictHostKeyChecking=yes",
-    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
     "-o","ConnectTimeout=15",
     "-p",$Port,
     $Remote,
@@ -106,7 +98,6 @@ if ($InstallPublicKey) {
     "-o","PasswordAuthentication=no",
     "-o","KbdInteractiveAuthentication=no",
     "-o","StrictHostKeyChecking=yes",
-    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
     "-o","ConnectTimeout=15",
     "-i",$IdentityFile,
     "-p",$Port,
@@ -190,7 +181,6 @@ try {
     "-o","PasswordAuthentication=no",
     "-o","KbdInteractiveAuthentication=no",
     "-o","StrictHostKeyChecking=accept-new",
-    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
     "-o","ConnectTimeout=15",
     "-i",$IdentityFile,
     "-P",$Port,
