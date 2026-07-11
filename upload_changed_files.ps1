@@ -88,6 +88,7 @@ if ($InstallPublicKey) {
   )
   $remoteScript = $remoteScriptLines -join "`n"
   $installPayload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteScript))
+  $installCommand = "printf '%s' '$installPayload' | base64 -d | sh"
   $sshArgs = @(
     "-o","BatchMode=no",
     "-o","PubkeyAuthentication=no",
@@ -96,10 +97,10 @@ if ($InstallPublicKey) {
     "-o","ConnectTimeout=15",
     "-p",$Port,
     $Remote,
-    "base64 -d | sh"
+    $installCommand
   )
 
-  $installPayload | & ssh @sshArgs
+  & ssh @sshArgs
   if ($LASTEXITCODE -ne 0) { throw "Failed to install the SSH public key." }
 
   Write-Host "Public key installed. Verifying key-only authentication..."
