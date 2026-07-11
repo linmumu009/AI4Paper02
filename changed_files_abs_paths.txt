@@ -2,6 +2,9 @@
 # Keep this list deduplicated; upload_changed_files.ps1 preserves paths relative to LocalRoot.
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\AGENTS.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\changed_files_abs_paths.txt
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_changed_files.ps1
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_server.sh
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\change_sync_deploy_workflow.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_assets.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_summary.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\pdf_info.py
