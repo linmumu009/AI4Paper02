@@ -96,6 +96,13 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone() is not None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -113,6 +120,7 @@ def init_db() -> None:
                 paper_ids_json    TEXT    NOT NULL,
                 config_json       TEXT    NOT NULL DEFAULT '{}',
                 parent_session_id INTEGER,
+                project_id        INTEGER DEFAULT NULL,
                 status            TEXT    NOT NULL DEFAULT 'pending',
                 created_at        TEXT    NOT NULL,
                 updated_at        TEXT    NOT NULL
@@ -156,6 +164,17 @@ def init_db() -> None:
             conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+        # Migrate: add the primary research-project relationship
+        try:
+            conn.execute("ALTER TABLE research_sessions ADD COLUMN project_id INTEGER DEFAULT NULL")
+            conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_research_sessions_project "
+            "ON research_sessions(user_id, project_id, updated_at DESC)"
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -165,7 +184,8 @@ def init_db() -> None:
 # ---------------------------------------------------------------------------
 
 def create_session(user_id: int, question: str, paper_ids: list[str], config: dict,
-                   parent_session_id: Optional[int] = None) -> int:
+                   parent_session_id: Optional[int] = None,
+                   project_id: Optional[int] = None) -> int:
     """Insert a new running session.  Uses an explicit transaction to minimise the
     race window between the has_running_session guard and this insert."""
     now = _now_iso()
@@ -180,10 +200,11 @@ def create_session(user_id: int, question: str, paper_ids: list[str], config: di
                 raise RuntimeError("concurrent running session detected")
             cur = conn.execute(
                 "INSERT INTO research_sessions "
-                "(user_id, question, paper_ids_json, config_json, parent_session_id, status, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, 'running', ?, ?)",
+                "(user_id, question, paper_ids_json, config_json, parent_session_id, project_id, "
+                " status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'running', ?, ?)",
                 (user_id, question, json.dumps(paper_ids, ensure_ascii=False),
-                 json.dumps(config, ensure_ascii=False), parent_session_id, now, now),
+                 json.dumps(config, ensure_ascii=False), parent_session_id, project_id, now, now),
             )
         return cur.lastrowid
     finally:
@@ -269,8 +290,9 @@ def list_sessions(
     """
     List research sessions for a user.
 
-    retention_days: if given, non-saved sessions older than this many days are excluded.
-                    Saved sessions (saved=1) are always returned regardless of age.
+    retention_days: if given, non-saved and unassigned sessions older than this
+                    many days are excluded. Saved or project-linked sessions are
+                    always returned regardless of age.
                     None means no time-based filtering.
     """
     conn = _connect()
@@ -280,13 +302,14 @@ def list_sessions(
         if saved_only:
             where += " AND saved = 1"
         elif retention_days is not None:
-            # Keep saved sessions always; filter out unsaved ones beyond retention window
+            # Project-linked research is durable even when it is not starred.
             cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
-            where += " AND (saved = 1 OR created_at >= ?)"
+            where += " AND (saved = 1 OR project_id IS NOT NULL OR created_at >= ?)"
             params.append(cutoff)
         params.append(limit)
         rows = conn.execute(
-            f"SELECT id, question, status, created_at, updated_at, paper_ids_json, saved "
+            f"SELECT id, question, status, created_at, updated_at, paper_ids_json, "
+            f"saved, folder_id, project_id "
             f"FROM research_sessions {where} "
             f"ORDER BY created_at DESC LIMIT ?",
             params,
@@ -369,18 +392,25 @@ def get_tree(user_id: int, retention_days: int | None = None) -> dict:
             "SELECT * FROM kb_folders WHERE user_id = ? AND scope = ? ORDER BY created_at",
             (user_id, _RESEARCH_FOLDER_SCOPE),
         ).fetchall()
+        project_rows = conn.execute(
+            "SELECT id, legacy_folder_id FROM research_projects "
+            "WHERE user_id=? AND status!='deleted'",
+            (user_id,),
+        ).fetchall() if _table_exists(conn, "research_projects") else []
 
         if retention_days is not None:
             cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
             session_rows = conn.execute(
-                "SELECT id, question, status, created_at, updated_at, paper_ids_json, saved, folder_id "
-                "FROM research_sessions WHERE user_id = ? AND (saved = 1 OR created_at >= ?) "
+                "SELECT id, question, status, created_at, updated_at, paper_ids_json, "
+                "saved, folder_id, project_id FROM research_sessions "
+                "WHERE user_id = ? AND (saved = 1 OR project_id IS NOT NULL OR created_at >= ?) "
                 "ORDER BY created_at DESC",
                 (user_id, cutoff),
             ).fetchall()
         else:
             session_rows = conn.execute(
-                "SELECT id, question, status, created_at, updated_at, paper_ids_json, saved, folder_id "
+                "SELECT id, question, status, created_at, updated_at, paper_ids_json, "
+                "saved, folder_id, project_id "
                 "FROM research_sessions WHERE user_id = ? "
                 "ORDER BY created_at DESC",
                 (user_id,),
@@ -388,10 +418,15 @@ def get_tree(user_id: int, retention_days: int | None = None) -> dict:
     finally:
         conn.close()
 
+    project_by_folder = {
+        int(row["legacy_folder_id"]): int(row["id"]) for row in project_rows
+    }
+
     # Build folder lookup
     folders_by_id: dict[int, dict] = {}
     for row in folder_rows:
         d = dict(row)
+        d["project_id"] = project_by_folder.get(int(d["id"]))
         d["children"] = []
         d["sessions"] = []
         folders_by_id[d["id"]] = d
@@ -441,13 +476,16 @@ def move_sessions(user_id: int, session_ids: list[int], target_folder_id: int | 
     if not session_ids:
         return 0
 
+    from services import project_service
+    target_project_id = project_service.project_id_for_folder(user_id, target_folder_id)
+
     conn = _connect()
     try:
         placeholders = ",".join("?" * len(session_ids))
         cur = conn.execute(
-            f"UPDATE research_sessions SET folder_id = ?, updated_at = ? "
+            f"UPDATE research_sessions SET folder_id = ?, project_id = ?, updated_at = ? "
             f"WHERE id IN ({placeholders}) AND user_id = ?",
-            [target_folder_id, _now_iso()] + list(session_ids) + [user_id],
+            [target_folder_id, target_project_id, _now_iso()] + list(session_ids) + [user_id],
         )
         conn.commit()
         return cur.rowcount
@@ -990,6 +1028,7 @@ def stream_research(
     paper_ids: list[str],
     scope: str = "kb",
     config: Optional[dict] = None,
+    project_id: Optional[int] = None,
     cancel_event=None,
 ) -> Generator[str, None, None]:
     """
@@ -1036,7 +1075,9 @@ def stream_research(
     session_config = dict(config)
     session_config["scope"] = scope
     session_id: Optional[int] = None  # initialise before try so outer except can reference it safely
-    session_id = create_session(user_id, question, paper_ids, session_config)
+    session_id = create_session(
+        user_id, question, paper_ids, session_config, project_id=project_id
+    )
 
     # Emit session_id immediately so the frontend can use it for follow-up requests.
     yield _sse({"type": "session_created", "session_id": session_id})
@@ -1468,6 +1509,7 @@ def stream_followup(
     session_id = create_session(
         user_id, question, parent["paper_ids"], child_config,
         parent_session_id=parent_session_id,
+        project_id=parent.get("project_id"),
     )
 
     yield _sse({"type": "session_created", "session_id": session_id})

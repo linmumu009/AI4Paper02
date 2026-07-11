@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   fetchResearchTree,
   fetchResearchSessions,
@@ -9,6 +10,9 @@ import {
   downloadResearchResult,
   moveResearchSessions,
   createKbFolder,
+  createResearchProject,
+  updateResearchProject,
+  archiveResearchProject,
   renameKbFolder,
   deleteKbFolder,
 } from '../../api'
@@ -21,6 +25,8 @@ import type { KbMenuItem } from '../../types/paper'
 const props = defineProps<{
   activeSessionId: number | null
 }>()
+
+const router = useRouter()
 
 const emit = defineEmits<{
   openResearchSession: [sessionId: number]
@@ -43,6 +49,18 @@ const allSessions = computed(() => {
   }
   collectSessions(researchTree.value.folders)
   result.push(...researchTree.value.sessions)
+  return result
+})
+
+const allResearchFolders = computed(() => {
+  const result: ResearchFolder[] = []
+  function collect(folders: ResearchFolder[]) {
+    for (const folder of folders) {
+      result.push(folder)
+      collect(folder.children)
+    }
+  }
+  collect(researchTree.value.folders)
   return result
 })
 
@@ -144,7 +162,11 @@ async function confirmNewFolder() {
   showNewFolderInput.value = false
   if (!name) return
   try {
-    await createKbFolder(name, newFolderParentId.value, 'research')
+    if (newFolderParentId.value === null) {
+      await createResearchProject({ name })
+    } else {
+      await createKbFolder(name, newFolderParentId.value, 'research')
+    }
     await load()
   } catch { /* silently ignore */ }
 }
@@ -174,7 +196,12 @@ async function confirmRenameFolder() {
   renamingFolderId.value = null
   if (!name) return
   try {
-    await renameKbFolder(id, name, 'research')
+    const folder = allResearchFolders.value.find(item => item.id === id)
+    if (folder?.project_id) {
+      await updateResearchProject(folder.project_id, { name })
+    } else {
+      await renameKbFolder(id, name, 'research')
+    }
     await load()
   } catch { /* silently ignore */ }
 }
@@ -198,9 +225,10 @@ function openFolderMenu(e: MouseEvent, folder: ResearchFolder) {
     x: e.clientX,
     y: e.clientY,
     items: [
+      ...(folder.project_id ? [{ key: 'open-project', label: '打开课题空间' }] : []),
       { key: 'new-subfolder', label: '新建子文件夹' },
       { key: 'rename', label: '重命名' },
-      { key: 'delete', label: '删除文件夹', danger: true },
+      { key: folder.project_id ? 'archive-project' : 'delete', label: folder.project_id ? '归档课题' : '删除文件夹', danger: true },
     ],
     target: { type: 'folder', folder },
   }
@@ -229,10 +257,15 @@ async function handleMenuSelect(key: string) {
 
   if (menu.target.type === 'folder') {
     const folder = menu.target.folder
-    if (key === 'new-subfolder') {
+    if (key === 'open-project' && folder.project_id) {
+      router.push(`/projects/${folder.project_id}`)
+    } else if (key === 'new-subfolder') {
       startNewFolder(folder.id)
     } else if (key === 'rename') {
       startRenameFolder(folder)
+    } else if (key === 'archive-project' && folder.project_id) {
+      await archiveResearchProject(folder.project_id)
+      await load()
     } else if (key === 'delete') {
       await handleDeleteFolder(folder.id)
     }
@@ -381,7 +414,7 @@ defineExpose({ load, switchToSaved })
             <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v11m0 0H5a2 2 0 0 1-2-2V7m6 7h10m0 0a2 2 0 0 0 2-2V7m-12 7v4m0 0h4m-4 0H5"/>
             <circle cx="17" cy="18" r="3"/><path d="m21 22-1.5-1.5"/>
           </svg>
-          <span class="text-xs font-semibold text-text-primary">深度研究</span>
+          <span class="text-xs font-semibold text-text-primary">课题与研究</span>
         </div>
         <button
           class="text-[11px] text-text-muted hover:text-accent-primary transition-colors px-2 py-1 rounded-lg hover:bg-bg-elevated cursor-pointer border-none bg-transparent"
@@ -394,7 +427,7 @@ defineExpose({ load, switchToSaved })
       <div class="flex items-center justify-between">
         <span class="text-[11px] text-text-muted/50 select-none">
           <template v-if="totalCount > 0">{{ totalCount }} 条</template>
-          <template v-else>深度研究</template>
+          <template v-else>课题空间</template>
         </span>
         <div class="flex items-center gap-1.5">
           <button
@@ -412,7 +445,7 @@ defineExpose({ load, switchToSaved })
           </button>
           <button
             class="flex items-center gap-1 text-[11px] px-2 py-1 rounded-md bg-transparent border border-border text-text-muted hover:text-tinder-pink hover:border-tinder-pink/40 cursor-pointer transition-colors"
-            title="新建文件夹"
+            title="新建课题"
             @click.stop="startNewFolder(null)"
           >
             <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor"

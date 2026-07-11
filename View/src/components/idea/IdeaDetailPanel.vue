@@ -14,6 +14,7 @@ import {
 
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 import type { IdeaCandidate, IdeaAtom, IdeaPlan } from '../../types/paper'
+import AddToProjectDialog from '../project/AddToProjectDialog.vue'
 
 const props = defineProps<{
   candidateId: number
@@ -29,6 +30,7 @@ const atoms = ref<IdeaAtom[]>([])
 const plan = ref<IdeaPlan | null>(null)
 const loading = ref(true)
 const error = ref('')
+const showProjectDialog = ref(false)
 
 // 评审状态
 const reviewAction = ref<'approve' | 'reject' | 'revise'>('approve')
@@ -428,6 +430,10 @@ async function markAsExemplar() {
           <!-- 操作 -->
           <div class="flex items-center gap-2 pt-4 border-t border-border">
             <button
+              class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-tinder-green hover:border-green-500/30 hover:bg-green-500/10 transition-colors"
+              @click="showProjectDialog = true"
+            >🗂️ 加入课题</button>
+            <button
               class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-green-400 hover:border-green-500/30 hover:bg-green-500/10 transition-colors"
               @click="markAsExemplar"
             >⭐ 标记为范例</button>
@@ -725,6 +731,13 @@ async function markAsExemplar() {
 
       </div>
     </template>
+    <AddToProjectDialog
+      v-if="showProjectDialog && candidate"
+      asset-type="idea"
+      :asset-id="String(candidate.id)"
+      :asset-title="candidate.title"
+      @close="showProjectDialog = false"
+    />
   </div>
 </template>
 

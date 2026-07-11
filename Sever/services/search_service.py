@@ -152,6 +152,27 @@ def search_assets(user_id: int, query: str, limit: int = 30) -> dict:
                         "updated_at": row["updated_at"],
                         "score": _score(title, title, q),
                     })
+
+            if _table_exists(conn, "research_projects"):
+                rows = conn.execute(
+                    "SELECT id, name, objective, description, updated_at FROM research_projects "
+                    "WHERE user_id=? AND status!='deleted' "
+                    "AND (name LIKE ? OR objective LIKE ? OR description LIKE ?) "
+                    "ORDER BY updated_at DESC LIMIT ?",
+                    (user_id, like, like, like, per_type_limit),
+                ).fetchall()
+                for row in rows:
+                    title = row["name"] or "未命名课题"
+                    searchable = " ".join((row["objective"] or "", row["description"] or ""))
+                    results.append({
+                        "type": "project",
+                        "id": str(row["id"]),
+                        "title": title,
+                        "subtitle": "课题空间",
+                        "route": f"/projects/{row['id']}",
+                        "updated_at": row["updated_at"],
+                        "score": _score(title, searchable, q),
+                    })
         finally:
             conn.close()
 

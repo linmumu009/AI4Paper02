@@ -92,7 +92,7 @@ const toolGroups = [
     items: [
       { key: 'knowledge',        label: '知识库',   desc: '沉淀收藏论文' },
       { key: 'compare-library',  label: '对比库',   desc: '已保存对比结果' },
-      { key: 'research-library', label: '研究库',   desc: '深度研究会话' },
+      { key: 'research-library', label: '研究库',   desc: '课题与深度研究' },
       { key: 'mypapers',         label: '我的论文', desc: '上传 / 导入文献' },
       { key: 'recap',            label: '本周回顾', desc: '研究脉络总结' },
     ],
@@ -121,7 +121,7 @@ function handleToolClick(key: string) {
   switch (key) {
     case 'knowledge':        router.push('/?tool=knowledge'); break
     case 'compare-library':  router.push('/?tool=compare-library'); break
-    case 'research-library': router.push('/?tool=research-library'); break
+    case 'research-library': router.push('/projects'); break
     case 'mypapers':         router.push('/?tab=mypapers'); break
     case 'recap':            router.push('/recap'); break
     case 'chat':             globalChat.open(); break

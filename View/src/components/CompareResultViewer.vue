@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import MarkdownIt from 'markdown-it'
 import { fetchCompareResult } from '../api'
 import type { KbCompareResult } from '../types/paper'
+import AddToProjectDialog from './project/AddToProjectDialog.vue'
 
 const props = defineProps<{
   resultId: number
@@ -18,6 +19,7 @@ const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 const loading = ref(true)
 const error = ref('')
 const result = ref<KbCompareResult | null>(null)
+const showProjectDialog = ref(false)
 
 const renderedHtml = computed(() => {
   if (!result.value) return ''
@@ -67,6 +69,11 @@ watch(() => props.resultId, loadResult)
           <h2 class="text-base font-bold text-text-primary truncate">{{ result?.title || '对比结果' }}</h2>
         </div>
         <div class="flex items-center gap-2">
+          <button
+            v-if="result"
+            class="px-3 py-1 rounded-full text-xs font-medium border border-border bg-transparent text-tinder-green cursor-pointer hover:bg-bg-hover transition-colors"
+            @click="showProjectDialog = true"
+          >🗂️ 加入课题</button>
           <button
             v-if="result"
             class="px-3 py-1 rounded-full text-xs font-medium border border-border bg-transparent cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-1"
@@ -124,8 +131,15 @@ watch(() => props.resultId, loadResult)
         class="compare-markdown prose prose-sm max-w-none"
         v-html="renderedHtml"
       ></div>
+      </div>
+      <AddToProjectDialog
+        v-if="showProjectDialog && result"
+        asset-type="compare_result"
+        :asset-id="String(result.id)"
+        :asset-title="result.title"
+        @close="showProjectDialog = false"
+      />
     </div>
-  </div>
 </template>
 
 <style scoped>

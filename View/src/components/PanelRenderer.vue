@@ -159,6 +159,7 @@ defineExpose({
     :paper-titles="context.researchPaperTitles"
     :scope="context.researchScope ?? 'kb'"
     :initial-session-id="context.researchInitialSessionId ?? null"
+    :project-id="context.researchProjectId ?? null"
     @close="emit('closeResearch')"
     @remove-paper="emit('removeResearchPaper', $event)"
     @save-to-library="emit('saveToLibrary', $event)"

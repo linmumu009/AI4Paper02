@@ -8,6 +8,7 @@ import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import { fetchNoteDetail, updateNote, deleteNote as deleteNoteApi } from '../api'
 import type { KbNote } from '../types/paper'
+import AddToProjectDialog from '../components/project/AddToProjectDialog.vue'
 
 const props = defineProps<{
   id: string
@@ -27,6 +28,7 @@ const saving = ref(false)
 const title = ref('')
 const lastSavedAt = ref('')
 const titleManuallyEdited = ref(false)
+const showProjectDialog = ref(false)
 
 // 离开路由的方式标记（仅路由模式下使用）
 const leaveMode = ref<'normal' | 'explicit-save' | null>(null)
@@ -292,6 +294,12 @@ defineExpose({
       <span v-else-if="lastSavedAt" class="text-xs text-text-muted">已保存 {{ lastSavedAt }}</span>
 
       <button
+        v-if="note"
+        class="px-3 py-1.5 rounded-lg text-xs font-medium text-tinder-green border border-border bg-transparent cursor-pointer hover:bg-bg-hover"
+        @click="showProjectDialog = true"
+      >加入课题</button>
+
+      <button
         class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-brand-gradient border-none cursor-pointer hover:opacity-90 transition-opacity"
         @click="saveAndClose"
       >保存</button>
@@ -332,6 +340,14 @@ defineExpose({
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
       </button>
     </div>
+
+    <AddToProjectDialog
+      v-if="showProjectDialog && note"
+      asset-type="note"
+      :asset-id="String(note.id)"
+      :asset-title="title || note.title"
+      @close="showProjectDialog = false"
+    />
 
     <!-- Loading / Error -->
     <div v-if="loading" class="flex-1 flex items-center justify-center text-text-muted">加载中...</div>

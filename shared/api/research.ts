@@ -19,6 +19,7 @@ interface StartResearchPayload {
     force_full_read?: boolean
   }
   reward_id?: number
+  project_id?: number
 }
 
 export async function fetchResearchStream(payload: StartResearchPayload): Promise<Response> {

@@ -2318,7 +2318,20 @@ export interface StartResearchPayload {
   config?: ResearchConfig
   signal?: AbortSignal
   reward_id?: number
+  project_id?: number
 }
+
+export {
+  fetchResearchProjects,
+  createResearchProject,
+  fetchResearchProject,
+  updateResearchProject,
+  archiveResearchProject,
+  restoreResearchProject,
+  deleteResearchProject,
+  addResearchProjectAsset,
+  removeResearchProjectAsset,
+} from '@shared/api/projects'
 
 /** Start a deep research session — returns a fetch Response for SSE streaming */
 export async function fetchResearchStream(payload: StartResearchPayload): Promise<Response> {

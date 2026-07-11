@@ -33,7 +33,7 @@ let requestSerial = 0
 const quickItems: PaletteItem[] = [
   { key: 'quick-knowledge', type: '入口', title: '知识库', subtitle: '收藏论文、笔记与文件', route: '/?tool=knowledge' },
   { key: 'quick-compare', type: '入口', title: '对比库', subtitle: '已保存的论文对比报告', route: '/?tool=compare-library' },
-  { key: 'quick-research', type: '入口', title: '研究库', subtitle: '深度研究会话与结果', route: '/?tool=research-library' },
+  { key: 'quick-research', type: '入口', title: '研究库', subtitle: '课题空间与深度研究', route: '/projects' },
   { key: 'quick-mypapers', type: '入口', title: '我的论文', subtitle: '上传或导入的文献', route: '/?tab=mypapers' },
   { key: 'quick-chat', type: 'AI 工具', title: 'AI 对话', subtitle: '打开全局问答助手', action: 'chat' },
   { key: 'quick-workbench', type: 'AI 工具', title: '灵感工作台', subtitle: '生成研究提案', route: '/workbench' },
@@ -70,6 +70,7 @@ function typeLabel(type: GlobalSearchResult['type']): string {
     note: '笔记',
     compare: '对比',
     research: '研究',
+    project: '课题',
     user_paper: '我的论文',
   }
   return labels[type]

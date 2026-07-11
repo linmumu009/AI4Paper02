@@ -19,7 +19,7 @@ import UpgradePrompt from '../components/UpgradePrompt.vue'
 import TodayMissionBar from '../components/TodayMissionBar.vue'
 import type { TasklineItem } from '../components/DailyResearchTaskline.vue'
 import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } from '../composables/usePanelLayout'
-import { fetchDates, fetchDigest, addKbPaper, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperInstitutions, fetchUserPaperDetail, fetchPaperDetail, processUserPaper, userPaperStepLabel, saveResearchSession } from '../api'
+import { fetchDates, fetchDigest, addKbPaper, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperInstitutions, fetchUserPaperDetail, fetchPaperDetail, fetchResearchProject, processUserPaper, userPaperStepLabel, saveResearchSession } from '../api'
 import { fetchResearchRadar, type ResearchRadarResponse } from '@shared/api/radar'
 import { fetchReviewCards, recordReviewResponse, type ReviewCard } from '@shared/api/recap'
 import { buildPdfViewerUrl, resolvePaperPdfUrl, buildKbPdfViewerUrl, buildKbFileUrl } from '../composables/usePdfUrl'
@@ -388,7 +388,7 @@ async function loadDates() {
 // ---------------------------------------------------------------------------
 // Tool query dispatcher — triggered by Navbar "研究工具" menu navigation
 // ---------------------------------------------------------------------------
-function applyToolQuery(tool: string | string[] | undefined) {
+async function applyToolQuery(tool: string | string[] | undefined) {
   const t = Array.isArray(tool) ? tool[0] : tool
   if (!t) return
   switch (t) {
@@ -406,6 +406,26 @@ function applyToolQuery(tool: string | string[] | undefined) {
       break
     case 'research':
       handleTabChanged('research')
+      {
+        const rawProjectId = Array.isArray(route.query.project_id) ? route.query.project_id[0] : route.query.project_id
+        const projectId = typeof rawProjectId === 'string' ? Number(rawProjectId) : NaN
+        if (Number.isFinite(projectId)) {
+          try {
+            const project = await fetchResearchProject(projectId)
+            researchProjectId.value = project.id
+            researchPaperIds.value = project.paper_ids
+            researchPaperTitles.value = Object.fromEntries(
+              project.assets
+                .filter(asset => asset.asset_type === 'paper' && !asset.missing)
+                .map(asset => [asset.asset_id, asset.title]),
+            )
+            researchScope.value = 'kb'
+          } catch (err) {
+            showError('打开课题研究失败，请稍后重试')
+            console.error('[Research] project load failed', err)
+          }
+        }
+      }
       break
     case 'compare':
       handleCompare([])
@@ -457,7 +477,7 @@ onMounted(async () => {
   // Handle ?tool= queries from the Navbar "研究工具" menu
   if (route.query.tool) {
     await nextTick()
-    applyToolQuery(route.query.tool)
+    await applyToolQuery(route.query.tool)
   }
 
   await applyAssetTargetQuery()
@@ -506,7 +526,7 @@ watch(
 watch(
   () => route.query.tool,
   (tool) => {
-    if (tool) applyToolQuery(tool)
+    if (tool) void applyToolQuery(tool)
   },
 )
 
@@ -1046,9 +1066,11 @@ function handleTabChanged(tab: string) {
     researchPaperIds.value = []
     researchPaperTitles.value = {}
     researchInitialSessionId.value = null
+    researchProjectId.value = null
   } else {
     // 切换到其他 Tab 时关闭研究面板（无论是否有活跃论文）
     researchPaperIds.value = null
+    researchProjectId.value = null
     myPapersMode.value = false
     viewingMd.value = null
     _stopMyPapersCenterPoll()
@@ -1185,6 +1207,7 @@ function getDigestNoteEditor() {
 const researchPaperIds = ref<string[] | null>(null)
 const researchPaperTitles = ref<Record<string, string>>({})
 const researchScope = ref<string>('kb')
+const researchProjectId = ref<number | null>(null)
 
 function handleResearch(paperIds: string[], paperTitles: Record<string, string>, scope?: string) {
   editingNote.value = null
@@ -1194,6 +1217,7 @@ function handleResearch(paperIds: string[], paperTitles: Record<string, string>,
   comparingPaperIds.value = null
   viewingCompareResultId.value = null
   researchInitialSessionId.value = null
+  researchProjectId.value = null
   researchPaperIds.value = paperIds
   researchPaperTitles.value = paperTitles
   researchScope.value = scope ?? 'kb'
@@ -1216,6 +1240,7 @@ async function handleOpenResearchSession(sessionId: number) {
     researchPaperTitles.value = {}
     researchScope.value = 'kb'
     researchInitialSessionId.value = sessionId
+    researchProjectId.value = session.project_id ?? null
     globalChat.clearBrowsingContext()
     collapseSidebarOnMobile()
     void engagement.record('analyze', 'daily-digest-research-session', String(sessionId))
@@ -1227,6 +1252,7 @@ async function handleOpenResearchSession(sessionId: number) {
 
 function closeResearch() {
   researchPaperIds.value = null
+  researchProjectId.value = null
   sidebarRef.value?.switchToPapersTab()
 }
 
@@ -1549,7 +1575,7 @@ const compareLayoutContext = computed<ContentLayoutContext>(() => ({
 // Deep Research layout
 const researchLayoutKey = computed(() =>
   researchPaperIds.value?.length
-    ? `digest-research-${researchPaperIds.value.join(',')}`
+    ? `digest-research-${researchProjectId.value ?? 'loose'}-${researchPaperIds.value.join(',')}`
     : 'digest-research',
 )
 
@@ -1571,6 +1597,7 @@ const researchLayoutContext = computed<ContentLayoutContext>(() => ({
   researchPaperTitles: researchPaperTitles.value,
   researchScope: researchScope.value,
   researchInitialSessionId: researchInitialSessionId.value,
+  researchProjectId: researchProjectId.value,
 }))
 
 const compareResultLayoutKey = computed(

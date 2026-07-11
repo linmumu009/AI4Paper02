@@ -37,6 +37,7 @@ from services import (
     engagement_service,
     entitlement_service,
     llm_config_service,
+    project_service,
     prompt_config_service,
     research_service,
 )
@@ -53,6 +54,7 @@ from routers.idea_router import router as idea_router
 from routers.kb_router import router as kb_router
 from routers.paper_router import router as paper_router
 from routers.pipeline_router import router as pipeline_router
+from routers.project_router import router as project_router
 from routers.research_router import router as research_router
 from routers.search_router import router as search_router
 from routers.seo_router import router as seo_router
@@ -90,6 +92,7 @@ async def startup_event():
     entitlement_service.init_db()
     community_service.init_db()
     research_service.init_db()
+    project_service.init_db()
 
     # Re-enqueue any classify jobs that were interrupted by the previous restart
     try:
@@ -187,6 +190,7 @@ app.include_router(entitlement_router)   # /api/entitlements/…
 app.include_router(kb_router)            # /api/kb/…
 app.include_router(idea_router)          # /api/idea/…
 app.include_router(research_router)      # /api/research/…
+app.include_router(project_router)       # /api/projects/…
 app.include_router(search_router)        # /api/search
 app.include_router(user_paper_router)    # /api/user-papers/…
 app.include_router(pipeline_router)      # /api/pipeline/…, /api/schedule/…

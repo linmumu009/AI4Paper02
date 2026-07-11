@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import SummarySection from './SummarySection.vue'
 import AssetsAccordion from './AssetsAccordion.vue'
 import ResearchMemoryPanel from './ResearchMemoryPanel.vue'
+import AddToProjectDialog from './project/AddToProjectDialog.vue'
 import type { PaperDetailResponse, PaperImage } from '../types/paper'
 import { isAuthenticated } from '../stores/auth'
 
@@ -20,6 +21,7 @@ const activeTab = ref<'summary' | 'images' | 'assets' | 'memory'>('summary')
 const selectedImage = ref<PaperImage | null>(null)
 const paperImages = computed(() => props.detail.images || [])
 const paperId = computed(() => props.detail.summary.paper_id || '')
+const showProjectDialog = ref(false)
 </script>
 
 <template>
@@ -96,6 +98,14 @@ const paperId = computed(() => props.detail.summary.paper_id || '')
           @click="emit('openChat')"
         >
           💬 AI 问答
+        </button>
+        <button
+          v-if="isAuthenticated && paperId"
+          type="button"
+          class="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-full border text-sm font-medium cursor-pointer transition-colors bg-bg-elevated border-border text-tinder-green hover:bg-bg-hover"
+          @click="showProjectDialog = true"
+        >
+          🗂️ 加入课题
         </button>
         <span class="self-center text-xs font-mono text-text-muted">{{ detail.summary.paper_id }}</span>
       </div>
@@ -223,5 +233,13 @@ const paperId = computed(() => props.detail.summary.paper_id || '')
         </div>
       </div>
     </div>
+    <AddToProjectDialog
+      v-if="showProjectDialog"
+      asset-type="paper"
+      :asset-id="paperId"
+      :source-scope="paperId.startsWith('up_') ? 'mypapers' : 'kb'"
+      :asset-title="detail.summary.short_title || detail.summary['📖标题']"
+      @close="showProjectDialog = false"
+    />
   </div>
 </template>

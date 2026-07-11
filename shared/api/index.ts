@@ -54,6 +54,9 @@ export * from './idea'
 // Deep research sessions
 export * from './research'
 
+// Research projects / topic spaces
+export * from './projects'
+
 // User-uploaded papers
 export * from './user-papers'
 

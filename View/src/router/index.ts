@@ -25,6 +25,14 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
     title: '灵感工作台 - AI4Papers 研究灵感生成',
     description: '基于知识库中的精选论文，AI 辅助生成新的研究想法与创意方案。免费的 AI 科研灵感生成工具。',
   },
+  'research-projects': {
+    title: '研究库与课题空间 - AI4Papers',
+    description: '围绕长期课题集中管理论文、深度研究、对比报告、灵感和研究笔记。',
+  },
+  'research-project-detail': {
+    title: '课题空间 - AI4Papers',
+    description: '查看课题中的论文、深度研究、对比结果和研究资产。',
+  },
   'login': {
     title: '登录 - AI4Papers 免费论文推荐工具',
     description: '登录 AI4Papers，解锁知识库、论文对比、灵感生成等高级功能。免费注册，免费使用。',
@@ -114,6 +122,19 @@ const router = createRouter({
       path: '/workbench',
       name: 'workbench',
       component: () => import('../views/WorkbenchView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects',
+      name: 'research-projects',
+      component: () => import('../views/ResearchProjectListView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/projects/:id',
+      name: 'research-project-detail',
+      component: () => import('../views/ResearchProjectDetailView.vue'),
+      props: true,
       meta: { requiresAuth: true },
     },
     {

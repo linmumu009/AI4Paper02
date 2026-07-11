@@ -37,6 +37,10 @@ class SearchServiceTests(unittest.TestCase):
             CREATE TABLE research_sessions (
                 id INTEGER, user_id INTEGER, question TEXT, status TEXT, updated_at TEXT
             );
+            CREATE TABLE research_projects (
+                id INTEGER, user_id INTEGER, name TEXT, objective TEXT,
+                description TEXT, status TEXT, updated_at TEXT
+            );
             """
         )
         conn.execute(
@@ -51,6 +55,9 @@ class SearchServiceTests(unittest.TestCase):
         )
         conn.execute(
             "INSERT INTO research_sessions VALUES (1, 1, 'How does graph memory work?', 'done', '2026-01-04')"
+        )
+        conn.execute(
+            "INSERT INTO research_projects VALUES (1, 1, 'Graph Memory Project', 'agent memory', 'evidence map', 'active', '2026-01-05')"
         )
         conn.execute(
             "INSERT INTO kb_notes VALUES (2, 2, 'kb', 'private', 'Graph secret', 'other user', 'markdown', '2026-01-05')"
@@ -85,7 +92,7 @@ class SearchServiceTests(unittest.TestCase):
 
         self.assertEqual(
             {item["type"] for item in response["results"]},
-            {"paper", "note", "compare", "research", "user_paper"},
+            {"paper", "note", "compare", "research", "project", "user_paper"},
         )
         self.assertTrue(all("Private" not in item["title"] and "secret" not in item["title"] for item in response["results"]))
         routes = {item["type"]: item["route"] for item in response["results"]}
@@ -93,6 +100,7 @@ class SearchServiceTests(unittest.TestCase):
         self.assertEqual(routes["note"], "/notes/1")
         self.assertIn("result=1", routes["compare"])
         self.assertIn("session=1", routes["research"])
+        self.assertEqual(routes["project"], "/projects/1")
         self.assertIn("paper=up_graph", routes["user_paper"])
 
     def test_empty_query_returns_no_results(self):

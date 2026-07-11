@@ -1,6 +1,6 @@
 import { http } from '@shared/api/client'
 
-export type GlobalSearchResultType = 'paper' | 'note' | 'compare' | 'research' | 'user_paper'
+export type GlobalSearchResultType = 'paper' | 'note' | 'compare' | 'research' | 'project' | 'user_paper'
 
 export interface GlobalSearchResult {
   type: GlobalSearchResultType

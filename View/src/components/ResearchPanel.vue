@@ -33,8 +33,10 @@ const props = withDefaults(
     scope?: string
     /** When set, automatically opens this session ID on mount/change */
     initialSessionId?: number | null
+    /** Optional project that should own newly-created research sessions */
+    projectId?: number | null
   }>(),
-  { scope: 'kb', initialSessionId: null },
+  { scope: 'kb', initialSessionId: null, projectId: null },
 )
 
 const emit = defineEmits<{
@@ -305,6 +307,7 @@ async function startResearch(options: { forceFullRead?: boolean } = {}) {
       config: { top_n: topN.value, ...(options.forceFullRead ? { force_full_read: true } : {}) },
       signal: abortController.signal,
       reward_id: rewardId,
+      project_id: props.projectId ?? undefined,
     })
     // Refresh reward list if we used one
     if (rewardId !== undefined && rewardToUse) {

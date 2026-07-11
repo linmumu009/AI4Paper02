@@ -46,6 +46,8 @@ export interface ContentLayoutContext {
   researchScope?: string
   /** Deep Research Q&A: when set, auto-opens this session ID in the ResearchPanel */
   researchInitialSessionId?: number | null
+  /** Primary project for newly-created deep-research sessions */
+  researchProjectId?: number | null
 }
 
 const props = defineProps<{

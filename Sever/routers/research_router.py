@@ -26,7 +26,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from services import auth_service, engagement_service, entitlement_service, research_service
+from services import (
+    auth_service,
+    engagement_service,
+    entitlement_service,
+    project_service,
+    research_service,
+)
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
@@ -46,6 +52,7 @@ class StartResearchBody(BaseModel):
     scope: str = Field(default="kb")
     config: ResearchConfig = Field(default_factory=ResearchConfig)
     reward_id: Optional[int] = Field(default=None, description="Engagement reward ID to apply a research boost")
+    project_id: Optional[int] = Field(default=None, ge=1)
 
 
 class FollowupBody(BaseModel):
@@ -73,6 +80,11 @@ async def api_start_research(
     request: Request,
     user=Depends(auth_service.require_user),
 ):
+    if body.project_id is not None and not project_service.project_exists(
+        user["id"], body.project_id, active_only=True
+    ):
+        raise HTTPException(status_code=404, detail="Project not found")
+
     # Quota check: consume one research session credit (Free: 2/month, Pro: 15/month)
     entitlement_service.consume_quota(user["id"], "research")
 
@@ -122,6 +134,7 @@ async def api_start_research(
                 paper_ids=body.paper_ids,
                 scope=body.scope,
                 config=config_dict,
+                project_id=body.project_id,
                 cancel_event=cancel_event,
             )
         finally:

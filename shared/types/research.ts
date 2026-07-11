@@ -34,6 +34,7 @@ export interface ResearchSession {
   status: 'pending' | 'running' | 'done' | 'error'
   saved: boolean
   folder_id?: number | null
+  project_id?: number | null
   created_at: string
   updated_at: string
   rounds?: ResearchRound[]
@@ -43,6 +44,7 @@ export interface ResearchFolder {
   id: number
   name: string
   parent_id: number | null
+  project_id?: number | null
   children: ResearchFolder[]
   sessions: ResearchSession[]
   created_at: string

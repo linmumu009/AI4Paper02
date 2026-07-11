@@ -15,6 +15,7 @@ export * from './idea'
 
 // Research Q&A + Chat
 export * from './research'
+export * from './project'
 
 // Engagement + Entitlement
 export * from './engagement'
