@@ -610,7 +610,7 @@ function activeChapterId(): string {
               去推荐页发现论文 →
             </router-link>
             <router-link
-              to="/knowledge"
+              to="/?tool=knowledge"
               class="px-5 py-2.5 rounded-full border border-border text-sm text-text-secondary hover:text-text-primary hover:border-border-light transition-colors no-underline"
             >
               打开知识库

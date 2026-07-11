@@ -8,6 +8,7 @@ import type { Announcement } from '../types/paper'
 import { useEngagement } from '../composables/useEngagement'
 import EngagementProgressBar from './EngagementProgressBar.vue'
 import { useGlobalChat } from '../composables/useGlobalChat'
+import { useGlobalSearch } from '../composables/useGlobalSearch'
 
 // 在 Tauri 桌面端（API_ORIGIN 有值）时隐藏下载安装包按钮
 const isDesktop = !!API_ORIGIN
@@ -15,6 +16,7 @@ const isDesktop = !!API_ORIGIN
 const route = useRoute()
 const router = useRouter()
 const globalChat = useGlobalChat()
+const globalSearch = useGlobalSearch()
 
 // ── 桌面端自动更新 ────────────────────────────────────────────────────────────
 const _tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null =
@@ -73,6 +75,16 @@ const navItems = [
 // ---------------------------------------------------------------------------
 const showToolsMenu = ref(false)
 const toolsMenuRef = ref<HTMLElement | null>(null)
+const toolsButtonRef = ref<HTMLButtonElement | null>(null)
+
+function isNavActive(to: string): boolean {
+  return to === '/' ? route.path === '/' : route.path.startsWith(to)
+}
+
+function closeToolsMenuAndRestoreFocus() {
+  showToolsMenu.value = false
+  toolsButtonRef.value?.focus()
+}
 
 const toolGroups = [
   {
@@ -300,8 +312,9 @@ onBeforeUnmount(() => {
           :key="item.to"
           :to="item.to"
           :title="item.label"
+          :aria-current="isNavActive(item.to) ? 'page' : undefined"
           class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl no-underline transition-all duration-200 group"
-          :class="(item.to === '/' ? route.path === '/' : route.path.startsWith(item.to))
+          :class="isNavActive(item.to)
             ? 'text-tinder-pink'
             : 'text-text-muted hover:text-text-secondary'"
         >
@@ -312,7 +325,7 @@ onBeforeUnmount(() => {
           <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">{{ item.label }}</span>
           <!-- Active indicator dot -->
           <span
-            v-if="item.to === '/' ? route.path === '/' : route.path.startsWith(item.to)"
+            v-if="isNavActive(item.to)"
             class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-tinder-pink"
           />
         </router-link>
@@ -320,11 +333,16 @@ onBeforeUnmount(() => {
         <!-- 研究工具 dropdown -->
         <div ref="toolsMenuRef" class="relative">
           <button
+            ref="toolsButtonRef"
             type="button"
             class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 cursor-pointer bg-transparent border-none"
             :class="showToolsMenu ? 'text-tinder-pink' : 'text-text-muted hover:text-text-secondary'"
             title="研究工具"
+            aria-haspopup="menu"
+            :aria-expanded="showToolsMenu"
+            aria-controls="research-tools-menu"
             @click.stop="showToolsMenu = !showToolsMenu"
+            @keydown.esc.prevent="closeToolsMenuAndRestoreFocus"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px] sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
@@ -344,8 +362,11 @@ onBeforeUnmount(() => {
           >
             <div
               v-if="showToolsMenu"
+              id="research-tools-menu"
               class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+              role="menu"
               @click.stop
+              @keydown.esc.prevent="closeToolsMenuAndRestoreFocus"
             >
               <div
                 v-for="(group, gi) in toolGroups"
@@ -358,6 +379,7 @@ onBeforeUnmount(() => {
                     v-for="item in group.items"
                     :key="item.key"
                     type="button"
+                    role="menuitem"
                     class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left cursor-pointer bg-transparent border-none transition-colors hover:bg-bg-hover group/tool"
                     @click="handleToolClick(item.key)"
                   >
@@ -383,10 +405,23 @@ onBeforeUnmount(() => {
       <!-- Page-specific controls (filled via Teleport by DailyDigest when in card/list mode) -->
       <div id="navbar-page-controls" class="flex items-center" />
 
+      <button
+        type="button"
+        title="搜索研究资产 (Ctrl/⌘ K)"
+        aria-label="搜索研究资产"
+        class="flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-text-muted transition-all duration-200 hover:bg-bg-hover hover:text-text-secondary sm:h-9 sm:w-9"
+        @click="globalSearch.open()"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-[18px] sm:w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+        </svg>
+      </button>
+
       <!-- 工作台 -->
       <router-link
         to="/workbench"
         title="工作台"
+        :aria-current="route.path.startsWith('/workbench') || route.path.startsWith('/idea') ? 'page' : undefined"
         class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline"
         :class="route.path.startsWith('/workbench') || route.path.startsWith('/idea')
           ? 'bg-bg-elevated text-text-primary scale-110'

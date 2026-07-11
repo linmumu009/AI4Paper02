@@ -413,6 +413,25 @@ function applyToolQuery(tool: string | string[] | undefined) {
   }
 }
 
+async function applyAssetTargetQuery() {
+  if (!isAuthenticated.value) return
+  const paperId = Array.isArray(route.query.paper) ? route.query.paper[0] : route.query.paper
+  const resultId = Array.isArray(route.query.result) ? route.query.result[0] : route.query.result
+  const sessionId = Array.isArray(route.query.session) ? route.query.session[0] : route.query.session
+
+  if (route.query.tab === 'mypapers' && typeof paperId === 'string' && paperId) {
+    await openUserPaper(paperId)
+    return
+  }
+  if (typeof resultId === 'string' && Number.isFinite(Number(resultId))) {
+    await openCompareResult(Number(resultId))
+    return
+  }
+  if (typeof sessionId === 'string' && Number.isFinite(Number(sessionId))) {
+    await handleOpenResearchSession(Number(sessionId))
+  }
+}
+
 // Load dates
 onMounted(async () => {
   attachAnnotationAdapter()
@@ -440,6 +459,8 @@ onMounted(async () => {
     await nextTick()
     applyToolQuery(route.query.tool)
   }
+
+  await applyAssetTargetQuery()
 
   // Register keyboard shortcuts
   window.addEventListener('keydown', handleKeydown)
@@ -487,6 +508,11 @@ watch(
   (tool) => {
     if (tool) applyToolQuery(tool)
   },
+)
+
+watch(
+  () => [route.query.paper, route.query.result, route.query.session],
+  () => { void applyAssetTargetQuery() },
 )
 
 // Notice shown when pipeline ran but produced 0 papers
@@ -817,8 +843,6 @@ function dismissRecommendHint() {
 function openDetail() {
   const paper = currentPaper.value
   if (!paper) return
-  sidebarPaperId.value = paper.paper_id
-  collapseSidebarOnMobile()
   globalChat.setBrowsingContext({
     paperId: paper.paper_id,
     title: paper.short_title || paper['📖标题'] || paper.paper_id,
@@ -827,6 +851,11 @@ function openDetail() {
   })
   globalChat.applyBrowsingToPaperContext()
   void engagement.record('view', 'daily-digest-detail', paper.paper_id)
+  void router.push({
+    name: 'paper-detail',
+    params: { id: paper.paper_id },
+    query: { from: 'digest' },
+  })
 }
 
 function openPdf() {
@@ -2015,6 +2044,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
 <template>
   <SidebarPageLayout v-model:show-sidebar="showSidebar">
+
+    <h1 class="sr-only">AI4Papers 每日 AI 与机器学习论文推荐</h1>
 
     <!-- ===== Sidebar slot ===== -->
     <template #sidebar>

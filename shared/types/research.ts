@@ -74,6 +74,16 @@ export interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   created_at: string
+  evidence?: ChatEvidenceSource[]
+  data_source?: 'summary' | 'abstract' | 'full_text' | null
+}
+
+export interface ChatEvidenceSource {
+  id: string
+  paper_id: string
+  location: string
+  page?: number | null
+  excerpt: string
 }
 
 export interface ChatHistoryResponse {

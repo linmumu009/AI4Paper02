@@ -16,7 +16,7 @@ import {
   createNote,
   fetchPaperDetail,
 } from '../api'
-import type { ChatMessage, PaperSummary, UserLlmPreset } from '../types/paper'
+import type { ChatEvidenceSource, ChatMessage, PaperSummary, UserLlmPreset } from '../types/paper'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useEntitlements } from '../composables/useEntitlements'
 import PaperPickerDialog from './PaperPickerDialog.vue'
@@ -24,6 +24,7 @@ import PresetSelector from './PresetSelector.vue'
 import UpgradePrompt from './UpgradePrompt.vue'
 import QuotaWarningBanner from './QuotaWarningBanner.vue'
 import { renderChatMarkdown } from '../utils/chatMarkdown'
+import { openExternal } from '../utils/openExternal'
 
 const props = withDefaults(
   defineProps<{
@@ -118,6 +119,7 @@ const errorMsg = ref('')
 const messagesRef = ref<HTMLElement | null>(null)
 
 const streamingContent = ref('')
+const streamingEvidence = ref<ChatEvidenceSource[]>([])
 const isStreaming = computed(() => phase.value === 'streaming')
 
 // AbortController held while a streaming request is in flight.
@@ -166,6 +168,7 @@ const copyFormat = ref<CopyFormat>('markdown')
 
 // Per-message copy state
 const copiedMsgs = ref<Record<number, boolean>>({})
+const copiedLatexMsgs = ref<Record<number, boolean>>({})
 // All-messages copy state
 const allCopied = ref(false)
 
@@ -299,6 +302,7 @@ watch(
   () => {
     messages.value = []
     streamingContent.value = ''
+    streamingEvidence.value = []
     inputText.value = ''
     loadHistory()
   },
@@ -323,6 +327,7 @@ async function sendMessage() {
   }
   messages.value.push(tempUserMsg)
   streamingContent.value = ''
+  streamingEvidence.value = []
   phase.value = 'streaming'
   scrollToBottom()
   globalChat.signalMessageSent()
@@ -363,6 +368,8 @@ async function sendMessage() {
             if (typeof chunk === 'string') {
               streamingContent.value += chunk
               scrollToBottom()
+            } else if (chunk?.type === 'evidence' && Array.isArray(chunk.sources)) {
+              streamingEvidence.value = chunk.sources as ChatEvidenceSource[]
             }
           } catch {
             // ignore malformed chunks
@@ -380,9 +387,12 @@ async function sendMessage() {
         role: 'assistant',
         content: streamingContent.value,
         created_at: new Date().toISOString(),
+        evidence: streamingEvidence.value,
+        data_source: dataSource.value,
       })
     }
     streamingContent.value = ''
+    streamingEvidence.value = []
     phase.value = 'idle'
     _abortController = null
     scrollToBottom()
@@ -408,15 +418,19 @@ async function sendMessage() {
           role: 'assistant',
           content: streamingContent.value,
           created_at: new Date().toISOString(),
+          evidence: streamingEvidence.value,
+          data_source: dataSource.value,
         })
       }
       streamingContent.value = ''
+      streamingEvidence.value = []
       phase.value = 'idle'
       _abortController = null
       scrollToBottom()
       return
     }
     streamingContent.value = ''
+    streamingEvidence.value = []
     phase.value = 'error'
     _abortController = null
     errorMsg.value = e?.message || '发送失败，请重试'
@@ -513,6 +527,50 @@ function stripMarkdown(content: string): string {
   const div = document.createElement('div')
   div.innerHTML = html
   return div.textContent || div.innerText || content
+}
+
+function extractLatex(content: string): string[] {
+  const formulas: string[] = []
+  const patterns = [
+    /\$\$([\s\S]+?)\$\$/g,
+    /\\\[([\s\S]+?)\\\]/g,
+    /\\\(([\s\S]+?)\\\)/g,
+    /\$([^$\n]+?)\$/g,
+  ]
+  for (const pattern of patterns) {
+    for (const match of content.matchAll(pattern)) {
+      const value = match[1]?.trim()
+      if (value && !formulas.includes(value)) formulas.push(value)
+    }
+  }
+  return formulas
+}
+
+async function copyLatex(msg: ChatMessage) {
+  const formulas = extractLatex(msg.content)
+  if (!formulas.length) return
+  try {
+    await navigator.clipboard.writeText(formulas.join('\n\n'))
+    copiedLatexMsgs.value[msg.id] = true
+    setTimeout(() => { copiedLatexMsgs.value[msg.id] = false }, 2000)
+  } catch {
+    // clipboard not available
+  }
+}
+
+function dataSourceName(source: ChatMessage['data_source']): string {
+  if (source === 'full_text') return '论文全文'
+  if (source === 'abstract') return '原文摘要'
+  return 'AI 摘要'
+}
+
+function canOpenEvidence(source: ChatEvidenceSource): boolean {
+  return !!source.page && !!props.paperId && !props.paperId.startsWith('up_')
+}
+
+function openEvidence(source: ChatEvidenceSource) {
+  if (!canOpenEvidence(source) || !props.paperId) return
+  openExternal(`https://arxiv.org/pdf/${encodeURIComponent(props.paperId)}#page=${source.page}`)
 }
 
 /** Copy a single assistant message */
@@ -715,6 +773,41 @@ function renderMarkdown(content: string): string {
               <span v-else class="whitespace-pre-wrap break-words">{{ msg.content }}</span>
             </div>
 
+            <details
+              v-if="msg.role === 'assistant' && msg.evidence?.length"
+              class="w-full rounded-xl border border-tinder-blue/20 bg-tinder-blue/5 px-3 py-2"
+            >
+              <summary class="cursor-pointer text-xs font-medium text-tinder-blue">
+                {{ dataSourceName(msg.data_source) }} · {{ msg.evidence.length }} 条可核对证据
+              </summary>
+              <div class="mt-2 space-y-2">
+                <article
+                  v-for="source in msg.evidence"
+                  :key="`${msg.id}-${source.id}`"
+                  class="rounded-lg border border-border/70 bg-bg-card/70 p-2.5"
+                >
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="text-[11px] font-semibold text-text-secondary">[{{ source.id }}] {{ source.location }}</span>
+                    <button
+                      v-if="canOpenEvidence(source)"
+                      type="button"
+                      class="shrink-0 rounded-full border border-border bg-transparent px-2 py-0.5 text-[10px] text-text-muted hover:border-tinder-blue/40 hover:text-tinder-blue"
+                      @click="openEvidence(source)"
+                    >
+                      定位 PDF
+                    </button>
+                  </div>
+                  <p class="mt-1 text-[11px] leading-relaxed text-text-muted">{{ source.excerpt }}</p>
+                </article>
+              </div>
+            </details>
+            <p
+              v-else-if="msg.role === 'assistant' && msg.data_source"
+              class="w-full rounded-lg border border-amber-500/20 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-400"
+            >
+              本条回答未返回可核对的证据编号，重要结论请结合原文复核。
+            </p>
+
             <!-- Save-to-note + copy actions (assistant only, hover-visible) -->
             <div
               v-if="msg.role === 'assistant'"
@@ -735,6 +828,20 @@ function renderMarkdown(content: string): string {
                   <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                 </svg>
                 <span>{{ copiedMsgs[msg.id] ? '✓ 已复制' : '复制' }}</span>
+              </button>
+
+              <button
+                v-if="extractLatex(msg.content).length"
+                type="button"
+                class="inline-flex items-center gap-1 rounded-full border bg-transparent px-2 py-0.5 text-xs transition-colors"
+                :class="copiedLatexMsgs[msg.id]
+                  ? 'border-tinder-purple/40 text-tinder-purple cursor-default'
+                  : 'border-border text-text-muted hover:border-tinder-purple/40 hover:text-tinder-purple cursor-pointer'"
+                :disabled="copiedLatexMsgs[msg.id]"
+                title="复制本条回答中的 LaTeX 公式"
+                @click="copyLatex(msg)"
+              >
+                {{ copiedLatexMsgs[msg.id] ? '✓ 已复制公式' : '复制公式' }}
               </button>
 
               <!-- Save to note -->

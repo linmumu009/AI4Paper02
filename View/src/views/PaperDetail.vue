@@ -180,6 +180,13 @@ async function load(paperId: string) {
         firstAuthor: Array.isArray(s.authors) ? (s.authors[0] as string) : undefined,
         source: 'arxiv',
       })
+      globalChat.setBrowsingContext({
+        paperId,
+        title,
+        summary: s,
+        source: 'paper-detail',
+      })
+      globalChat.applyBrowsingToPaperContext()
       // Pre-warm the PDF connection while the user reads the abstract.
       // Uses requestIdleCallback so it never competes with the initial render.
       const pdfUrl = detail.value.pdf_url
@@ -199,6 +206,14 @@ async function load(paperId: string) {
   } finally {
     loading.value = false
   }
+}
+
+function goBack() {
+  if (route.query.from === 'digest') {
+    router.back()
+    return
+  }
+  void router.push('/')
 }
 
 let _paperViewStart = 0
@@ -325,9 +340,9 @@ onUnmounted(() => {
       <div class="shrink-0 px-3 sm:px-5 pt-1 flex items-center">
         <button
           class="inline-flex items-center gap-1 text-xs text-text-muted hover:text-tinder-pink cursor-pointer bg-transparent border-none transition-colors"
-          @click="router.back()"
+          @click="goBack"
         >
-          ← 返回
+          ← {{ route.query.from === 'digest' ? '返回推荐' : '返回发现' }}
         </button>
       </div>
 
@@ -338,9 +353,9 @@ onUnmounted(() => {
         <p class="text-tinder-pink text-lg mb-4">{{ error }}</p>
         <button
           class="px-5 py-2 rounded-full bg-tinder-pink text-white text-sm font-medium cursor-pointer border-none"
-          @click="router.back()"
+          @click="goBack"
         >
-          返回
+          {{ route.query.from === 'digest' ? '返回推荐' : '返回发现' }}
         </button>
       </div>
       <ContentLayout

@@ -27,6 +27,7 @@ Context strategies
 
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 from typing import Generator, Optional
@@ -120,6 +121,7 @@ def init_db() -> None:
                                 REFERENCES paper_chat_sessions(id) ON DELETE CASCADE,
                 role        TEXT    NOT NULL CHECK(role IN ('user', 'assistant', 'system')),
                 content     TEXT    NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at  TEXT    NOT NULL
             );
 
@@ -134,6 +136,8 @@ def init_db() -> None:
                          "TEXT NOT NULL DEFAULT ''")
         _safe_add_column(conn, "paper_chat_sessions", "summary_up_to_msg_id",
                          "INTEGER NOT NULL DEFAULT 0")
+        _safe_add_column(conn, "paper_chat_messages", "metadata_json",
+                         "TEXT NOT NULL DEFAULT '{}'")
         conn.commit()
     finally:
         conn.close()
@@ -264,6 +268,96 @@ def _load_paper_context(user_id: int, paper_id: str, data_source: str) -> str:
     return "\n".join(parts)
 
 
+def _build_evidence_sources(
+    content: str,
+    data_source: str,
+    paper_id: str,
+    max_sources: int = 80,
+) -> tuple[str, list[dict]]:
+    """Split paper context into addressable evidence blocks for grounded citations."""
+    if not content.strip():
+        return "", []
+
+    source_label = {
+        "full_text": "论文全文",
+        "abstract": "原文摘要",
+        "summary": "AI 摘要",
+    }.get(data_source, "论文内容")
+    heading = source_label
+    page: int | None = None
+    pending: list[str] = []
+    pending_len = 0
+    sources: list[dict] = []
+
+    def flush() -> None:
+        nonlocal pending, pending_len
+        text = "\n".join(pending).strip()
+        pending = []
+        pending_len = 0
+        if not text or len(sources) >= max_sources:
+            return
+        source_id = f"S{len(sources) + 1}"
+        location = heading or source_label
+        if page is not None:
+            location = f"第 {page} 页 · {location}"
+        sources.append({
+            "id": source_id,
+            "paper_id": paper_id,
+            "location": location,
+            "page": page,
+            "excerpt": re.sub(r"\s+", " ", text)[:360],
+            "text": text,
+        })
+
+    page_patterns = (
+        re.compile(r"^\s*<!--\s*page(?:_idx)?\s*[:=]\s*(\d+)\s*-->\s*$", re.I),
+        re.compile(r"^\s*\[?page\s+(\d+)\]?\s*$", re.I),
+        re.compile(r"^\s*第\s*(\d+)\s*页\s*$"),
+    )
+
+    for raw_line in content.splitlines():
+        line = raw_line.rstrip()
+        page_match = next((pattern.match(line) for pattern in page_patterns if pattern.match(line)), None)
+        if page_match:
+            flush()
+            page = int(page_match.group(1))
+            continue
+        heading_match = re.match(r"^\s*#{1,6}\s+(.+?)\s*$", line)
+        if heading_match:
+            flush()
+            heading = heading_match.group(1).strip()
+            continue
+        if not line.strip():
+            if pending_len >= 500:
+                flush()
+            elif pending:
+                pending.append("")
+            continue
+        pending.append(line)
+        pending_len += len(line)
+        if pending_len >= 1400:
+            flush()
+        if len(sources) >= max_sources:
+            break
+    flush()
+
+    annotated = "\n\n".join(
+        f"[{source['id']} | {source['location']}]\n{source['text']}"
+        for source in sources
+    )
+    public_sources = [
+        {key: value for key, value in source.items() if key != "text"}
+        for source in sources
+    ]
+    return annotated, public_sources
+
+
+def _extract_referenced_sources(reply: str, sources: list[dict]) -> list[dict]:
+    cited_ids = set(re.findall(r"\[S(\d+)\]", reply, flags=re.I))
+    cited_keys = {f"S{value}" for value in cited_ids}
+    return [source for source in sources if source.get("id") in cited_keys]
+
+
 # ---------------------------------------------------------------------------
 # Token helpers
 # ---------------------------------------------------------------------------
@@ -324,24 +418,35 @@ def get_messages(user_id: int, paper_id: str) -> list[dict]:
             return []
         session_id = row["id"]
         rows = conn.execute(
-            "SELECT id, role, content, created_at FROM paper_chat_messages "
+            "SELECT id, role, content, metadata_json, created_at FROM paper_chat_messages "
             "WHERE session_id = ? AND role != 'system' ORDER BY created_at ASC",
             (session_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        messages = []
+        for row in rows:
+            message = dict(row)
+            raw_metadata = message.pop("metadata_json", "{}") or "{}"
+            try:
+                metadata = json.loads(raw_metadata)
+            except (TypeError, json.JSONDecodeError):
+                metadata = {}
+            message["evidence"] = metadata.get("evidence", [])
+            message["data_source"] = metadata.get("data_source")
+            messages.append(message)
+        return messages
     finally:
         conn.close()
 
 
-def add_message(session_id: int, role: str, content: str) -> dict:
+def add_message(session_id: int, role: str, content: str, metadata: Optional[dict] = None) -> dict:
     """Persist a single message and return the saved row."""
     now = _now_iso()
     conn = _connect()
     try:
         conn.execute(
-            "INSERT INTO paper_chat_messages (session_id, role, content, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (session_id, role, content, now),
+            "INSERT INTO paper_chat_messages (session_id, role, content, metadata_json, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (session_id, role, content, json.dumps(metadata or {}, ensure_ascii=False), now),
         )
         conn.execute(
             "UPDATE paper_chat_sessions SET updated_at = ? WHERE id = ?",
@@ -349,11 +454,17 @@ def add_message(session_id: int, role: str, content: str) -> dict:
         )
         conn.commit()
         row = conn.execute(
-            "SELECT id, role, content, created_at FROM paper_chat_messages "
+            "SELECT id, role, content, metadata_json, created_at FROM paper_chat_messages "
             "WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
             (session_id,),
         ).fetchone()
-        return dict(row) if row else {}
+        if not row:
+            return {}
+        result = dict(row)
+        result["evidence"] = (metadata or {}).get("evidence", [])
+        result["data_source"] = (metadata or {}).get("data_source")
+        result.pop("metadata_json", None)
+        return result
     finally:
         conn.close()
 
@@ -639,13 +750,23 @@ def stream_chat(
         )
     else:
         paper_context = _load_paper_context(user_id, paper_id, data_source)
+        evidence_data_source = "summary" if paper_id.startswith("up_") else data_source
         if paper_context:
+            annotated_context, evidence_sources = _build_evidence_sources(
+                paper_context,
+                evidence_data_source,
+                paper_id,
+            )
             system_content = (
                 base_system_prompt
                 + "\n\n---\n以下是本次问答所针对的论文内容：\n\n"
-                + paper_context
+                + annotated_context
+                + "\n\n引用规则：涉及论文事实、数据、方法或结论时，必须在对应句末使用证据编号，格式为 [S1]。"
+                  "只能引用上文实际存在的编号，不得编造。若证据不足，请明确说明。"
+                  "数学公式请使用标准 LaTeX 分隔符：行内 $...$，独立公式 $$...$$。"
             )
         else:
+            evidence_sources = []
             system_content = base_system_prompt
 
     # Build LLM client (needed by summary strategy for compression)
@@ -686,7 +807,19 @@ def stream_chat(
 
     # Persist the complete assistant reply
     if full_reply:
-        add_message(session_id, "assistant", full_reply)
+        cited_sources = _extract_referenced_sources(full_reply, evidence_sources if paper_id != GENERAL_CHAT_PAPER_ID else [])
+        metadata = {
+            "evidence": cited_sources,
+            "data_source": evidence_data_source if paper_id != GENERAL_CHAT_PAPER_ID else None,
+        }
+        add_message(session_id, "assistant", full_reply, metadata=metadata)
+        if paper_id != GENERAL_CHAT_PAPER_ID:
+            event = {
+                "type": "evidence",
+                "sources": cited_sources,
+                "data_source": evidence_data_source,
+            }
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     yield "data: [DONE]\n\n"
 

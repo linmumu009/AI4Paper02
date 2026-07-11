@@ -1,5 +1,9 @@
 import { createRouter, createWebHistory, createWebHashHistory } from 'vue-router'
+import { ref } from 'vue'
 import { ensureAuthInitialized, isAdmin, isAuthenticated } from '../stores/auth'
+
+export const routeLoading = ref(true)
+export const routeLoadError = ref('')
 
 // In Tauri the frontend is served from a custom protocol (tauri://localhost).
 // WebHashHistory avoids 404s on hard refresh and works without a server-side
@@ -68,6 +72,10 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
   'announcement-detail': {
     title: '公告详情 - AI4Papers',
     description: '查看 AI4Papers 平台公告详情。',
+  },
+  'not-found': {
+    title: '页面未找到 - AI4Papers',
+    description: '当前页面不存在或已移动，请返回论文发现页或打开研究工具。',
   },
 }
 
@@ -229,6 +237,11 @@ const router = createRouter({
       component: () => import('../views/AdminPreferenceLoop.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('../views/NotFoundView.vue'),
+    },
   ],
 })
 
@@ -237,6 +250,7 @@ const router = createRouter({
 import { trackPageView } from '../composables/useAnalytics'
 
 router.afterEach((to) => {
+  routeLoading.value = false
   // Page-view tracking applies to every successful navigation, including paper
   // detail pages that manage their own document title.
   trackPageView(String(to.name || to.path))
@@ -248,6 +262,8 @@ router.afterEach((to) => {
 })
 
 router.beforeEach(async (to) => {
+  routeLoading.value = true
+  routeLoadError.value = ''
   // 确保认证状态已初始化
   await ensureAuthInitialized()
   
@@ -277,6 +293,11 @@ router.beforeEach(async (to) => {
   }
   
   return true
+})
+
+router.onError((error) => {
+  routeLoading.value = false
+  routeLoadError.value = error instanceof Error ? error.message : '页面加载失败'
 })
 
 export default router

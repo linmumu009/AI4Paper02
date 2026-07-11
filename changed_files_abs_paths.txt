@@ -5,21 +5,28 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\changed_files_abs_paths.txt
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_changed_files.ps1
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_server.sh
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\change_sync_deploy_workflow.md
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\api.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_assets.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_summary.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\pdf_info.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\summary_limit.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\seo_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\search_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\analytics_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\chat_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\search_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_paper_pipeline_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_settings_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_analytics_session_aggregation.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_chat_evidence.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_search_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\upload_changed_files.ps1
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\e2e\public-pages.spec.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\package-lock.json
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\package.json
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\playwright.config.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\index.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\globalSearch.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\knowledgeBase.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\App.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ActionButtons.vue
@@ -36,6 +43,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\engagemen
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\EngagementProgressBar.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\entitlement\PricingTable.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\GlobalChatDrawer.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\GlobalSearchPalette.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\idea\IdeaDerivationBridge.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\idea\IdeaDetailPanel.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\idea\IdeaProvenanceFlow.vue
@@ -76,6 +84,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useAnnot
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useDigestControls.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useEngagement.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useEntitlements.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useGlobalSearch.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\usePdfUrl.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\usePollingTask.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useResearchStream.ts
@@ -103,6 +112,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\IdeaLabView.vu
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\Login.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\MemoryClustersView.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\MyUploadedPapers.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\NotFoundView.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\PaperDetail.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\PaperList.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\PreferenceDashboard.vue
@@ -115,3 +125,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\WorkbenchView.
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\tsconfig.json
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\vite.config.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\vitest.config.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\research.ts
