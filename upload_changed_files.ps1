@@ -1,6 +1,7 @@
 # upload_changed_files.ps1
 # 读取 changed_files_abs_paths.txt（本地绝对路径清单）
-# 只建立一次 sftp 连接：创建目录 + 上传（只提示一次密码）
+# 只建立一次 SFTP 连接：创建目录 + 上传。
+# 默认使用仓库外的专用 Ed25519 私钥，不允许密码或键盘交互回退。
 
 [CmdletBinding()]
 param(
@@ -9,7 +10,9 @@ param(
   [string]$ListFile      = (Join-Path $PSScriptRoot "changed_files_abs_paths.txt"),
   [string]$LocalRoot     = "D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\",
   [string]$RemoteRoot    = "/projects/ArxivPaper4/",
-  [string]$IdentityFile  = "",   # 可选：C:\Users\you\.ssh\id_ed25519
+  [string]$IdentityFile  = (Join-Path $env:USERPROFILE ".ssh\ai4papers_sync_ed25519"),
+  [string]$KnownHostsFile = (Join-Path $env:USERPROFILE ".ssh\known_hosts"),
+  [switch]$InstallPublicKey,
   [switch]$DryRun
 )
 
@@ -44,8 +47,71 @@ function Get-RemoteDirChain([string]$dir) {
 
 $LocalRoot  = Normalize-LocalRoot $LocalRoot
 $RemoteRoot = Normalize-RemoteRoot $RemoteRoot
+$IdentityFile = [System.IO.Path]::GetFullPath($IdentityFile)
+$KnownHostsFile = [System.IO.Path]::GetFullPath($KnownHostsFile)
 
 if (-not (Test-Path -LiteralPath $ListFile)) { throw "List file not found: $ListFile" }
+if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
+  throw "SSH private key not found: $IdentityFile`nCreate it with: ssh-keygen -t ed25519 -f `"$IdentityFile`" -N `"`""
+}
+
+# 私钥绝不能位于项目目录中，否则可能被 Git 或本脚本上传到服务器。
+if ($IdentityFile.StartsWith($LocalRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+  throw "Refusing to use a private key stored under LocalRoot: $IdentityFile"
+}
+
+$knownHostsDir = Split-Path -Parent $KnownHostsFile
+if (-not (Test-Path -LiteralPath $knownHostsDir)) {
+  New-Item -ItemType Directory -Path $knownHostsDir -Force | Out-Null
+}
+
+if ($InstallPublicKey) {
+  $publicKeyFile = $IdentityFile + ".pub"
+  if (-not (Test-Path -LiteralPath $publicKeyFile -PathType Leaf)) {
+    throw "SSH public key not found: $publicKeyFile"
+  }
+
+  $publicKey = (Get-Content -LiteralPath $publicKeyFile -Raw).Trim()
+  if (-not $publicKey.StartsWith("ssh-ed25519 ")) {
+    throw "Unexpected public key format: $publicKeyFile"
+  }
+
+  Write-Host "Installing the public key on $Remote. Enter the server password once when prompted."
+  $installCommand = 'umask 077; mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"; touch "$HOME/.ssh/authorized_keys"; chmod 600 "$HOME/.ssh/authorized_keys"; IFS= read -r key; grep -qxF "$key" "$HOME/.ssh/authorized_keys" || printf "%s\n" "$key" >> "$HOME/.ssh/authorized_keys"'
+  $sshArgs = @(
+    "-o","BatchMode=no",
+    "-o","PubkeyAuthentication=no",
+    "-o","PreferredAuthentications=password,keyboard-interactive",
+    "-o","StrictHostKeyChecking=yes",
+    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
+    "-o","ConnectTimeout=15",
+    "-p",$Port,
+    $Remote,
+    $installCommand
+  )
+
+  $publicKey | & ssh @sshArgs
+  if ($LASTEXITCODE -ne 0) { throw "Failed to install the SSH public key." }
+
+  Write-Host "Public key installed. Verifying key-only authentication..."
+  $verifyArgs = @(
+    "-o","BatchMode=yes",
+    "-o","IdentitiesOnly=yes",
+    "-o","PreferredAuthentications=publickey",
+    "-o","PasswordAuthentication=no",
+    "-o","KbdInteractiveAuthentication=no",
+    "-o","StrictHostKeyChecking=yes",
+    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
+    "-o","ConnectTimeout=15",
+    "-i",$IdentityFile,
+    "-p",$Port,
+    $Remote,
+    "printf AI4PAPERS_KEY_AUTH_OK"
+  )
+  & ssh @verifyArgs
+  if ($LASTEXITCODE -ne 0) { throw "The public key was installed but key-only authentication still failed." }
+  Write-Host ""
+}
 
 $items = Get-Content -LiteralPath $ListFile |
   ForEach-Object { $_.Trim() } |
@@ -113,11 +179,18 @@ Set-Content -LiteralPath $batchFile -Value $lines -Encoding ASCII
 
 try {
   $sftpArgs = @(
-    "-o","BatchMode=no",   # 关键：允许提示输入密码（否则 -b 往往不弹）
+    "-o","BatchMode=yes",
+    "-o","IdentitiesOnly=yes",
+    "-o","PreferredAuthentications=publickey",
+    "-o","PasswordAuthentication=no",
+    "-o","KbdInteractiveAuthentication=no",
+    "-o","StrictHostKeyChecking=accept-new",
+    "-o",("UserKnownHostsFile=" + $KnownHostsFile),
+    "-o","ConnectTimeout=15",
+    "-i",$IdentityFile,
     "-P",$Port,
     "-b",$batchFile
   )
-  if ($IdentityFile -and $IdentityFile.Trim() -ne "") { $sftpArgs += @("-i", $IdentityFile) }
   $sftpArgs += @($Remote)
 
   Write-Host ("RUN: sftp " + ($sftpArgs -join " "))
