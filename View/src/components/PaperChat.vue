@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import MarkdownIt from 'markdown-it'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import 'katex/dist/katex.min.css'
 import {
   fetchChatHistory,
   fetchPaperChatStream,
@@ -23,6 +23,7 @@ import PaperPickerDialog from './PaperPickerDialog.vue'
 import PresetSelector from './PresetSelector.vue'
 import UpgradePrompt from './UpgradePrompt.vue'
 import QuotaWarningBanner from './QuotaWarningBanner.vue'
+import { renderChatMarkdown } from '../utils/chatMarkdown'
 
 const props = withDefaults(
   defineProps<{
@@ -41,8 +42,6 @@ const emit = defineEmits<{
   close: []
   noteSaved: []
 }>()
-
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 const globalChat = useGlobalChat()
 
@@ -121,6 +120,16 @@ const messagesRef = ref<HTMLElement | null>(null)
 const streamingContent = ref('')
 const isStreaming = computed(() => phase.value === 'streaming')
 
+// AbortController held while a streaming request is in flight.
+// Replaced on each new sendMessage() call; cancelled by stopStreaming().
+let _abortController: AbortController | null = null
+
+function stopStreaming() {
+  if (!isStreaming.value) return
+  _abortController?.abort()
+  _abortController = null
+}
+
 // ---------------------------------------------------------------------------
 // Settings state
 // ---------------------------------------------------------------------------
@@ -129,6 +138,9 @@ type ContextStrategy = 'recent_k' | 'summary' | 'full'
 type DataSource = 'summary' | 'abstract' | 'full_text'
 
 const showSettings = ref(false)
+const activeSettingsSection = ref<'model' | 'context' | 'display' | 'session'>('model')
+const settingsButtonRef = ref<HTMLElement | null>(null)
+const settingsPopoverRef = ref<HTMLElement | null>(null)
 const settingsLoading = ref(false)
 const contextStrategy = ref<ContextStrategy>('recent_k')
 const contextK = ref(10)
@@ -261,10 +273,25 @@ async function loadHistory() {
   }
 }
 
+function onDocPointerdown(e: PointerEvent) {
+  if (!showSettings.value) return
+  const target = e.target as Node
+  if (
+    settingsButtonRef.value?.contains(target) ||
+    settingsPopoverRef.value?.contains(target)
+  ) return
+  showSettings.value = false
+}
+
 onMounted(() => {
   loadHistory()
   loadSettings()
   loadLlmPresets()
+  document.addEventListener('pointerdown', onDocPointerdown, true)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onDocPointerdown, true)
 })
 
 watch(
@@ -300,11 +327,14 @@ async function sendMessage() {
   scrollToBottom()
   globalChat.signalMessageSent()
 
+  _abortController = new AbortController()
+  const signal = _abortController.signal
+
   try {
     const response =
       props.chatMode === 'general'
-        ? await fetchGeneralChatStream(text)
-        : await fetchPaperChatStream(props.paperId!, text)
+        ? await fetchGeneralChatStream(text, signal)
+        : await fetchPaperChatStream(props.paperId!, text, signal)
 
     if (!response.ok) {
       const errText = await response.text()
@@ -317,28 +347,33 @@ async function sendMessage() {
     const decoder = new TextDecoder()
     let buffer = ''
 
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const payload = line.slice(6)
-        if (payload === '[DONE]') break
-        try {
-          const chunk = JSON.parse(payload)
-          if (typeof chunk === 'string') {
-            streamingContent.value += chunk
-            scrollToBottom()
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const payload = line.slice(6)
+          if (payload === '[DONE]') break
+          try {
+            const chunk = JSON.parse(payload)
+            if (typeof chunk === 'string') {
+              streamingContent.value += chunk
+              scrollToBottom()
+            }
+          } catch {
+            // ignore malformed chunks
           }
-        } catch {
-          // ignore malformed chunks
         }
       }
+    } finally {
+      reader.releaseLock()
     }
 
+    // Commit whatever was streamed (handles both normal finish and user stop)
     if (streamingContent.value) {
       messages.value.push({
         id: Date.now() + 1,
@@ -349,6 +384,7 @@ async function sendMessage() {
     }
     streamingContent.value = ''
     phase.value = 'idle'
+    _abortController = null
     scrollToBottom()
 
     // Reload from server to get accurate persisted IDs
@@ -364,8 +400,25 @@ async function sendMessage() {
     }
 
   } catch (e: any) {
+    // AbortError = user clicked stop; treat as a clean stop, not an error
+    if (e?.name === 'AbortError' || signal.aborted) {
+      if (streamingContent.value) {
+        messages.value.push({
+          id: Date.now() + 1,
+          role: 'assistant',
+          content: streamingContent.value,
+          created_at: new Date().toISOString(),
+        })
+      }
+      streamingContent.value = ''
+      phase.value = 'idle'
+      _abortController = null
+      scrollToBottom()
+      return
+    }
     streamingContent.value = ''
     phase.value = 'error'
+    _abortController = null
     errorMsg.value = e?.message || '发送失败，请重试'
   }
 }
@@ -438,7 +491,7 @@ async function saveToNote(assistantMsg: ChatMessage) {
     }
 
     // Render Markdown → HTML so Tiptap editor can display it as rich text
-    const htmlContent = md.render(assistantMsg.content)
+    const htmlContent = renderChatMarkdown(assistantMsg.content)
     await createNote(pid, noteTitle, htmlContent, 'kb')
     savedNotes.value[assistantMsg.id] = true
     emit('noteSaved')
@@ -456,7 +509,7 @@ async function saveToNote(assistantMsg: ChatMessage) {
 
 /** Convert markdown string to plain text via DOM */
 function stripMarkdown(content: string): string {
-  const html = md.render(content)
+  const html = renderChatMarkdown(content)
   const div = document.createElement('div')
   div.innerHTML = html
   return div.textContent || div.innerText || content
@@ -520,17 +573,13 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// Click outside to close settings panel
-function onSettingsOverlayClick() {
-  showSettings.value = false
-}
 
 // ---------------------------------------------------------------------------
 // Render helpers
 // ---------------------------------------------------------------------------
 
 function renderMarkdown(content: string): string {
-  return md.render(content)
+  return renderChatMarkdown(content)
 }
 </script>
 
@@ -751,238 +800,314 @@ function renderMarkdown(content: string): string {
       </div>
     </div>
 
-    <!-- Input area (toolbar + textarea) -->
+    <!-- Input area (composer) -->
     <div class="shrink-0 border-t border-border bg-bg-card/80 backdrop-blur-sm">
-      <!-- Toolbar row -->
-      <div class="px-3 pt-1.5 pb-1">
-        <div class="flex items-center gap-1 relative">
 
-        <!-- Settings button + upward dropdown -->
-        <div class="relative">
-          <button
-            type="button"
-            class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none"
-            :class="showSettings
-              ? 'text-tinder-blue bg-tinder-blue/8'
-              : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
-            title="对话设置"
-            @click="showSettings = !showSettings"
-          >
-            <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-            </svg>
-            <span class="hidden sm:inline">设置</span>
-          </button>
+      <!-- Composer top row: feature chips + more/settings -->
+      <div class="relative px-3 pt-2 pb-1 flex items-center gap-1.5">
 
-          <!-- Settings dropdown — expands UPWARD -->
-          <Transition name="settings-pop">
-            <div
-              v-if="showSettings"
-              class="absolute left-0 bottom-full mb-2 z-50 w-72 bg-bg-card border border-border rounded-2xl shadow-xl flex flex-col overflow-hidden"
-            >
-              <!-- Group 1: 对话上下文 -->
-              <div class="p-4 flex flex-col gap-3">
-                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">对话上下文</p>
-                <!-- Context strategy -->
-                <div>
-                  <p class="text-xs font-semibold text-text-secondary mb-2">上下文策略</p>
-                  <div class="flex gap-1.5 flex-wrap">
-                    <button
-                      v-for="s in (['recent_k', 'summary', 'full'] as const)"
-                      :key="s"
-                      type="button"
-                      class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
-                      :class="contextStrategy === s
-                        ? 'bg-tinder-blue/10 border-tinder-blue/40 text-tinder-blue'
-                        : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
-                      @click="contextStrategy = s; persistSettings()"
-                    >
-                      {{ strategyLabel[s] }}
-                    </button>
-                  </div>
-                  <p class="text-xs text-text-muted mt-1.5 leading-relaxed">
-                    <template v-if="contextStrategy === 'recent_k'">只传最近 K 轮历史，token 开销最小</template>
-                    <template v-else-if="contextStrategy === 'summary'">超过 K 轮时自动压缩旧对话为摘要</template>
-                    <template v-else>传完整历史，超限时从旧端截断</template>
-                  </p>
-                </div>
-                <!-- K value (hidden for full) -->
-                <div v-if="contextStrategy !== 'full'">
-                  <p class="text-xs font-semibold text-text-secondary mb-2">K 值（轮数）</p>
-                  <div class="flex items-center gap-2">
-                    <input
-                      v-model.number="contextK"
-                      type="number"
-                      min="1"
-                      max="50"
-                      class="w-20 px-2 py-1 rounded-lg border border-border bg-bg-elevated text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-tinder-blue/50"
-                      @change="persistSettings"
-                    />
-                    <span class="text-xs text-text-muted">轮 = {{ contextK * 2 }} 条消息</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Group 2: 论文数据源 -->
-              <div class="border-t border-border/40 p-4 flex flex-col gap-2">
-                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">论文数据源</p>
-                <div class="flex gap-1.5 flex-wrap">
-                  <button
-                    v-for="src in (['summary', 'abstract', 'full_text'] as const)"
-                    :key="src"
-                    type="button"
-                    class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
-                    :class="dataSource === src
-                      ? 'bg-tinder-pink/10 border-tinder-pink/40 text-tinder-pink'
-                      : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
-                    @click="dataSource = src; persistSettings()"
-                  >
-                    {{ dataSourceLabel[src] }}
-                  </button>
-                </div>
-                <p class="text-xs text-text-muted leading-relaxed">
-                  <template v-if="dataSource === 'summary'">AI 生成的中文结构化摘要（推荐）</template>
-                  <template v-else-if="dataSource === 'abstract'">论文原文英文摘要</template>
-                  <template v-else>MinerU 提取的全文（token 消耗大）</template>
-                </p>
-                <p class="text-xs text-amber-500/80">切换数据源后建议清空历史以保持上下文一致</p>
-              </div>
-
-              <!-- Group 3: 显示 -->
-              <div class="border-t border-border/40 p-4 flex flex-col gap-2">
-                <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">显示</p>
-                <p class="text-xs font-semibold text-text-secondary">字体大小</p>
-                <div class="flex items-center gap-2.5">
-                  <svg class="w-3 h-3 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
-                    <text x="3" y="17" font-size="12" font-family="sans-serif">A</text>
-                  </svg>
-                  <input
-                    type="range"
-                    min="12"
-                    max="22"
-                    step="1"
-                    :value="chatFontSize"
-                    class="chat-font-slider flex-1 cursor-pointer"
-                    title="调整字体大小"
-                    @input="chatFontSize = Number(($event.target as HTMLInputElement).value); persistSettings()"
-                  />
-                  <svg class="w-4 h-4 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
-                    <text x="1" y="18" font-size="16" font-family="sans-serif">A</text>
-                  </svg>
-                  <span class="text-xs text-text-muted w-8 shrink-0 tabular-nums text-right">{{ chatFontSize }}px</span>
-                </div>
-              </div>
-            </div>
-          </Transition>
-
-          <!-- Click-outside overlay -->
-          <div
-            v-if="showSettings"
-            class="fixed inset-0 z-40"
-            @click="onSettingsOverlayClick"
-          />
-        </div>
-
-        <!-- Model picker -->
-        <PresetSelector
-          :model-value="selectedPresetId"
-          :presets="llmPresets"
-          :none-option="{ label: '默认（全局配置）' }"
-          :show-model-hint="true"
-          accent-color="#ec4899"
-          placeholder="选择模型"
-          drop-direction="up"
-          @update:model-value="val => selectPreset(val == null ? null : Number(val))"
-        />
-
-        <!-- Divider: config | features -->
-        <div class="w-px h-4 bg-border/60 shrink-0 mx-0.5" />
-
-        <!-- 深度研究 shortcut -->
+        <!-- 深度研究 chip -->
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none text-text-muted hover:bg-tinder-blue/10 hover:text-tinder-blue"
-          title="深度研究"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all border border-border bg-bg-elevated text-text-secondary hover:border-tinder-blue/50 hover:bg-tinder-blue/8 hover:text-tinder-blue"
+          title="深度研究：针对论文 / 文献集发起多轮问答"
           @click="handleResearchClick"
         >
           <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
             <path d="M11 8v3"/><path d="M8 11h6"/>
           </svg>
-          <span class="hidden sm:inline">深度研究</span>
+          深度研究
         </button>
 
-        <!-- 对比分析 shortcut -->
+        <!-- 对比分析 chip -->
         <button
           type="button"
-          class="flex items-center gap-1 px-2 py-1 rounded-lg text-xs cursor-pointer transition-colors border-none text-text-muted hover:bg-tinder-purple/10 hover:text-tinder-purple"
-          title="对比分析"
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all border border-border bg-bg-elevated text-text-secondary hover:border-tinder-purple/50 hover:bg-tinder-purple/8 hover:text-tinder-purple"
+          title="对比分析：将论文与其他论文做多维对比"
           @click="handleCompareClick"
         >
           <svg class="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22V12"/><path d="m21 3-7 7-4-4-7 7"/>
           </svg>
-          <span class="hidden sm:inline">对比分析</span>
+          对比分析
         </button>
 
-        <!-- Push right -->
         <div class="flex-1" />
 
-        <!-- Divider: features | session actions -->
-        <div class="w-px h-4 bg-border/60 shrink-0 mx-0.5" />
-
-        <!-- Copy format toggle (icon-only ghost) -->
+        <!-- More / Settings button -->
         <button
+          ref="settingsButtonRef"
           type="button"
-          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors"
-          :class="copyFormat === 'markdown'
-            ? 'text-tinder-purple bg-tinder-purple/8'
-            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
-          :title="copyFormat === 'markdown' ? '当前：复制 Markdown（点击切换为纯文本）' : '当前：复制纯文本（点击切换为 Markdown）'"
-          @click="copyFormat = copyFormat === 'markdown' ? 'plain' : 'markdown'; persistSettings()"
+          class="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-all border"
+          :class="showSettings
+            ? 'border-tinder-blue/50 bg-tinder-blue/8 text-tinder-blue'
+            : 'border-border bg-bg-elevated text-text-muted hover:border-border-light hover:text-text-secondary'"
+          title="设置与更多"
+          @click="showSettings = !showSettings"
         >
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="16" y1="13" x2="8" y2="13"/>
-            <line x1="16" y1="17" x2="8" y2="17"/>
-            <polyline v-if="copyFormat === 'markdown'" points="10 9 9 9 8 9"/>
+          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
           </svg>
+          <span class="hidden sm:inline">更多</span>
         </button>
 
-        <!-- Copy all button (icon-only ghost) -->
-        <button
-          type="button"
-          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-          :class="allCopied
-            ? 'text-tinder-green bg-tinder-green/8'
-            : 'text-text-muted hover:bg-bg-hover hover:text-text-primary'"
-          :disabled="messages.length === 0 || isStreaming"
-          :title="allCopied ? '已复制' : '复制全部对话'"
-          @click="copyAllMessages"
-        >
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline v-if="allCopied" points="20 6 9 17 4 12"/>
-            <template v-else>
-              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-            </template>
-          </svg>
-        </button>
+        <!-- Unified popover — expands UPWARD, anchored to composer row -->
+        <Transition name="settings-pop">
+          <div
+            ref="settingsPopoverRef"
+            v-if="showSettings"
+            class="absolute right-3 bottom-full mb-2 z-50 w-[calc(100%-1.5rem)] max-w-[26rem] bg-bg-card border border-border rounded-2xl shadow-xl overflow-hidden"
+          >
+            <!-- Header -->
+            <div class="flex items-center justify-between px-3.5 pt-3 pb-2 border-b border-border/50">
+              <span class="text-xs font-semibold text-text-primary">设置</span>
+              <span class="text-[11px] text-text-muted truncate ml-2">
+                {{ dataSourceLabel[dataSource] }} · {{ strategyLabel[contextStrategy] }} · {{ chatFontSize }}px
+              </span>
+            </div>
 
-        <!-- Clear button (icon-only ghost) -->
-        <button
-          type="button"
-          class="w-7 h-7 rounded-lg flex items-center justify-center border-none cursor-pointer transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-text-muted hover:bg-tinder-pink/8 hover:text-tinder-pink"
-          :disabled="clearing || isStreaming"
-          title="清空对话记录"
-          @click="handleClear"
-        >
-          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-          </svg>
-        </button>
+            <!-- Body: left rail + right panel -->
+            <div class="flex" style="min-height: 180px; max-height: 72vh; overflow: hidden;">
 
-        </div>
+              <!-- Left navigation rail -->
+              <nav class="settings-rail shrink-0 flex flex-col gap-0.5 p-2 border-r border-border/40 bg-bg-elevated/50">
+                <!-- 模型 -->
+                <button
+                  type="button"
+                  class="settings-nav-btn"
+                  :class="activeSettingsSection === 'model' ? 'settings-nav-btn--active' : ''"
+                  @click="activeSettingsSection = 'model'"
+                >
+                  <svg class="settings-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="4" y="4" width="16" height="16" rx="2"/>
+                    <path d="M9 9h6M9 12h4M9 15h3"/>
+                  </svg>
+                  <span class="settings-nav-label">模型</span>
+                  <span class="settings-nav-status">{{ selectedPresetId ? (llmPresets.find(p => p.id === selectedPresetId)?.name ?? '—') : '默认' }}</span>
+                </button>
+
+                <!-- 上下文 -->
+                <button
+                  type="button"
+                  class="settings-nav-btn"
+                  :class="activeSettingsSection === 'context' ? 'settings-nav-btn--active' : ''"
+                  @click="activeSettingsSection = 'context'"
+                >
+                  <svg class="settings-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
+                  <span class="settings-nav-label">上下文</span>
+                  <span class="settings-nav-status">{{ strategyLabel[contextStrategy] }}</span>
+                </button>
+
+                <!-- 显示 -->
+                <button
+                  type="button"
+                  class="settings-nav-btn"
+                  :class="activeSettingsSection === 'display' ? 'settings-nav-btn--active' : ''"
+                  @click="activeSettingsSection = 'display'"
+                >
+                  <svg class="settings-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>
+                  </svg>
+                  <span class="settings-nav-label">显示</span>
+                  <span class="settings-nav-status">{{ chatFontSize }}px</span>
+                </button>
+
+                <!-- 会话 -->
+                <button
+                  type="button"
+                  class="settings-nav-btn"
+                  :class="activeSettingsSection === 'session' ? 'settings-nav-btn--active' : ''"
+                  @click="activeSettingsSection = 'session'"
+                >
+                  <svg class="settings-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4"/>
+                  </svg>
+                  <span class="settings-nav-label">会话</span>
+                  <span class="settings-nav-status">{{ messages.length }}条</span>
+                </button>
+              </nav>
+
+              <!-- Right content panel -->
+              <div class="flex-1 overflow-y-auto">
+
+                <!-- Panel: 模型 -->
+                <div v-if="activeSettingsSection === 'model'" class="p-3.5 flex flex-col gap-3">
+                  <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide">模型预设</p>
+                  <PresetSelector
+                    :model-value="selectedPresetId"
+                    :presets="llmPresets"
+                    :none-option="{ label: '默认（全局配置）' }"
+                    :show-model-hint="true"
+                    accent-color="#ec4899"
+                    placeholder="选择模型"
+                    drop-direction="up"
+                    @update:model-value="val => selectPreset(val == null ? null : Number(val))"
+                  />
+                  <p class="text-[11px] text-text-muted leading-relaxed">不选则使用系统默认模型。预设在账户设置中管理。</p>
+                </div>
+
+                <!-- Panel: 上下文 -->
+                <div v-else-if="activeSettingsSection === 'context'" class="p-3.5 flex flex-col gap-4">
+                  <!-- 上下文策略 -->
+                  <div>
+                    <p class="text-xs font-semibold text-text-secondary mb-2">上下文策略</p>
+                    <div class="flex gap-1.5 flex-wrap">
+                      <button
+                        v-for="s in (['recent_k', 'summary', 'full'] as const)"
+                        :key="s"
+                        type="button"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
+                        :class="contextStrategy === s
+                          ? 'bg-tinder-blue/10 border-tinder-blue/40 text-tinder-blue'
+                          : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
+                        @click="contextStrategy = s; persistSettings()"
+                      >
+                        {{ strategyLabel[s] }}
+                      </button>
+                    </div>
+                    <p class="text-[11px] text-text-muted mt-1.5 leading-relaxed">
+                      <template v-if="contextStrategy === 'recent_k'">只传最近 K 轮历史，token 开销最小</template>
+                      <template v-else-if="contextStrategy === 'summary'">超过 K 轮时自动压缩旧对话为摘要</template>
+                      <template v-else>传完整历史，超限时从旧端截断</template>
+                    </p>
+                  </div>
+                  <!-- K 值 -->
+                  <div v-if="contextStrategy !== 'full'">
+                    <p class="text-xs font-semibold text-text-secondary mb-2">K 值（轮数）</p>
+                    <div class="flex items-center gap-2">
+                      <input
+                        v-model.number="contextK"
+                        type="number"
+                        min="1"
+                        max="50"
+                        class="w-20 px-2 py-1 rounded-lg border border-border bg-bg-elevated text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-tinder-blue/50"
+                        @change="persistSettings"
+                      />
+                      <span class="text-[11px] text-text-muted">轮 = {{ contextK * 2 }} 条消息</span>
+                    </div>
+                  </div>
+                  <!-- 数据源 -->
+                  <div>
+                    <p class="text-xs font-semibold text-text-secondary mb-2">论文数据源</p>
+                    <div class="flex gap-1.5 flex-wrap">
+                      <button
+                        v-for="src in (['summary', 'abstract', 'full_text'] as const)"
+                        :key="src"
+                        type="button"
+                        class="px-2.5 py-1 rounded-full text-xs font-medium cursor-pointer border transition-colors"
+                        :class="dataSource === src
+                          ? 'bg-tinder-pink/10 border-tinder-pink/40 text-tinder-pink'
+                          : 'bg-bg-elevated border-border text-text-muted hover:bg-bg-hover'"
+                        @click="dataSource = src; persistSettings()"
+                      >
+                        {{ dataSourceLabel[src] }}
+                      </button>
+                    </div>
+                    <p class="text-[11px] text-text-muted mt-1.5 leading-relaxed">
+                      <template v-if="dataSource === 'summary'">AI 生成的中文结构化摘要（推荐）</template>
+                      <template v-else-if="dataSource === 'abstract'">论文原文英文摘要</template>
+                      <template v-else>MinerU 提取的全文（token 消耗大）</template>
+                    </p>
+                    <p class="text-[11px] text-amber-500/80 mt-1">切换数据源后建议清空历史以保持上下文一致</p>
+                  </div>
+                </div>
+
+                <!-- Panel: 显示 -->
+                <div v-else-if="activeSettingsSection === 'display'" class="p-3.5 flex flex-col gap-4">
+                  <!-- Font size -->
+                  <div>
+                    <p class="text-xs font-semibold text-text-secondary mb-2.5">字体大小</p>
+                    <div class="flex items-center gap-2.5">
+                      <svg class="w-3 h-3 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
+                        <text x="3" y="17" font-size="12" font-family="sans-serif">A</text>
+                      </svg>
+                      <input
+                        type="range"
+                        min="12"
+                        max="22"
+                        step="1"
+                        :value="chatFontSize"
+                        class="chat-font-slider flex-1 cursor-pointer"
+                        title="调整字体大小"
+                        @input="chatFontSize = Number(($event.target as HTMLInputElement).value); persistSettings()"
+                      />
+                      <svg class="w-4 h-4 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="currentColor">
+                        <text x="1" y="18" font-size="16" font-family="sans-serif">A</text>
+                      </svg>
+                      <span class="text-xs text-text-muted w-8 shrink-0 tabular-nums text-right">{{ chatFontSize }}px</span>
+                    </div>
+                  </div>
+                  <!-- Copy format -->
+                  <div>
+                    <p class="text-xs font-semibold text-text-secondary mb-2">复制格式</p>
+                    <div class="flex p-0.5 bg-bg-elevated rounded-lg border border-border gap-0.5 self-start w-fit">
+                      <button
+                        type="button"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors border-none"
+                        :class="copyFormat === 'markdown'
+                          ? 'bg-bg-card text-tinder-purple shadow-sm'
+                          : 'bg-transparent text-text-muted hover:text-text-secondary'"
+                        @click="copyFormat = 'markdown'; persistSettings()"
+                      >
+                        Markdown
+                      </button>
+                      <button
+                        type="button"
+                        class="px-3 py-1.5 rounded-md text-xs font-medium cursor-pointer transition-colors border-none"
+                        :class="copyFormat === 'plain'
+                          ? 'bg-bg-card text-text-primary shadow-sm'
+                          : 'bg-transparent text-text-muted hover:text-text-secondary'"
+                        @click="copyFormat = 'plain'; persistSettings()"
+                      >
+                        纯文本
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Panel: 会话 -->
+                <div v-else-if="activeSettingsSection === 'session'" class="p-3.5 flex flex-col gap-1.5">
+                  <p class="text-[11px] font-semibold text-text-muted uppercase tracking-wide mb-1">会话操作</p>
+                  <!-- Copy all -->
+                  <button
+                    type="button"
+                    class="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-xs text-left cursor-pointer transition-colors border-none"
+                    :class="allCopied
+                      ? 'bg-tinder-green/8 text-tinder-green cursor-default'
+                      : 'text-text-secondary hover:bg-bg-elevated disabled:opacity-30 disabled:cursor-not-allowed'"
+                    :disabled="messages.length === 0 || isStreaming"
+                    @click="copyAllMessages"
+                  >
+                    <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline v-if="allCopied" points="20 6 9 17 4 12"/>
+                      <template v-else>
+                        <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                      </template>
+                    </svg>
+                    {{ allCopied ? '已复制全部对话' : '复制全部对话' }}
+                  </button>
+                  <!-- Clear -->
+                  <button
+                    type="button"
+                    class="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-xl text-xs text-left cursor-pointer transition-colors border-none text-tinder-pink hover:bg-tinder-pink/8 disabled:opacity-30 disabled:cursor-not-allowed"
+                    :disabled="clearing || isStreaming"
+                    @click="handleClear"
+                  >
+                    <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                    </svg>
+                    清空对话记录
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </Transition>
+
       </div>
 
       <!-- Quota / gate upgrade prompt -->
@@ -1022,13 +1147,27 @@ function renderMarkdown(content: string): string {
           :disabled="isStreaming || chatQuotaExhausted"
           @keydown="onKeydown"
         />
+        <!-- Stop button shown while AI is streaming -->
         <button
+          v-if="isStreaming"
+          type="button"
+          class="shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors border-none cursor-pointer bg-bg-elevated border border-border text-tinder-pink hover:bg-bg-hover"
+          title="停止生成"
+          @click="stopStreaming"
+        >
+          <svg class="w-[16px] h-[16px]" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+        </button>
+        <!-- Send button shown when idle -->
+        <button
+          v-else
           type="button"
           class="shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors border-none cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-          :class="inputText.trim() && !isStreaming && !chatQuotaExhausted
+          :class="inputText.trim() && !chatQuotaExhausted
             ? 'bg-brand-gradient text-white hover:opacity-90'
             : 'bg-bg-elevated border border-border text-text-muted'"
-          :disabled="!inputText.trim() || isStreaming || chatQuotaExhausted"
+          :disabled="!inputText.trim() || chatQuotaExhausted"
           title="发送"
           @click="sendMessage"
         >
@@ -1201,6 +1340,19 @@ function renderMarkdown(content: string): string {
   font-weight: 600;
 }
 
+/* KaTeX formulas: keep inline math readable and let long display equations
+   scroll inside the message bubble instead of widening the whole drawer. */
+:deep(.prose .katex) {
+  font-size: 1.05em;
+}
+:deep(.prose .katex-display) {
+  max-width: 100%;
+  margin: 0.75em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.2em 0;
+}
+
 /* ---- end prose overrides ---- */
 
 /* ---- Font size range slider ---- */
@@ -1234,6 +1386,56 @@ function renderMarkdown(content: string): string {
   cursor: pointer;
 }
 /* ---- end font size slider ---- */
+
+/* ---- Settings rail navigation ---- */
+.settings-rail {
+  width: 84px;
+}
+
+.settings-nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 4px 6px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  color: var(--color-text-muted);
+}
+.settings-nav-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+.settings-nav-btn--active {
+  background: var(--color-bg-card);
+  color: var(--color-tinder-blue, #2db8e2);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+.settings-nav-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.settings-nav-label {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+.settings-nav-status {
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 72px;
+  opacity: 0.7;
+}
+/* ---- end settings rail ---- */
 
 /* Settings dropdown pop-up animation */
 .settings-pop-enter-active {

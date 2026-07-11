@@ -8,13 +8,6 @@ defineProps<{
 
 <template>
   <div class="space-y-6 pb-8">
-    <!-- 推荐理由（新格式） -->
-    <section v-if="summary['推荐理由']">
-      <p class="text-sm text-tinder-blue leading-relaxed px-3 py-2 rounded-lg bg-tinder-blue/8 border border-tinder-blue/20">
-        <span class="font-semibold">推荐理由：</span>{{ summary['推荐理由'] }}
-      </p>
-    </section>
-
     <!-- 文章简介 -->
     <section>
       <h2 class="flex items-center gap-2 text-base font-semibold text-text-primary mb-3">

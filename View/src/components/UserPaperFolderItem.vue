@@ -224,10 +224,10 @@ function noteIcon(type: string): string {
       <div
         v-for="paper in folder.papers"
         :key="paper.paper_id"
-        class="flex flex-col rounded-lg group transition-colors"
+        class="flex flex-col rounded-lg group transition-colors border-l-2"
         :class="[
           batchMode ? '' : 'hover:bg-bg-hover',
-          !batchMode && activeUserPaperId === paper.paper_id ? 'bg-amber-500/8' : '',
+          !batchMode && activeUserPaperId === paper.paper_id ? 'bg-amber-500/8 border-amber-500' : 'border-transparent',
         ]"
         :style="{ marginLeft: `${(depth + 1) * 16}px` }"
       >
@@ -272,7 +272,10 @@ function noteIcon(type: string): string {
           >{{ processStatusIcon(paper.process_status) }}</span>
 
           <!-- Title -->
-          <span class="flex-1 min-w-0 text-xs text-text-primary truncate leading-tight">
+          <span
+            class="flex-1 min-w-0 text-xs truncate leading-tight"
+            :class="!batchMode && activeUserPaperId === paper.paper_id ? 'font-semibold text-text-primary' : 'text-text-primary'"
+          >
             {{ paper.title || '（未命名）' }}
           </span>
 

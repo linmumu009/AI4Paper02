@@ -44,7 +44,7 @@ const FEATURE_GROUPS: FeatureGroup[] = [
   {
     name: '知识库与存储',
     rows: [
-      { label: '论文收藏', free: '20 篇', pro: '100 篇', proPlus: '500 篇' },
+      { label: '论文收藏', free: '3 篇', pro: '100 篇', proPlus: '500 篇' },
       { label: '文件夹', free: '3 个', pro: '10 个', proPlus: '30 个' },
       { label: '笔记', free: '10 条', pro: '50 条', proPlus: '200 条' },
       { label: '保存对比结果', free: '3 条', pro: '20 条', proPlus: '100 条' },
@@ -124,7 +124,7 @@ function formatCell(val: string) {
             <th class="text-center py-2 px-2 w-[20%]">
               <div class="rounded-lg py-2 px-1" :class="tierHeaderClass('pro')">
                 <div class="font-bold text-blue-400 text-[11px] mb-0.5">Pro</div>
-                <div class="text-blue-400/70 text-[10px]">¥9.9 / 月</div>
+                <div class="text-blue-400/70 text-[10px]">¥99 / 月</div>
                 <div v-if="currentTier === 'pro'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 inline-block">当前套餐</div>
               </div>
             </th>
@@ -140,7 +140,7 @@ function formatCell(val: string) {
                   class="font-bold text-[11px] mb-0.5"
                   style="background: linear-gradient(135deg, #fd267a, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;"
                 >Pro+</div>
-                <div class="text-violet-400/70 text-[10px]">¥19.9 / 月</div>
+                <div class="text-violet-400/70 text-[10px]">¥199 / 月</div>
                 <div v-if="currentTier === 'pro_plus'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 inline-block">当前套餐</div>
               </div>
             </th>
@@ -200,11 +200,11 @@ function formatCell(val: string) {
             </td>
             <td class="px-2 pt-4 pb-2 text-center" :class="tierCellBg('pro')">
               <span v-if="currentTier === 'pro'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-blue-500/20 text-blue-300">当前套餐</span>
-              <span v-else-if="currentTier !== 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-blue-300" style="background: linear-gradient(135deg, #3b82f620, #2563eb20); border: 1px solid #3b82f640;">¥9.9 / 月起</span>
+              <span v-else-if="currentTier !== 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-blue-300" style="background: linear-gradient(135deg, #3b82f620, #2563eb20); border: 1px solid #3b82f640;">¥99 / 月起</span>
             </td>
             <td class="px-2 pt-4 pb-2 text-center" :class="tierCellBg('pro_plus')">
               <span v-if="currentTier === 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-violet-500/20 text-violet-300">当前套餐</span>
-              <span v-else class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-violet-300" style="background: linear-gradient(135deg, #7c3aed20, #a855f720); border: 1px solid #a855f740;">¥19.9 / 月起</span>
+              <span v-else class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-violet-300" style="background: linear-gradient(135deg, #7c3aed20, #a855f720); border: 1px solid #a855f740;">¥199 / 月起</span>
             </td>
           </tr>
         </tbody>
@@ -225,7 +225,7 @@ function formatCell(val: string) {
           <li>对比分析 3 次/月（2篇/次）</li>
           <li>深度研究 2 次/月 · 灵感 3 次/月</li>
           <li>翻译 2 次/月 · 导出 2 次/月</li>
-          <li>知识库 20 篇 · 文件夹 3 个</li>
+          <li>知识库 3 篇 · 文件夹 3 个</li>
         </ul>
       </div>
 
@@ -234,7 +234,7 @@ function formatCell(val: string) {
         <div class="flex items-center justify-between mb-3">
           <span class="font-bold text-blue-400">Pro</span>
           <span v-if="currentTier === 'pro'" class="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300">当前套餐</span>
-          <span v-else class="text-[10px] text-blue-400/70">¥9.9 / 月</span>
+          <span v-else class="text-[10px] text-blue-400/70">¥99 / 月</span>
         </div>
         <ul class="space-y-1.5 text-xs text-text-secondary">
           <li class="text-tinder-green">✓ AI 论文问答不限次数</li>
@@ -253,7 +253,7 @@ function formatCell(val: string) {
         <div class="flex items-center justify-between mb-3">
           <span class="font-bold text-[13px]" style="background: linear-gradient(135deg, #fd267a, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Pro+</span>
           <span v-if="currentTier === 'pro_plus'" class="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300">当前套餐</span>
-          <span v-else class="text-[10px] text-violet-400/70">¥19.9 / 月</span>
+          <span v-else class="text-[10px] text-violet-400/70">¥199 / 月</span>
         </div>
         <ul class="space-y-1.5 text-xs text-text-secondary">
           <li class="text-tinder-green">✓ 每日浏览不限篇数</li>

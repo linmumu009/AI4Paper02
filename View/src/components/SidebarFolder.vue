@@ -1,14 +1,17 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import type { KbFolder, KbPaper, KbNote } from '../types/paper'
-import { API_ORIGIN } from '../api'
+import type { KbFolder, KbPaper, KbNote, UserPaperViewMdPayload } from '../types/paper'
+import { API_ORIGIN, downloadPaperFile } from '../api'
 import { openExternal } from '../utils/openExternal'
+import TranslateProgressRing from './TranslateProgressRing.vue'
 
 defineProps<{
   folder: KbFolder
   depth: number
+  scope: string
   expandedFolders: Set<number>
   activeFolderId: number | null
+  activePaperId?: string | null
   renamingFolderId: number | null
   renamingFolderName: string
   showNewFolderInput: boolean
@@ -44,6 +47,10 @@ const emit = defineEmits<{
   'update:renaming-paper-title': [title: string]
   'confirm-rename-paper': []
   'cancel-rename-paper': []
+  'view-md': [payload: UserPaperViewMdPayload]
+  'process-kb-paper': [paper: KbPaper]
+  'translate-kb-paper': [paper: KbPaper]
+  'open-derivative-menu': [e: MouseEvent, paper: KbPaper, derivative: 'mineru' | 'zh' | 'bilingual']
 }>()
 
 // Per-paper add dropdown
@@ -211,8 +218,10 @@ function avatarColor(paperId: string): string {
         :key="child.id"
         :folder="child"
         :depth="depth + 1"
+        :scope="scope"
         :expanded-folders="expandedFolders"
         :active-folder-id="activeFolderId"
+        :active-paper-id="activePaperId"
         :renaming-folder-id="renamingFolderId"
         :renaming-folder-name="renamingFolderName"
         :show-new-folder-input="showNewFolderInput"
@@ -245,6 +254,10 @@ function avatarColor(paperId: string): string {
         @update:renaming-paper-title="(t: string) => emit('update:renaming-paper-title', t)"
         @confirm-rename-paper="emit('confirm-rename-paper')"
         @cancel-rename-paper="emit('cancel-rename-paper')"
+        @view-md="(payload) => emit('view-md', payload)"
+        @process-kb-paper="(p: KbPaper) => emit('process-kb-paper', p)"
+        @translate-kb-paper="(p: KbPaper) => emit('translate-kb-paper', p)"
+        @open-derivative-menu="(ev: MouseEvent, p: KbPaper, d: 'mineru' | 'zh' | 'bilingual') => emit('open-derivative-menu', ev, p, d)"
       />
 
       <!-- Papers inside folder -->
@@ -254,8 +267,14 @@ function avatarColor(paperId: string): string {
       >
         <!-- Paper row -->
         <div
-          class="flex items-center gap-2.5 py-2 rounded-lg hover:bg-bg-hover transition-colors group border-l-2"
-          :class="(!paper.read_status || paper.read_status === 'unread') ? 'border-tinder-green/60' : 'border-transparent'"
+          class="flex items-center gap-2.5 py-2 rounded-lg transition-colors group border-l-2"
+          :class="[
+            activePaperId === paper.paper_id
+              ? 'bg-tinder-pink/8 border-tinder-pink'
+              : (!paper.read_status || paper.read_status === 'unread')
+                ? 'border-tinder-green/60 hover:bg-bg-hover'
+                : 'border-transparent hover:bg-bg-hover'
+          ]"
           :style="{ paddingLeft: (22 + (depth + 1) * 14) + 'px', paddingRight: '8px' }"
         >
           <!-- Batch checkbox -->
@@ -272,14 +291,12 @@ function avatarColor(paperId: string): string {
             <span class="kb-checkbox-mark"></span>
           </label>
 
-          <!-- Expand arrow (when paper has notes) -->
+          <!-- Expand arrow -->
           <button
-            v-if="(paper.note_count ?? 0) > 0"
             class="w-4 h-4 flex items-center justify-center text-[8px] text-text-muted bg-transparent border-none cursor-pointer shrink-0 transition-transform duration-150"
             :class="expandedPapers.has(paper.paper_id) ? 'rotate-90' : ''"
             @click.stop="emit('toggle-paper', paper.paper_id)"
           >▶</button>
-          <div v-else class="w-4 shrink-0"></div>
 
           <!-- Inline rename for paper -->
           <template v-if="renamingPaperId === paper.paper_id">
@@ -310,7 +327,13 @@ function avatarColor(paperId: string): string {
             <div class="min-w-0 flex-1">
               <div
                 class="text-xs truncate"
-                :class="(!paper.read_status || paper.read_status === 'unread') ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'"
+                :class="[
+                  activePaperId === paper.paper_id
+                    ? 'font-semibold text-text-primary'
+                    : (!paper.read_status || paper.read_status === 'unread')
+                      ? 'font-semibold text-text-primary'
+                      : 'font-medium text-text-secondary'
+                ]"
               >{{ paper.paper_data?.short_title }}</div>
               <div class="text-[11px] text-text-muted truncate">{{ paper.paper_data?.institution }} · {{ paper.paper_id }}</div>
               <div
@@ -379,10 +402,129 @@ function avatarColor(paperId: string): string {
           ></span>
         </div>
 
-        <!-- Expanded notes/files under paper -->
-        <div v-if="expandedPapers.has(paper.paper_id) && paperNotes.has(paper.paper_id)">
+        <!-- Expanded area: derivative file links + notes -->
+        <div v-if="expandedPapers.has(paper.paper_id)" class="pb-1">
+          <!-- PDF link -->
           <div
-            v-for="note in paperNotes.get(paper.paper_id)"
+            v-if="paper.pdf_static_url"
+            class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+            @click="emit('open-pdf', { paperId: paper.paper_id, filePath: paper.pdf_static_url!.replace(/^\/static\/kb_files\//, ''), title: paper.paper_data?.short_title || paper.paper_id })"
+          >
+            <span class="text-xs shrink-0">📄</span>
+            <span class="text-xs text-text-secondary truncate flex-1">原 PDF</span>
+            <button type="button" class="shrink-0 w-5 h-5 flex items-center justify-center text-text-muted hover:text-tinder-green bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity" title="下载" @click.stop="downloadPaperFile(paper.paper_id, 'pdf', scope as 'kb' | 'mypapers')">↓</button>
+          </div>
+          <!-- PDF not available -->
+          <div
+            v-else
+            class="flex items-center gap-2 py-1.5 px-2 rounded"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <span class="text-xs shrink-0">📄</span>
+            <span class="text-xs text-text-muted truncate flex-1">原 PDF（暂无）</span>
+          </div>
+          <!-- MinerU processing in progress -->
+          <div
+            v-if="!paper.mineru_static_url && (paper.process_status === 'pending' || paper.process_status === 'processing')"
+            class="flex items-center gap-2 py-1.5 px-2 rounded"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <span class="text-xs shrink-0">⏳</span>
+            <span class="text-xs text-amber-500 truncate flex-1">MinerU 解析中…</span>
+            <svg class="animate-spin shrink-0 w-3 h-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+          </div>
+          <!-- MinerU process failed -->
+          <div
+            v-if="!paper.mineru_static_url && paper.process_status === 'failed'"
+            class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+            @click="emit('process-kb-paper', paper)"
+          >
+            <span class="text-xs shrink-0">❌</span>
+            <span class="text-xs text-red-400 truncate flex-1">MinerU 解析失败，点击重试</span>
+          </div>
+          <!-- Trigger MinerU processing -->
+          <div
+            v-if="!paper.mineru_static_url && (!paper.process_status || paper.process_status === 'none' || paper.process_status === 'completed')"
+            class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+            @click="emit('process-kb-paper', paper)"
+          >
+            <span class="text-xs shrink-0">✨</span>
+            <span class="text-xs text-tinder-pink truncate flex-1 font-medium">生成 MinerU 解析</span>
+          </div>
+          <!-- MinerU link (shown when available; backend handles generation automatically) -->
+          <div
+            v-if="paper.mineru_static_url"
+            class="flex items-center gap-1 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors group/der"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <div class="flex flex-1 min-w-0 items-center gap-2 cursor-pointer" @click="emit('view-md', { paperId: paper.paper_id, title: (paper.paper_data?.short_title || paper.paper_id) + ' · MinerU 解析', pdfUrl: paper.pdf_static_url ? `${API_ORIGIN}${paper.pdf_static_url}` : null, mdUrl: `${API_ORIGIN}${paper.mineru_static_url}`, viewMode: 'mineru', mineruUrl: paper.mineru_static_url ? `${API_ORIGIN}${paper.mineru_static_url}` : null, zhUrl: paper.zh_static_url ? `${API_ORIGIN}${paper.zh_static_url}` : null, bilingualUrl: paper.bilingual_static_url ? `${API_ORIGIN}${paper.bilingual_static_url}` : null })">
+              <span class="text-xs shrink-0">📋</span>
+              <span class="text-xs text-text-secondary truncate flex-1">MinerU 解析 (Markdown)</span>
+            </div>
+            <button type="button" class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover/der:opacity-100 transition-opacity" title="更多" @click.stop="emit('open-derivative-menu', $event, paper, 'mineru')">⋯</button>
+          </div>
+          <!-- Chinese translation -->
+          <div
+            v-if="paper.zh_static_url"
+            class="flex items-center gap-1 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors group/der"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <div class="flex flex-1 min-w-0 items-center gap-2 cursor-pointer" @click="emit('view-md', { paperId: paper.paper_id, title: (paper.paper_data?.short_title || paper.paper_id) + ' · 中文翻译', pdfUrl: paper.pdf_static_url ? `${API_ORIGIN}${paper.pdf_static_url}` : null, mdUrl: `${API_ORIGIN}${paper.zh_static_url}`, viewMode: 'zh', mineruUrl: paper.mineru_static_url ? `${API_ORIGIN}${paper.mineru_static_url}` : null, zhUrl: paper.zh_static_url ? `${API_ORIGIN}${paper.zh_static_url}` : null, bilingualUrl: paper.bilingual_static_url ? `${API_ORIGIN}${paper.bilingual_static_url}` : null, translateInProgress: paper.translate_status === 'processing' })">
+              <span class="text-xs shrink-0">🇨🇳</span>
+              <span class="text-xs text-text-secondary truncate flex-1">中文翻译版</span>
+            </div>
+            <button type="button" class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover/der:opacity-100 transition-opacity" title="更多" @click.stop="emit('open-derivative-menu', $event, paper, 'zh')">⋯</button>
+          </div>
+          <!-- Bilingual -->
+          <div
+            v-if="paper.bilingual_static_url"
+            class="flex items-center gap-1 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors group/der"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <div class="flex flex-1 min-w-0 items-center gap-2 cursor-pointer" @click="emit('view-md', { paperId: paper.paper_id, title: (paper.paper_data?.short_title || paper.paper_id) + ' · 中英对照', pdfUrl: paper.pdf_static_url ? `${API_ORIGIN}${paper.pdf_static_url}` : null, mdUrl: `${API_ORIGIN}${paper.bilingual_static_url}`, viewMode: 'bilingual', mineruUrl: paper.mineru_static_url ? `${API_ORIGIN}${paper.mineru_static_url}` : null, zhUrl: paper.zh_static_url ? `${API_ORIGIN}${paper.zh_static_url}` : null, bilingualUrl: paper.bilingual_static_url ? `${API_ORIGIN}${paper.bilingual_static_url}` : null, translateInProgress: paper.translate_status === 'processing' })">
+              <span class="text-xs shrink-0">🔀</span>
+              <span class="text-xs text-text-secondary truncate flex-1">中英文对照版</span>
+            </div>
+            <button type="button" class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover/der:opacity-100 transition-opacity" title="更多" @click.stop="emit('open-derivative-menu', $event, paper, 'bilingual')">⋯</button>
+          </div>
+          <!-- Generate translation button -->
+          <div
+            v-if="paper.mineru_static_url && !paper.zh_static_url && (!paper.translate_status || paper.translate_status === 'none')"
+            class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+            @click="emit('translate-kb-paper', paper)"
+          >
+            <span class="text-xs shrink-0">✨</span>
+            <span class="text-xs text-tinder-pink truncate flex-1 font-medium">生成中文翻译与对照</span>
+          </div>
+          <!-- Translation failed -->
+          <div
+            v-if="paper.mineru_static_url && !paper.zh_static_url && paper.translate_status === 'failed'"
+            class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+            @click="emit('translate-kb-paper', paper)"
+          >
+            <span class="text-xs shrink-0">❌</span>
+            <span class="text-xs text-red-400 truncate flex-1">翻译失败，点击重试</span>
+          </div>
+          <!-- Translating in progress -->
+          <div
+            v-if="paper.mineru_static_url && paper.translate_status === 'processing'"
+            class="flex items-center gap-2 py-1.5 px-2 rounded"
+            :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"
+          >
+            <span class="text-xs shrink-0">⏳</span>
+            <span class="text-xs text-amber-500 truncate flex-1">
+              {{ paper.zh_static_url ? '翻译中（已可预览）' : '翻译中…' }}
+            </span>
+            <TranslateProgressRing :percent="paper.translate_progress ?? 0" />
+          </div>
+          <!-- Notes (exclude auto-attached PDF note when the hardcoded 原 PDF link is already shown) -->
+          <div
+            v-for="note in (paperNotes.get(paper.paper_id) || []).filter(n => !(paper.pdf_static_url && n.type === 'file' && (n.title || '').toLowerCase().endsWith('.pdf')))"
             :key="note.id"
             class="flex items-center gap-2.5 py-2 rounded hover:bg-bg-hover transition-colors group/note cursor-pointer"
             :style="{ paddingLeft: (36 + (depth + 2) * 14) + 'px', paddingRight: '8px' }"

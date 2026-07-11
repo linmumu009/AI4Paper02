@@ -11,6 +11,7 @@ import {
   deleteUserPaper,
   API_ORIGIN,
 } from '../api'
+import { buildPdfViewerUrl, buildKbFileUrl } from '../composables/usePdfUrl'
 import type { UserPaper } from '../types/paper'
 import { openExternal } from '../utils/openExternal'
 
@@ -550,9 +551,10 @@ watch(importTab, () => {
 // PDF viewer URL builder
 function buildPdfUrl(paper: UserPaper): string | null {
   if (paper.pdf_static_url) {
-    const viewerPath = `${API_ORIGIN}/static/pdfjs/web/viewer.html`
-    const fileUrl = `${API_ORIGIN}${paper.pdf_static_url}`
-    return `${viewerPath}?file=${encodeURIComponent(fileUrl)}&paperId=${encodeURIComponent(paper.paper_id)}`
+    const fileUrl = paper.pdf_static_url.startsWith('http')
+      ? paper.pdf_static_url
+      : `${API_ORIGIN}${paper.pdf_static_url}`
+    return buildPdfViewerUrl(fileUrl, paper.paper_id)
   }
   if (paper.source_type === 'arxiv' && paper.source_ref) {
     return `https://arxiv.org/pdf/${paper.source_ref}`

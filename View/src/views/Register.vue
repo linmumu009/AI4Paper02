@@ -2,14 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login, register, sendSms, verifySms } from '../stores/auth'
-
-// 把原始错误格式化为用户可读的文字
-function formatError(e: any, fallback: string): string {
-  if (e?.response?.data?.detail) return e.response.data.detail
-  if (e?.response?.status) return `服务器错误 (HTTP ${e.response.status})`
-  if (e?.message) return `网络错误: ${e.message}`
-  return fallback
-}
+import { getApiErrorMessage, reportClientError } from '../utils/apiError'
 
 const router = useRouter()
 const route = useRoute()
@@ -56,8 +49,9 @@ async function handleSendSms() {
   try {
     await sendSms(phone.value.trim())
     startCountdown()
-  } catch (e: any) {
-    smsError.value = formatError(e, '发送失败，请稍后重试')
+  } catch (error: unknown) {
+    reportClientError('auth.register.sms.send', error, '发送失败，请稍后重试')
+    smsError.value = getApiErrorMessage(error, '发送失败，请稍后重试')
   } finally {
     smsSending.value = false
   }
@@ -78,8 +72,9 @@ async function handleVerifyAndNext() {
     const res = await verifySms(phone.value.trim(), smsCode.value.trim())
     smsToken.value = res?.sms_token ?? ''
     step.value = 2
-  } catch (e: any) {
-    smsError.value = formatError(e, '验证码错误或已过期，请重新获取')
+  } catch (error: unknown) {
+    reportClientError('auth.register.sms.verify', error, '验证码错误或已过期，请重新获取')
+    smsError.value = getApiErrorMessage(error, '验证码错误或已过期，请重新获取')
   } finally {
     smsVerifying.value = false
   }
@@ -105,8 +100,9 @@ async function handleRegister() {
     await login(username.value.trim(), password.value)
     const redirect = (route.query.redirect as string) || '/'
     await router.replace(redirect)
-  } catch (e: any) {
-    const detail = formatError(e, '注册失败，请稍后重试')
+  } catch (error: unknown) {
+    reportClientError('auth.register.submit', error, '注册失败，请稍后重试')
+    const detail = getApiErrorMessage(error, '注册失败，请稍后重试')
     if (detail.includes('手机验证失败') || detail.includes('验证码')) {
       submitError.value = detail + '，请返回重新验证'
     } else {
@@ -125,7 +121,7 @@ async function handleRegister() {
       <p class="text-sm text-text-muted mb-5">注册即可免费使用所有功能：AI 推荐 · 中文摘要 · 知识库 · 论文对比 · AI 问答 · 灵感生成</p>
 
       <!-- 步骤指示器 -->
-      <div class="flex items-center gap-2 mb-6">
+      <div class="flex items-center gap-2 mb-6" role="status" :aria-label="`注册进度：第 ${step} 步，共 2 步`">
         <div class="flex items-center gap-1.5">
           <div
             class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
@@ -146,11 +142,13 @@ async function handleRegister() {
       <!-- Step 1: 手机号验证 -->
       <form v-if="step === 1" class="space-y-4" @submit.prevent="handleVerifyAndNext">
         <div>
-          <label class="block text-sm text-text-secondary mb-1">手机号 <span class="text-red-400">*</span></label>
+          <label for="register-phone" class="block text-sm text-text-secondary mb-1">手机号 <span class="text-red-400">*</span></label>
           <div class="flex gap-2">
             <input
+              id="register-phone"
               v-model="phone"
               type="tel"
+              autocomplete="tel"
               maxlength="11"
               required
               class="flex-1 px-3 py-2 rounded-lg border border-border bg-bg text-text-primary focus:outline-none focus:border-tinder-pink/60"
@@ -167,17 +165,20 @@ async function handleRegister() {
           </div>
         </div>
         <div>
-          <label class="block text-sm text-text-secondary mb-1">短信验证码 <span class="text-red-400">*</span></label>
+          <label for="register-sms-code" class="block text-sm text-text-secondary mb-1">短信验证码 <span class="text-red-400">*</span></label>
           <input
+            id="register-sms-code"
             v-model="smsCode"
             type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
             maxlength="8"
             required
             class="w-full px-3 py-2 rounded-lg border border-border bg-bg text-text-primary focus:outline-none focus:border-tinder-pink/60"
             placeholder="请输入短信验证码"
           />
         </div>
-        <p v-if="smsError" class="text-sm text-red-500">{{ smsError }}</p>
+        <p v-if="smsError" class="text-sm text-red-500" role="alert" aria-live="polite">{{ smsError }}</p>
         <button
           type="submit"
           :disabled="smsVerifying"
@@ -190,10 +191,12 @@ async function handleRegister() {
       <!-- Step 2: 设置账号密码 -->
       <form v-else class="space-y-4" @submit.prevent="handleRegister">
         <div>
-          <label class="block text-sm text-text-secondary mb-1">用户名</label>
+          <label for="register-username" class="block text-sm text-text-secondary mb-1">用户名</label>
           <input
+            id="register-username"
             v-model="username"
             type="text"
+            autocomplete="username"
             minlength="3"
             maxlength="32"
             required
@@ -202,10 +205,12 @@ async function handleRegister() {
           />
         </div>
         <div>
-          <label class="block text-sm text-text-secondary mb-1">密码</label>
+          <label for="register-password" class="block text-sm text-text-secondary mb-1">密码</label>
           <input
+            id="register-password"
             v-model="password"
             type="password"
+            autocomplete="new-password"
             minlength="8"
             maxlength="128"
             required
@@ -214,10 +219,12 @@ async function handleRegister() {
           />
         </div>
         <div>
-          <label class="block text-sm text-text-secondary mb-1">确认密码</label>
+          <label for="register-confirm-password" class="block text-sm text-text-secondary mb-1">确认密码</label>
           <input
+            id="register-confirm-password"
             v-model="confirmPassword"
             type="password"
+            autocomplete="new-password"
             minlength="8"
             maxlength="128"
             required
@@ -225,7 +232,7 @@ async function handleRegister() {
             placeholder="请再次输入密码"
           />
         </div>
-        <p v-if="submitError" class="text-sm text-red-500">{{ submitError }}</p>
+        <p v-if="submitError" class="text-sm text-red-500" role="alert" aria-live="polite">{{ submitError }}</p>
         <div class="flex gap-2">
           <button
             type="button"

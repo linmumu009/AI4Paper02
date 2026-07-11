@@ -1,4 +1,18 @@
-import axios from 'axios'
+// ============================================================================
+// View/src/api/index.ts — Transport initialization + compatibility layer
+//
+// All networking now goes through the shared ApiClient/ApiTransport system:
+//   - BrowserTransport  (default)  — web dev preview via Vite proxy
+//   - TauriTransport               — production Tauri desktop via Rust IPC
+//
+// The `http` re-exported below is a Proxy that always delegates to the
+// active transport's Axios instance.  Existing View components import
+// specific functions from this file and continue to work without change.
+// ============================================================================
+
+import { configureTransport, apiClient, http } from '@shared/api/client'
+import { TauriTransport } from '@shared/api/transport/tauri'
+import type { KbScope } from './knowledgeBase'
 import type {
   DatesResponse,
   PapersResponse,
@@ -45,6 +59,7 @@ import type {
   UserTier,
   UserRole,
   PipelineRunStatus,
+  PipelineStepConfigResponse,
   ScheduleConfig,
   SystemConfigResponse,
   SystemConfigUpdateResponse,
@@ -52,19 +67,13 @@ import type {
   ChatHistoryResponse,
 } from '../types/paper'
 
-// In production builds (Tauri exe), VITE_API_BASE provides the remote server
-// origin so all requests use absolute URLs.  In dev mode the Vite proxy
-// forwards /api to the target, avoiding CORS issues entirely.
-//
-// Normalisation rules (applied at runtime so mis-configured .env values are
-// corrected automatically instead of silently breaking all API calls):
-//   1. Trim whitespace
-//   2. Strip trailing slashes   → "https://host.com///" → "https://host.com"
-//   3. Strip accidental /api    → "https://host.com/api" → "https://host.com"
-//      so that baseURL never becomes "…/api/api/…"
+// ---------------------------------------------------------------------------
+// API origin + transport setup
+// ---------------------------------------------------------------------------
+
 function _normaliseApiBase(raw: string): string {
-  let s = (raw || '').trim().replace(/\/+$/, '') // 1+2: trim & strip trailing slashes
-  if (s.toLowerCase().endsWith('/api')) s = s.slice(0, -4) // 3: strip /api suffix
+  let s = (raw || '').trim().replace(/\/+$/, '')
+  if (s.toLowerCase().endsWith('/api')) s = s.slice(0, -4)
   return s
 }
 
@@ -72,7 +81,6 @@ export const API_ORIGIN: string = import.meta.env.PROD
   ? _normaliseApiBase(import.meta.env.VITE_API_BASE || '')
   : ''
 
-// Warn early so developers can catch misconfiguration immediately
 if (import.meta.env.PROD && !API_ORIGIN) {
   console.error(
     '[AI4Papers] VITE_API_BASE is not configured — all API requests will fail in the ' +
@@ -80,452 +88,41 @@ if (import.meta.env.PROD && !API_ORIGIN) {
   )
 }
 
-// ---------------------------------------------------------------------------
-// Session token 持久化（桌面端跨域场景使用 Authorization header 代替 Cookie）
-// ---------------------------------------------------------------------------
-const SESSION_TOKEN_KEY = 'ai4papers_session_id'
-
-export function getSessionToken(): string {
-  return localStorage.getItem(SESSION_TOKEN_KEY) || ''
-}
-
-export function setSessionToken(token: string) {
-  if (token) {
-    localStorage.setItem(SESSION_TOKEN_KEY, token)
-  } else {
-    localStorage.removeItem(SESSION_TOKEN_KEY)
-  }
-}
-
-export function clearSessionToken() {
-  localStorage.removeItem(SESSION_TOKEN_KEY)
-}
-
-// ---------------------------------------------------------------------------
-// Tauri IPC bridge —— 桌面端所有 HTTP 请求都走 Rust reqwest，
-// 完全绕过 WebView2 的网络栈（WebView2 无法 fetch 外部域名）。
-// ---------------------------------------------------------------------------
-
-/**
- * 惰性获取 Tauri 2 IPC invoke。
- * 每次调用时动态检查 window.__TAURI_INTERNALS__，避免模块加载时序问题
- * （WebView2 可能在 ES 模块求值完毕后才注入该全局变量）。
- */
-function getTauriInvoke(): ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null {
-  return (window as any).__TAURI_INTERNALS__?.invoke ?? null
-}
-
-/** 是否处于 Tauri 桌面环境（编译时判断：VITE_API_BASE 仅在 exe 构建中非空） */
+/** True when running inside the Tauri desktop shell. */
 export const IS_TAURI = !!API_ORIGIN
 
-/**
- * Tauri 专用：通过 Rust IPC 获取文本内容（用于 MarkdownViewer 等 fetch 场景）。
- * WebView2 无法直接 fetch 外部域名，必须走此路径。
- */
+if (IS_TAURI) {
+  configureTransport(new TauriTransport(API_ORIGIN))
+}
+
+// ---------------------------------------------------------------------------
+// Compatibility shims for components that import these symbols from '../api'
+// ---------------------------------------------------------------------------
+
+/** Read the current session token (Tauri: localStorage; browser: empty string). */
+export function getSessionToken(): string { return apiClient.getToken() }
+/** Persist a session token (used after login in Tauri). */
+export function setSessionToken(token: string): void { apiClient.setToken(token) }
+/** Remove the persisted session token. */
+export function clearSessionToken(): void { apiClient.clearToken() }
+
+/** Fetch plain text via the active transport (Tauri-safe). */
 export async function tauriFetchText(url: string): Promise<string> {
-  const invoke = getTauriInvoke()
-  if (!invoke) throw new Error('Tauri IPC not available')
-  const headers: Record<string, string> = { Accept: '*/*' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const result = await invoke('direct_request', {
-    method: 'GET', url, headers, body: null,
-  })
-  if (result.status >= 400) throw new Error(`HTTP ${result.status}`)
-  return result.body
+  return apiClient.fetchText(url)
+}
+/** Fetch a PDF and return a Blob URL (Tauri-safe). */
+export async function tauriFetchPdfBlobUrl(url: string): Promise<string> {
+  return apiClient.fetchPdfBlobUrl(url)
 }
 
-/**
- * Tauri 专用：通过 Rust IPC 下载 PDF 二进制并返回 Blob URL。
- * 用于在本地 PDF.js viewer（iframe）中加载跨域 PDF 文件。
- * 调用方负责在不再需要时调用 URL.revokeObjectURL() 释放内存。
- */
-export async function tauriFetchPdfBlobUrl(pdfUrl: string): Promise<string> {
-  const invoke = getTauriInvoke()
-  if (!invoke) throw new Error('Tauri IPC not available')
-  const headers: Record<string, string> = {}
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-  const result: { base64: string; content_type: string; file_name: string } =
-    await invoke('direct_download_binary', { method: 'GET', url: pdfUrl, headers, body: null })
-  const binary = atob(result.base64)
-  const arr = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
-  const blob = new Blob([arr], { type: 'application/pdf' })
-  return URL.createObjectURL(blob)
-}
+// Re-export the shared http proxy so any component that does
+//   `import { http } from '../api'` continues to compile.
+export { http }
 
-/**
- * 将 File/Blob 读取为 base64 字符串（不含 data URI 前缀）。
- */
-function fileToBase64(file: File | Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      // 去掉 "data:<mime>;base64," 前缀
-      const idx = result.indexOf(',')
-      resolve(idx >= 0 ? result.slice(idx + 1) : result)
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
-}
-
-/**
- * 自定义 Axios adapter：把请求转发给 Rust 端 `direct_request` / `direct_upload` 命令。
- * 返回一个符合 Axios 内部格式的 AxiosResponse。
- *
- * FormData（文件上传）路径：
- *   - 检测到 config.data 为 FormData 时，从中提取 File 条目转成 base64
- *   - 调用 Rust `direct_upload` 命令，由 Rust 用 reqwest 重建 multipart 请求
- */
-async function tauriAdapter(config: any): Promise<any> {
-  const invoke = getTauriInvoke()
-  if (!invoke) throw new Error('Tauri IPC not available')
-
-  // ---- 拼完整 URL ----
-  let fullUrl: string = config.url || ''
-  if (config.baseURL && !fullUrl.startsWith('http')) {
-    fullUrl = config.baseURL.replace(/\/+$/, '') + '/' + fullUrl.replace(/^\/+/, '')
-  }
-
-  // ---- 处理 query params ----
-  if (config.params) {
-    const qs = new URLSearchParams()
-    for (const [k, v] of Object.entries(config.params)) {
-      if (v !== undefined && v !== null) qs.append(k, String(v))
-    }
-    const qsStr = qs.toString()
-    if (qsStr) fullUrl += (fullUrl.includes('?') ? '&' : '?') + qsStr
-  }
-
-  // ---- 请求头（通用） ----
-  const headers: Record<string, string> = {}
-  if (config.headers) {
-    // Axios headers 可能是 AxiosHeaders 对象，遍历时需 toJSON
-    const raw = typeof config.headers.toJSON === 'function' ? config.headers.toJSON() : config.headers
-    for (const [k, v] of Object.entries(raw)) {
-      if (v !== undefined && v !== null && v !== false) headers[k] = String(v)
-    }
-  }
-  // 移除浏览器自动添加的无用头
-  delete headers['User-Agent']
-
-  // ================================================================
-  // FormData 路径 → 调用 Rust direct_upload（multipart/form-data）
-  // ================================================================
-  if (config.data instanceof FormData) {
-    const formData: FormData = config.data
-    // 从 Content-Type 头中删除浏览器设置的 multipart 边界（Rust 会重建）
-    delete headers['Content-Type']
-    delete headers['content-type']
-
-    // 找到第一个 File 条目
-    let fileBase64 = ''
-    let fileName = 'upload'
-    let mimeType = 'application/octet-stream'
-    const formFields: Record<string, string> = {}
-
-    for (const [key, value] of formData.entries()) {
-      if (value instanceof File) {
-        fileName = value.name || key
-        mimeType = value.type || 'application/octet-stream'
-        fileBase64 = await fileToBase64(value)
-      } else {
-        formFields[key] = String(value)
-      }
-    }
-
-    if (!fileBase64) {
-      throw new Error('FormData 中未找到 File 条目')
-    }
-
-    const result = await invoke('direct_upload', {
-      url: fullUrl,
-      headers,
-      fileName,
-      fileBase64,
-      mimeType,
-      formFields,
-    })
-
-    // 构造 Axios 兼容响应
-    let responseData: any = result.body
-    // Always attempt JSON parsing regardless of content-type header.
-    // The Tauri IPC bridge may return headers in unexpected casing or omit
-    // them entirely, which previously caused session_id to be lost.
-    try { responseData = JSON.parse(result.body) } catch { /* keep raw string */ }
-
-    const response = {
-      data: responseData,
-      status: result.status,
-      statusText: '',
-      headers: result.headers || {},
-      config,
-      request: {},
-    }
-
-    if (result.status >= 400) {
-      const error: any = new Error(`Request failed with status code ${result.status}`)
-      error.config = config
-      error.response = response
-      error.isAxiosError = true
-      throw error
-    }
-
-    return response
-  }
-
-  // ================================================================
-  // 普通 JSON / 文本路径 → 调用 Rust direct_request
-  // ================================================================
-
-  // ---- body ----
-  let body: string | null = null
-  if (config.data !== undefined && config.data !== null) {
-    body = typeof config.data === 'string' ? config.data : JSON.stringify(config.data)
-    if (!headers['Content-Type'] && !headers['content-type']) {
-      headers['Content-Type'] = 'application/json'
-    }
-  }
-
-  // ---- 调用 Rust direct_request ----
-  const result = await invoke('direct_request', {
-    method: (config.method || 'get').toUpperCase(),
-    url: fullUrl,
-    headers,
-    body,
-  })
-
-  // ---- 构造 Axios 兼容响应 ----
-  let responseData: any = result.body
-  // Always attempt JSON parsing regardless of content-type header.
-  // The Tauri IPC bridge may return headers in unexpected casing or omit
-  // them entirely, which previously caused session_id to be lost on login.
-  try { responseData = JSON.parse(result.body) } catch { /* keep raw string */ }
-
-  const response = {
-    data: responseData,
-    status: result.status,
-    statusText: '',
-    headers: result.headers || {},
-    config,
-    request: {},  // Axios 内部需要此字段
-  }
-
-  // 非 2xx 状态码时，模拟 Axios 的错误抛出行为
-  if (result.status >= 400) {
-    const error: any = new Error(`Request failed with status code ${result.status}`)
-    error.config = config
-    error.response = response
-    error.isAxiosError = true
-    throw error
-  }
-
-  return response
-}
-
-// ---------------------------------------------------------------------------
-// Tauri 专用：二进制文件下载（通过 Rust 下载 → base64 → Blob URL 触发保存）
-// ---------------------------------------------------------------------------
-
-/**
- * 通过 Tauri Rust 命令下载二进制文件，并在浏览器侧通过 Blob URL 触发"另存为"。
- * 解决 WebView2 中 <a href="外部URL"> 无法下载且不携带 Auth header 的问题。
- */
-async function tauriDownloadBinary(
-  url: string,
-  headers: Record<string, string>,
-  fileName: string,
-  method: string = 'GET',
-  body: string | null = null,
-): Promise<void> {
-  const invoke = getTauriInvoke()
-  if (!invoke) throw new Error('Tauri IPC not available')
-
-  const result: { base64: string; content_type: string; file_name: string } =
-    await invoke('direct_download_binary', { method, url, headers, body })
-
-  // base64 → Uint8Array
-  const binary = atob(result.base64)
-  const arr = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i++) arr[i] = binary.charCodeAt(i)
-
-  const contentType = result.content_type || 'application/octet-stream'
-  const name = result.file_name || fileName
-
-  const blob = new Blob([arr], { type: contentType })
-  const objectUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = name
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(objectUrl)
-}
-
-// ---------------------------------------------------------------------------
-// Tauri 专用：SSE 流式请求（通过 Rust Channel 逐行推送，返回 ReadableStream Response）
-// ---------------------------------------------------------------------------
-
-/**
- * 在 Tauri 环境下向 Rust 发起 SSE 流式请求，通过 Tauri Channel API 逐行接收数据，
- * 并包装成标准 Response（ReadableStream body）返回给调用方。
- * 调用方可以用相同的 reader 逻辑读取，与浏览器 fetch SSE 体验一致。
- *
- * Channel 机制：
- *   - JS 通过 __TAURI_INTERNALS__.transformCallback 注册持久回调，得到整数 ID
- *   - Rust 端 Channel<String> 接收该 ID，每次 send(line) 调用对应 JS 回调
- *   - 回调参数格式：{ message: string, id: number }
- */
-function tauriStreamResponse(
-  method: string,
-  url: string,
-  headers: Record<string, string>,
-  body: string | null,
-  signal?: AbortSignal,
-): Response {
-  const invoke = getTauriInvoke()
-  if (!invoke) throw new Error('Tauri IPC not available')
-
-  const encoder = new TextEncoder()
-  let ctrl!: ReadableStreamDefaultController<Uint8Array>
-
-  const readable = new ReadableStream<Uint8Array>({
-    start(c) {
-      ctrl = c
-    },
-  })
-
-  const __TAURI__ = (window as any).__TAURI_INTERNALS__
-  // once=false：持久回调，每次 Rust channel.send() 都会触发
-  const channelId: number = __TAURI__.transformCallback(
-    ({ message }: { message: string }) => {
-      try {
-        ctrl.enqueue(encoder.encode(message + '\n'))
-      } catch {
-        // stream 已关闭，忽略
-      }
-    },
-    false,
-  )
-
-  // 监听外部中止信号，关闭流
-  if (signal) {
-    signal.addEventListener('abort', () => {
-      try { ctrl.close() } catch { /* already closed */ }
-    }, { once: true })
-  }
-
-  invoke('direct_request_stream', {
-    method,
-    url,
-    headers,
-    body,
-    onEvent: channelId,
-  })
-    .then(() => {
-      try {
-        ctrl.close()
-      } catch { /* already closed */ }
-    })
-    .catch((err: unknown) => {
-      try {
-        ctrl.error(new Error(String(err)))
-      } catch { /* already errored */ }
-    })
-
-  return new Response(readable, { status: 200 })
-}
-
-// ---------------------------------------------------------------------------
-
-const http = axios.create({
-  baseURL: API_ORIGIN ? `${API_ORIGIN}/api` : '/api',
-  timeout: 30000,
-  withCredentials: !API_ORIGIN,  // web=true (cookie), desktop=false (Bearer)
-  headers: { 'Cache-Control': 'no-cache' },
-  ...(API_ORIGIN ? { adapter: tauriAdapter } : {}),
-})
-
-// 请求拦截器：附加 Authorization header（桌面端跨域 Cookie 不可用时的回退）
-http.interceptors.request.use((config) => {
-  const token = getSessionToken()
-  if (token && !config.headers['Authorization']) {
-    config.headers['Authorization'] = `Bearer ${token}`
-  }
-  return config
-})
-
-// 响应拦截器：从 auth 登录/短信登录接口响应中提取并保存 session_id
-http.interceptors.response.use(
-  (response) => {
-    const url: string = response.config?.url || ''
-    // 登录 / 短信登录成功时保存 session_id 到 localStorage
-    if (
-      (url.includes('/auth/login') || url.includes('/auth/login/sms')) &&
-      response.data?.session_id
-    ) {
-      setSessionToken(response.data.session_id)
-    }
-    return response
-  },
-  (error) => {
-    const status = error?.response?.status
-    const url: string = error?.config?.url || ''
-    const isKbEndpoint = url.startsWith('/kb') || url.includes('/kb/')
-    if (status === 401 && isKbEndpoint) {
-      window.dispatchEvent(new CustomEvent('auth-required'))
-    }
-    return Promise.reject(error)
-  },
-)
-
-// ---------------------------------------------------------------------------
-// 网络层工具：代理绕行直连（仅用于关键只读接口兜底）
-// ---------------------------------------------------------------------------
-
-/**
- * 判断 axios 错误是否属于网络层失败（非服务端返回的 HTTP 错误）。
- * 有 response 说明服务端已响应，属于应用/认证错误，不走直连回退。
- */
-function isNetworkError(e: any): boolean {
-  return !e?.response
-}
-
-/**
- * 通过 Tauri Rust 命令直接发起 HTTP GET，绕过系统代理。
- * 使用 Tauri 2 全局 IPC bridge（window.__TAURI_INTERNALS__）
- * 避免在 View/ 项目引入 @tauri-apps/api 模块依赖。
- * 仅在 Tauri 生产包（API_ORIGIN 非空）中调用。
- */
-async function tauriDirectGet(urlPath: string): Promise<any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tauriInvoke = (window as any).__TAURI_INTERNALS__?.invoke
-  if (!tauriInvoke) throw new Error('Tauri IPC not available')
-  const body: string = await tauriInvoke('direct_get', { url: `${API_ORIGIN}${urlPath}` })
-  return JSON.parse(body)
-}
-
-/** 获取所有可用日期（含代理异常自动直连回退） */
+/** 获取所有可用日期 */
 export async function fetchDates(): Promise<DatesResponse> {
-  try {
-    const { data } = await http.get<DatesResponse>('/dates')
-    return data
-  } catch (e: any) {
-    if (API_ORIGIN && isNetworkError(e)) {
-      try {
-        return await tauriDirectGet('/api/dates') as DatesResponse
-      } catch {
-        const err: any = new Error('网络连接失败，请检查系统代理是否已关闭或正常运行')
-        err.errorType = 'proxy'
-        throw err
-      }
-    }
-    throw e
-  }
+  const { data } = await http.get<DatesResponse>('/dates')
+  return data
 }
 
 /** 获取某天的论文列表 */
@@ -546,23 +143,10 @@ export async function fetchPaperDetail(paperId: string): Promise<PaperDetailResp
   return data
 }
 
-/** 获取每日摘要（含代理异常自动直连回退） */
+/** 获取每日摘要 */
 export async function fetchDigest(date: string): Promise<DigestResponse> {
-  try {
-    const { data } = await http.get<DigestResponse>(`/digest/${date}`)
-    return data
-  } catch (e: any) {
-    if (API_ORIGIN && isNetworkError(e)) {
-      try {
-        return await tauriDirectGet(`/api/digest/${date}`) as DigestResponse
-      } catch {
-        const err: any = new Error('网络连接失败，请检查系统代理是否已关闭或正常运行')
-        err.errorType = 'proxy'
-        throw err
-      }
-    }
-    throw e
-  }
+  const { data } = await http.get<DigestResponse>(`/digest/${date}`)
+  return data
 }
 
 /** 获取 Pipeline 状态 */
@@ -573,386 +157,7 @@ export async function fetchPipelineStatus(date: string): Promise<PipelineStatusR
   return data
 }
 
-// ---------------------------------------------------------------------------
-// Knowledge Base API
-// ---------------------------------------------------------------------------
-
-export type KbScope = 'kb' | 'inspiration' | 'mypapers' | 'research'
-
-/** 获取知识库完整树 */
-export async function fetchKbTree(scope: KbScope = 'kb'): Promise<KbTree> {
-  const { data } = await http.get<KbTree>('/kb/tree', { params: { scope } })
-  return data
-}
-
-/** 创建文件夹 */
-export async function createKbFolder(name: string, parentId?: number | null, scope: KbScope = 'kb'): Promise<KbFolder> {
-  const { data } = await http.post<KbFolder>('/kb/folders', {
-    name,
-    parent_id: parentId ?? null,
-    scope,
-  })
-  return data
-}
-
-/** 重命名文件夹 */
-export async function renameKbFolder(folderId: number, name: string, scope: KbScope = 'kb'): Promise<KbFolder> {
-  const { data } = await http.patch<KbFolder>(`/kb/folders/${folderId}`, { name, scope })
-  return data
-}
-
-/** 移动文件夹到新的父目录 (null = 根目录) */
-export async function moveKbFolder(folderId: number, targetParentId: number | null, scope: KbScope = 'kb'): Promise<KbFolder> {
-  const { data } = await http.patch<KbFolder>(`/kb/folders/${folderId}/move`, {
-    target_parent_id: targetParentId,
-    scope,
-  })
-  return data
-}
-
-/** 删除文件夹 */
-export async function deleteKbFolder(folderId: number, scope: KbScope = 'kb'): Promise<void> {
-  await http.delete(`/kb/folders/${folderId}`, { params: { scope } })
-}
-
-/** 将论文加入知识库 */
-export async function addKbPaper(
-  paperId: string,
-  paperData: PaperSummary,
-  folderId?: number | null,
-  scope: KbScope = 'kb',
-): Promise<KbPaper> {
-  const { data } = await http.post<KbPaper>('/kb/papers', {
-    paper_id: paperId,
-    paper_data: paperData,
-    folder_id: folderId ?? null,
-    scope,
-  })
-  return data
-}
-
-/** 从知识库移除论文 */
-export async function removeKbPaper(paperId: string, scope: KbScope = 'kb'): Promise<void> {
-  await http.delete(`/kb/papers/${paperId}`, { params: { scope } })
-}
-
-/** 批量移动论文到目标文件夹 (null = 根目录) */
-export async function moveKbPapers(
-  paperIds: string[],
-  targetFolderId: number | null,
-  scope: KbScope = 'kb',
-): Promise<{ ok: boolean; moved: number }> {
-  const { data } = await http.patch<{ ok: boolean; moved: number }>('/kb/papers/move', {
-    paper_ids: paperIds,
-    target_folder_id: targetFolderId,
-    scope,
-  })
-  return data
-}
-
-// ---------------------------------------------------------------------------
-// Note / File API
-// ---------------------------------------------------------------------------
-
-/** 获取论文下所有笔记/文件 */
-export async function fetchNotes(paperId: string, scope: KbScope = 'kb'): Promise<KbNotesResponse> {
-  const { data } = await http.get<KbNotesResponse>(`/kb/papers/${paperId}/notes`, { params: { scope } })
-  return data
-}
-
-/** 新建 Markdown 笔记 */
-export async function createNote(
-  paperId: string,
-  title: string = '未命名笔记',
-  content: string = '',
-  scope: KbScope = 'kb',
-): Promise<KbNote> {
-  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes`, { title, content, scope })
-  return data
-}
-
-/** 获取单个笔记详情（含内容） — scope 不需要，note_id 全局唯一 */
-export async function fetchNoteDetail(noteId: number): Promise<KbNote> {
-  const { data } = await http.get<KbNote>(`/kb/notes/${noteId}`)
-  return data
-}
-
-/** 更新笔记标题/内容 — scope 不需要，note_id 全局唯一 */
-export async function updateNote(
-  noteId: number,
-  payload: { title?: string; content?: string },
-): Promise<KbNote> {
-  const { data } = await http.patch<KbNote>(`/kb/notes/${noteId}`, payload)
-  return data
-}
-
-/** 删除笔记/文件 — scope 不需要，note_id 全局唯一 */
-export async function deleteNote(noteId: number): Promise<void> {
-  await http.delete(`/kb/notes/${noteId}`)
-}
-
-/** 上传文件到论文 */
-export async function uploadNoteFile(paperId: string, file: File, scope: KbScope = 'kb'): Promise<KbNote> {
-  const form = new FormData()
-  form.append('file', file)
-  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes/upload`, form, {
-    params: { scope },
-    headers: { 'Content-Type': 'multipart/form-data' },
-    timeout: 120000,
-  })
-  return data
-}
-
-/** 添加外部链接 */
-export async function addNoteLink(
-  paperId: string,
-  title: string,
-  url: string,
-  scope: KbScope = 'kb',
-): Promise<KbNote> {
-  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes/link`, { title, url, scope })
-  return data
-}
-
-// ---------------------------------------------------------------------------
-// Paper Compare (SSE streaming)
-// ---------------------------------------------------------------------------
-
-/** Initiate a streaming comparison analysis of 2-5 KB papers.
- *  Returns a raw Response whose body is an SSE text/event-stream.
- *  Each `data:` line is a JSON-encoded string chunk; the final line is `data: [DONE]`.
- *
- *  桌面端：SSE 流通过 Rust direct_request 一次性拿回全部内容再逐行解析。
- */
-export async function fetchCompareStream(
-  paperIds: string[],
-  scope: KbScope = 'kb',
-  compareResultIds?: number[],
-  rewardId?: number,
-): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const body: Record<string, unknown> = { paper_ids: paperIds, scope }
-  if (compareResultIds && compareResultIds.length > 0) {
-    body.compare_result_ids = compareResultIds
-  }
-  if (rewardId !== undefined) {
-    body.reward_id = rewardId
-  }
-
-  if (IS_TAURI) {
-    // 桌面端走 Rust Channel 流式（逐行推送，真正 streaming）
-    return tauriStreamResponse(
-      'POST',
-      `${API_ORIGIN}/api/kb/compare`,
-      headers,
-      JSON.stringify(body),
-    )
-  }
-
-  return fetch(`${API_ORIGIN}/api/kb/compare`, {
-    method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
-    body: JSON.stringify(body),
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Paper Chat API (论文追问问答)
-// ---------------------------------------------------------------------------
-
-/** 获取某篇论文的聊天历史记录 */
-export async function fetchChatHistory(paperId: string): Promise<ChatMessage[]> {
-  const { data } = await http.get<ChatHistoryResponse>(`/papers/${encodeURIComponent(paperId)}/chat`)
-  return data.messages
-}
-
-/**
- * 向论文发送追问消息并获取 SSE 流式回复。
- * 返回原始 Response，调用方负责读取 body stream。
- * 每行 `data: <json_chunk>` 或最终的 `data: [DONE]`。
- *
- * 桌面端：SSE 流通过 Rust direct_request 一次性拿回全部内容再逐行解析。
- */
-export async function fetchPaperChatStream(paperId: string, message: string): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/papers/${encodeURIComponent(paperId)}/chat`
-
-  if (IS_TAURI) {
-    return tauriStreamResponse('POST', url, headers, JSON.stringify({ message }))
-  }
-
-  return fetch(url, {
-    method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
-    body: JSON.stringify({ message }),
-  })
-}
-
-/** 清空某篇论文的聊天记录 */
-export async function clearChatHistory(paperId: string): Promise<void> {
-  await http.delete(`/papers/${encodeURIComponent(paperId)}/chat`)
-}
-
-/** 通用助手聊天历史 */
-export async function fetchGeneralChatHistory(): Promise<ChatMessage[]> {
-  const { data } = await http.get<{ messages: ChatMessage[] }>('/chat/general')
-  return data.messages
-}
-
-export async function fetchGeneralChatStream(message: string): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/chat/general`
-
-  if (IS_TAURI) {
-    return tauriStreamResponse('POST', url, headers, JSON.stringify({ message }))
-  }
-
-  return fetch(url, {
-    method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
-    body: JSON.stringify({ message }),
-  })
-}
-
-export async function clearGeneralChatHistory(): Promise<void> {
-  await http.delete('/chat/general')
-}
-
-/** 检查论文是否已在知识库 */
-export async function checkPaperInKb(paperId: string, scope: KbScope = 'kb'): Promise<boolean> {
-  const { data } = await http.get<{ exists: boolean }>(
-    `/kb/papers/${encodeURIComponent(paperId)}/exists`,
-    { params: { scope } },
-  )
-  return data.exists
-}
-
-// ---------------------------------------------------------------------------
-// Dismiss Paper API
-// ---------------------------------------------------------------------------
-
-/** 标记论文为不感兴趣 */
-export async function dismissPaper(paperId: string): Promise<{ ok: boolean }> {
-  const { data } = await http.post<{ ok: boolean }>('/kb/dismiss', { paper_id: paperId })
-  return data
-}
-
-// ---------------------------------------------------------------------------
-// Paper Rename API
-// ---------------------------------------------------------------------------
-
-/** 重命名论文显示标题 */
-export async function renameKbPaper(
-  paperId: string,
-  title: string,
-  scope: KbScope = 'kb',
-): Promise<KbPaper> {
-  const { data } = await http.patch<KbPaper>(`/kb/papers/${paperId}/rename`, { title, scope })
-  return data
-}
-
-// ---------------------------------------------------------------------------
-// Compare Results API
-// ---------------------------------------------------------------------------
-
-/** 获取对比分析结果树 */
-export async function fetchCompareResultsTree(): Promise<KbCompareResultsTree> {
-  const { data } = await http.get<KbCompareResultsTree>('/kb/compare-results/tree')
-  return data
-}
-
-/** 保存对比分析结果 */
-export async function saveCompareResult(
-  title: string,
-  markdown: string,
-  paperIds: string[],
-  folderId?: number | null,
-): Promise<KbCompareResult> {
-  const { data } = await http.post<KbCompareResult>('/kb/compare-results', {
-    title,
-    markdown,
-    paper_ids: paperIds,
-    folder_id: folderId ?? null,
-  })
-  return data
-}
-
-/** 获取单个对比分析结果 */
-export async function fetchCompareResult(resultId: number): Promise<KbCompareResult> {
-  const { data } = await http.get<KbCompareResult>(`/kb/compare-results/${resultId}`)
-  return data
-}
-
-/** 重命名对比分析结果 */
-export async function renameCompareResult(resultId: number, title: string): Promise<KbCompareResult> {
-  const { data } = await http.patch<KbCompareResult>(`/kb/compare-results/${resultId}`, { title })
-  return data
-}
-
-/** 移动对比分析结果到文件夹 */
-export async function moveCompareResult(resultId: number, targetFolderId: number | null): Promise<KbCompareResult> {
-  const { data } = await http.patch<KbCompareResult>(`/kb/compare-results/${resultId}/move`, {
-    target_folder_id: targetFolderId,
-  })
-  return data
-}
-
-/** 删除对比分析结果 */
-export async function deleteCompareResult(resultId: number): Promise<void> {
-  await http.delete(`/kb/compare-results/${resultId}`)
-}
-
-// ---------------------------------------------------------------------------
-// Annotation API
-// ---------------------------------------------------------------------------
-
-/** 获取论文的所有批注 */
-export async function fetchAnnotations(paperId: string, scope: KbScope = 'kb'): Promise<KbAnnotationsResponse> {
-  const { data } = await http.get<KbAnnotationsResponse>(`/kb/papers/${paperId}/annotations`, { params: { scope } })
-  return data
-}
-
-/** 创建批注 */
-export async function createAnnotation(
-  paperId: string,
-  payload: {
-    page: number
-    type?: string
-    content?: string
-    color?: string
-    position_data?: string
-  },
-  scope: KbScope = 'kb',
-): Promise<KbAnnotation> {
-  const { data } = await http.post<KbAnnotation>(`/kb/papers/${paperId}/annotations`, { ...payload, scope })
-  return data
-}
-
-/** 更新批注 — scope 不需要，annotation_id 全局唯一 */
-export async function updateAnnotation(
-  annotationId: number,
-  payload: { content?: string; color?: string },
-): Promise<KbAnnotation> {
-  const { data } = await http.patch<KbAnnotation>(`/kb/annotations/${annotationId}`, payload)
-  return data
-}
-
-/** 删除批注 — scope 不需要，annotation_id 全局唯一 */
-export async function deleteAnnotation(annotationId: number): Promise<void> {
-  await http.delete(`/kb/annotations/${annotationId}`)
-}
+export * from './knowledgeBase'
 
 // ---------------------------------------------------------------------------
 // Auth API
@@ -1177,6 +382,21 @@ export async function stopPipeline(): Promise<{ ok: boolean; message: string }> 
   return data
 }
 
+export async function fetchPipelineStepConfig(): Promise<PipelineStepConfigResponse> {
+  const { data } = await http.get<PipelineStepConfigResponse>('/admin/pipeline/step-config')
+  return data
+}
+
+export async function savePipelineStepConfig(config: Record<string, boolean>): Promise<{ ok: boolean; message: string }> {
+  const { data } = await http.post<{ ok: boolean; message: string }>('/admin/pipeline/step-config', { config })
+  return data
+}
+
+export async function resetPipelineStepConfig(): Promise<{ ok: boolean; message: string }> {
+  const { data } = await http.post<{ ok: boolean; message: string }>('/admin/pipeline/step-config/reset')
+  return data
+}
+
 export async function getScheduleConfig(): Promise<ScheduleConfig> {
   const { data } = await http.get<ScheduleConfig>('/admin/schedule')
   return data
@@ -1264,6 +484,119 @@ export async function resetSystemConfig(): Promise<{ ok: boolean; message: strin
 }
 
 // ---------------------------------------------------------------------------
+// Feature Defaults API (AI 功能默认配置)
+// ---------------------------------------------------------------------------
+
+export interface AdminFeatureDefaultEntry {
+  feature: string
+  has_admin_overrides: boolean
+  effective_defaults: Record<string, any>
+  hardcoded_defaults: Record<string, any>
+  admin_overrides: Record<string, any>
+}
+
+export interface AdminFeatureDefaultsListResponse {
+  ok: boolean
+  features: AdminFeatureDefaultEntry[]
+}
+
+export interface AdminFeatureDefaultResponse {
+  ok: boolean
+  feature: string
+  effective_defaults: Record<string, any>
+  hardcoded_defaults: Record<string, any>
+  admin_overrides: Record<string, any>
+  has_admin_overrides: boolean
+}
+
+/** 获取所有 AI 功能的默认配置 */
+export async function fetchAdminFeatureDefaults(): Promise<AdminFeatureDefaultsListResponse> {
+  const { data } = await http.get<AdminFeatureDefaultsListResponse>('/admin/feature-defaults')
+  return data
+}
+
+/** 获取单个 AI 功能的默认配置 */
+export async function fetchAdminFeatureDefault(feature: string): Promise<AdminFeatureDefaultResponse> {
+  const { data } = await http.get<AdminFeatureDefaultResponse>(`/admin/feature-defaults/${feature}`)
+  return data
+}
+
+/** 保存 AI 功能的管理员默认配置覆盖 */
+export async function saveAdminFeatureDefault(feature: string, settings: Record<string, any>): Promise<{ ok: boolean; feature: string; effective_defaults: Record<string, any>; message: string }> {
+  const { data } = await http.put(`/admin/feature-defaults/${feature}`, { settings })
+  return data
+}
+
+/** 重置 AI 功能默认配置为内置默认值 */
+export async function resetAdminFeatureDefault(feature: string): Promise<{ ok: boolean; feature: string; message: string }> {
+  const { data } = await http.delete(`/admin/feature-defaults/${feature}`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Custom Config Audit API (用户配置审计)
+// ---------------------------------------------------------------------------
+
+export interface AuditLlmPresetRef {
+  preset_id: number
+  preset_name: string
+  model: string
+  base_url: string
+  has_api_key: boolean
+  temperature?: number | null
+  max_tokens?: number | null
+  enable_thinking?: boolean
+}
+
+export interface AuditPromptPresetRef {
+  preset_id: number
+  preset_name: string
+  content_preview: string
+}
+
+export interface AuditFeatureConfig {
+  feature: string
+  updated_at: string
+  llm_preset_refs: Record<string, AuditLlmPresetRef>
+  prompt_preset_refs: Record<string, AuditPromptPresetRef>
+  direct_params: Record<string, any>
+  has_direct_llm_config: boolean
+}
+
+export interface AuditUserRecord {
+  user_id: number
+  username: string
+  tier: string
+  role: string
+  feature_count: number
+  llm_preset_ref_count: number
+  prompt_preset_ref_count: number
+  total_llm_presets: number
+  total_prompt_presets: number
+  unused_llm_presets: Array<{ id: number; name: string; model: string; base_url: string; has_api_key: boolean }>
+  unused_prompt_presets: Array<{ id: number; name: string; content_preview: string }>
+  last_updated: string | null
+  feature_configs: AuditFeatureConfig[]
+}
+
+export interface CustomConfigAuditResponse {
+  ok: boolean
+  summary: {
+    total_users_with_custom_config: number
+    total_active_llm_preset_refs: number
+    total_active_prompt_preset_refs: number
+    total_unused_llm_presets: number
+    total_unused_prompt_presets: number
+  }
+  users: AuditUserRecord[]
+}
+
+export async function fetchAdminCustomConfigs(): Promise<CustomConfigAuditResponse> {
+  const { data } = await http.get<CustomConfigAuditResponse>('/admin/users/custom-configs')
+  return data
+}
+
+// ---------------------------------------------------------------------------
 // LLM Config API
 // ---------------------------------------------------------------------------
 
@@ -1283,6 +616,8 @@ export interface LlmConfig {
   completion_window?: string
   out_root?: string
   jsonl_root?: string
+  enable_thinking?: boolean
+  use_openrouter_free_pool?: boolean
   created_at: string
   updated_at: string
 }
@@ -1338,6 +673,60 @@ export async function applyLlmConfig(configId: number, usagePrefix: string): Pro
   const { data } = await http.post<ApplyLlmConfigResponse>(`/admin/llm-configs/${configId}/apply`, {
     usage_prefix: usagePrefix,
   })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// OpenRouter Key Pool API
+// ---------------------------------------------------------------------------
+
+export interface OpenRouterKeyInfo {
+  id: number
+  masked_key: string
+  enabled: boolean
+  used_today: number
+  remaining_today: number
+}
+
+export interface OpenRouterKeyPoolStatus {
+  ok: boolean
+  daily_limit: number
+  total_keys: number
+  available_keys: number
+  keys: OpenRouterKeyInfo[]
+  message?: string
+}
+
+export interface OpenRouterFreeModel {
+  id: string
+  name: string
+  context_length: number | null
+}
+
+export interface OpenRouterFreeModelsResponse {
+  ok: boolean
+  models: OpenRouterFreeModel[]
+  total: number
+}
+
+/** 获取 OpenRouter Key 池状态（Key 已脱敏） */
+export async function fetchOpenRouterKeyPool(): Promise<OpenRouterKeyPoolStatus> {
+  const { data } = await http.get<OpenRouterKeyPoolStatus>('/admin/openrouter-key-pool')
+  return data
+}
+
+/** 保存 OpenRouter Key 池（全量替换，每行一个 Key） */
+export async function saveOpenRouterKeyPool(keysText: string, dailyLimit: number): Promise<OpenRouterKeyPoolStatus> {
+  const { data } = await http.put<OpenRouterKeyPoolStatus>('/admin/openrouter-key-pool', {
+    keys_text: keysText,
+    daily_limit: dailyLimit,
+  })
+  return data
+}
+
+/** 从 OpenRouter 拉取免费模型列表 */
+export async function fetchOpenRouterFreeModels(): Promise<OpenRouterFreeModelsResponse> {
+  const { data } = await http.get<OpenRouterFreeModelsResponse>('/admin/openrouter-free-models')
   return data
 }
 
@@ -1523,6 +912,8 @@ export async function deleteUserPromptPreset(presetId: number): Promise<{ ok: bo
 import type {
   IdeaAtom,
   IdeaCandidate,
+  IdeaQuestion,
+  IdeaSourcePaper,
   IdeaPlan,
   IdeaFeedback,
   IdeaExemplar,
@@ -1549,6 +940,42 @@ export async function fetchIdeaAtoms(params?: {
 export async function fetchIdeaAtom(atomId: number): Promise<IdeaAtomResponse> {
   const { data } = await http.get<IdeaAtomResponse>(`/idea/atoms/${atomId}`)
   return data
+}
+
+export interface IdeaQuestionResponse {
+  ok: boolean
+  question: IdeaQuestion
+}
+
+/**
+ * 读取单条研究问题的完整内容（含 question_text、strategy、context）。
+ * 用于在灵感详情面板显示具体的研究问题文本，替代 "关联研究问题 #N"。
+ */
+export async function fetchIdeaQuestion(questionId: number): Promise<IdeaQuestionResponse> {
+  const { data } = await http.get<IdeaQuestionResponse>(`/idea/questions/${questionId}`)
+  return data
+}
+
+export interface IdeaSourcePapersResponse {
+  ok: boolean
+  papers: Record<string, IdeaSourcePaper>
+}
+
+/**
+ * 批量查询来源论文的轻量元数据（标题、摘要、机构、来源类型）。
+ * 后端按优先顺序查找：用户上传论文 → KB 论文 → 推荐流水线论文。
+ * @param paperIds 待查询的 paper_id 列表（最多 20 个）
+ */
+export async function fetchIdeaSourcePapers(
+  paperIds: string[],
+): Promise<Record<string, IdeaSourcePaper>> {
+  if (!paperIds.length) return {}
+  const params = new URLSearchParams()
+  for (const pid of paperIds) params.append('paper_ids', pid)
+  const { data } = await http.get<IdeaSourcePapersResponse>(
+    `/idea/source-papers?${params.toString()}`,
+  )
+  return data.papers ?? {}
 }
 
 export async function updateIdeaAtom(atomId: number, payload: Partial<IdeaAtom>): Promise<IdeaAtomResponse> {
@@ -1605,61 +1032,18 @@ export async function generateCandidatesForPaper(paperId: string, force = false)
 
 /**
  * Generate idea candidates via SSE stream.
- * Backend returns text/event-stream; use onChunk to receive progressive output.
+ * Returns a raw Response — caller reads the stream line by line.
  */
 export async function generateIdeasStream(
   payload: { question_id?: number; custom_question?: string; strategies?: string[] },
-  onChunk: (text: string) => void,
   signal?: AbortSignal,
-): Promise<void> {
-  const token = getSessionToken()
-  const hdrs: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-
-  let response: Response
-  if (IS_TAURI) {
-    response = tauriStreamResponse(
-      'POST',
-      `${API_ORIGIN}/api/idea/candidates/generate`,
-      hdrs,
-      JSON.stringify(payload),
-    )
-  } else {
-    response = await fetch(`${API_ORIGIN}/api/idea/candidates/generate`, {
-      method: 'POST',
-      headers: hdrs,
-      credentials: API_ORIGIN ? 'omit' : 'include',
-      body: JSON.stringify(payload),
-      signal,
-    })
-  }
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`生成失败 (${response.status}): ${text}`)
-  }
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('无法读取响应流')
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const ssePayload = line.slice(6).trim()
-      if (ssePayload === '[DONE]') return
-      try {
-        onChunk(JSON.parse(ssePayload) as string)
-      } catch {
-        onChunk(ssePayload)
-      }
-    }
-  }
+): Promise<Response> {
+  return apiClient.stream({
+    method: 'POST',
+    path: '/idea/candidates/generate',
+    body: payload,
+    signal,
+  })
 }
 
 export async function reviewIdeaCandidate(candidateId: number, payload: {
@@ -1683,65 +1067,25 @@ export async function createIdeaPlan(candidateId: number, payload: Partial<IdeaP
   return data
 }
 
-export function streamGeneratePlan(candidateId: number): EventSource {
-  // Returns a fetch-based SSE stream for plan generation
-  // Caller should use fetch() directly for SSE with POST
+export function streamGeneratePlan(_candidateId: number): EventSource {
   throw new Error('Use fetchGeneratePlanStream instead')
 }
 
+/**
+ * Generate a research plan for a candidate via SSE stream.
+ * Returns a raw Response — caller reads the stream line by line.
+ */
 export async function fetchGeneratePlanStream(
   candidateId: number,
-  onChunk: (text: string) => void,
+  _rewardId?: number,
   signal?: AbortSignal,
-): Promise<void> {
-  const token = getSessionToken()
-  const hdrs: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
-
-  let response: Response
-  if (IS_TAURI) {
-    response = tauriStreamResponse(
-      'POST',
-      `${API_ORIGIN}/api/idea/plans/generate`,
-      hdrs,
-      JSON.stringify({ candidate_id: candidateId }),
-    )
-  } else {
-    response = await fetch(`${API_ORIGIN}/api/idea/plans/generate`, {
-      method: 'POST',
-      headers: hdrs,
-      credentials: API_ORIGIN ? 'omit' : 'include',
-      body: JSON.stringify({ candidate_id: candidateId }),
-      signal,
-    })
-  }
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`生成失败 (${response.status}): ${text}`)
-  }
-  const reader = response.body?.getReader()
-  if (!reader) throw new Error('无法读取响应流')
-  const decoder = new TextDecoder()
-  let buffer = ''
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) continue
-      const payload = line.slice(6).trim()
-      if (payload === '[DONE]') return
-      try {
-        onChunk(JSON.parse(payload) as string)
-      } catch {
-        onChunk(payload)
-      }
-    }
-  }
+): Promise<Response> {
+  return apiClient.stream({
+    method: 'POST',
+    path: '/idea/plans/generate',
+    body: { candidate_id: candidateId },
+    signal,
+  })
 }
 
 export async function updateIdeaPlan(planId: number, payload: Partial<IdeaPlan>): Promise<IdeaPlanResponse> {
@@ -1906,6 +1250,8 @@ export interface IdeaDigestResponse {
   total_available: number
   quota_limit: number | null
   tier: string
+  effective_date: string
+  is_fallback: boolean
 }
 
 /** 获取指定日期的灵感推荐（按用户配额过滤来源论文） */
@@ -2135,6 +1481,90 @@ export async function fetchPipelineDataTracking(params?: {
   days?: number
 }): Promise<import('../types/paper').PipelineDataTrackingResponse> {
   const { data } = await http.get('/admin/pipeline/data-tracking', { params })
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline Observability – runs / steps / events / artifacts / rerun
+// ---------------------------------------------------------------------------
+
+export interface PipelineStepRun {
+  id: number; run_id: number; step_name: string; phase: string
+  user_id: number; date_str: string
+  status: 'pending' | 'running' | 'skipped' | 'soft_failed' | 'failed' | 'completed' | 'cancelled'
+  attempt: number; skip_reason: string; error_type: string; error_message: string
+  log_file: string; input_params: Record<string, any>; metrics: Record<string, any>
+  started_at: string | null; finished_at: string | null; duration_ms: number | null
+  exit_code: number | null; created_at: string
+}
+
+export interface PipelineArtifact {
+  id: number; run_id: number; step_run_id: number; artifact_type: string
+  storage: string; path_or_table: string; record_count: number | null
+  byte_size: number | null; created_at: string
+}
+
+export interface PipelineEvent {
+  id: number; run_id: number; step_run_id: number
+  level: 'debug' | 'info' | 'warning' | 'error'
+  event_type: string; message: string; payload: Record<string, any>; created_at: string
+}
+
+export interface PipelineRunRecord {
+  id: number; run_type: string; pipeline: string; user_id: number; date_str: string
+  status: string; phase: string; trigger: string; parent_run_id: number | null
+  started_at: string | null; finished_at: string | null; config: Record<string, any>
+  log_file?: string; username?: string; nickname?: string
+  step_counts?: Record<string, number>; step_total?: number; step_failed?: number
+  step_completed?: number; step_skipped?: number; step_soft_failed?: number
+  child_runs?: Array<{ id: number; user_id: number; phase: string; status: string; username?: string; nickname?: string }>
+}
+
+export interface PipelineRunLogResponse {
+  run_id: number
+  has_file: boolean
+  lines: string[]
+  total_lines: number
+  log_file: string
+}
+
+export async function fetchPipelineRuns(params?: { limit?: number; date?: string; user_id?: number }): Promise<{ runs: PipelineRunRecord[]; total: number }> {
+  const { data } = await http.get<{ runs: PipelineRunRecord[]; total: number }>('/admin/pipeline/runs', { params })
+  return data
+}
+
+export async function fetchPipelineRunDetail(runId: number): Promise<PipelineRunRecord> {
+  const { data } = await http.get<PipelineRunRecord>(`/admin/pipeline/runs/${runId}`)
+  return data
+}
+
+export async function fetchPipelineRunSteps(runId: number): Promise<{ run_id: number; steps: PipelineStepRun[]; total: number }> {
+  const { data } = await http.get<{ run_id: number; steps: PipelineStepRun[]; total: number }>(`/admin/pipeline/runs/${runId}/steps`)
+  return data
+}
+
+export async function fetchPipelineRunEvents(runId: number, params?: { step_run_id?: number; limit?: number }): Promise<{ run_id: number; events: PipelineEvent[]; total: number }> {
+  const { data } = await http.get<{ run_id: number; events: PipelineEvent[]; total: number }>(`/admin/pipeline/runs/${runId}/events`, { params })
+  return data
+}
+
+export async function fetchPipelineRunArtifacts(runId: number): Promise<{ run_id: number; artifacts: PipelineArtifact[]; total: number }> {
+  const { data } = await http.get<{ run_id: number; artifacts: PipelineArtifact[]; total: number }>(`/admin/pipeline/runs/${runId}/artifacts`)
+  return data
+}
+
+export async function rerunPipeline(params: {
+  run_id: number; from_step?: string | null; only_step?: string | null; force?: boolean
+}): Promise<{ ok: boolean; message: string; new_run_id: number; log_file: string }> {
+  const { data } = await http.post<{ ok: boolean; message: string; new_run_id: number; log_file: string }>('/admin/pipeline/rerun', params)
+  return data
+}
+
+export async function fetchPipelineRunLog(
+  runId: number,
+  params?: { tail?: number; full?: boolean },
+): Promise<PipelineRunLogResponse> {
+  const { data } = await http.get<PipelineRunLogResponse>(`/admin/pipeline/runs/${runId}/log`, { params })
   return data
 }
 
@@ -2676,76 +2106,43 @@ export async function deleteKbPaperDerivative(
 // Download API
 // ---------------------------------------------------------------------------
 
-/** 下载单个论文衍生文件（触发浏览器下载）
- *
- * 对于需要服务端转换的格式（pdf/docx 衍生文件），使用 fetch+blob 方式，
- * 使调用方可以 await 并在此期间显示 loading 状态。
- * md 及原始 pdf 仍使用 <a> click（即时返回，无需等待）。
- */
+/** 下载最新客户端安装包（后端按版本号选择，优先 exe） */
+export async function downloadLatestInstaller(): Promise<void> {
+  await apiClient.download({
+    path: '/download/latest-installer',
+    fallbackName: 'AI4Papers-latest.exe',
+  })
+}
+
+/** 下载单个论文衍生文件（触发浏览器下载） */
 export async function downloadPaperFile(
   paperId: string,
   fileType: 'pdf' | 'mineru' | 'zh' | 'bilingual',
   scope: 'kb' | 'mypapers' = 'kb',
   format: 'md' | 'docx' | 'pdf' = 'md',
 ): Promise<void> {
-  const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
-  let url = `${base}/download/paper-file?paper_id=${encodeURIComponent(paperId)}&file_type=${fileType}&scope=${scope}&format=${format}`
+  const params = new URLSearchParams({ paper_id: paperId, file_type: fileType, scope, format })
 
-  // 双语 PDF：从 localStorage 读取用户当前配色与字号并附加到请求，实现所见即所得
   if (fileType === 'bilingual' && format === 'pdf') {
     try {
       const raw = localStorage.getItem('ai4papers-bilingual-theme')
       if (raw) {
         const t = JSON.parse(raw) as Record<string, unknown>
-        if (typeof t.hue === 'number') url += `&hue=${t.hue}`
-        if (typeof t.saturation === 'number') url += `&sat=${t.saturation}`
-        if (typeof t.intensity === 'number') url += `&intensity=${t.intensity}`
-        if (typeof t.fontSize === 'number') url += `&font_size=${t.fontSize}`
+        if (typeof t.hue === 'number') params.set('hue', String(t.hue))
+        if (typeof t.saturation === 'number') params.set('sat', String(t.saturation))
+        if (typeof t.intensity === 'number') params.set('intensity', String(t.intensity))
+        if (typeof t.fontSize === 'number') params.set('font_size', String(t.fontSize))
       }
-    } catch { /* 读取失败时后端使用默认值 (hue=195, sat=70, intensity=6, font_size=15) */ }
+    } catch { /* 读取失败时后端使用默认值 */ }
   }
 
-  // The server sets Content-Disposition: attachment; filename="<paper title>..."
-  // which takes precedence over the client hint in both browser and Tauri paths.
-  // The fallback below is only used if the server header is absent.
   const ext = fileType === 'pdf' ? 'pdf' : format
   const fallbackName = fileType === 'pdf' ? `${paperId}.pdf` : `${paperId}_${fileType}.${ext}`
 
-  if (IS_TAURI) {
-    // 桌面端：WebView2 的 <a href="外部URL"> 无法携带 Auth header，走 Rust 下载
-    // Rust 侧优先使用服务器返回的 Content-Disposition filename
-    const headers: Record<string, string> = {}
-    const token = getSessionToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    await tauriDownloadBinary(url, headers, fallbackName)
-    return
-  }
-
-  // 统一使用 fetch+blob 方式下载，确保能捕获后端错误（404/500 等）
-  const resp = await fetch(url, { credentials: 'include' })
-  if (!resp.ok) {
-    let detail = `HTTP ${resp.status}`
-    try {
-      const data = await resp.json()
-      if (data?.detail) detail = data.detail
-    } catch { /* ignore */ }
-    throw new Error(`下载失败: ${detail}`)
-  }
-
-  // 从 Content-Disposition 提取服务端返回的文件名
-  const cd = resp.headers.get('content-disposition') || ''
-  const nameMatch = cd.match(/filename="([^"]+)"/)
-  const fileName = nameMatch ? nameMatch[1] : fallbackName
-
-  const blob = await resp.blob()
-  const objectUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = fileName
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(objectUrl)
+  await apiClient.download({
+    path: `/download/paper-file?${params.toString()}`,
+    fallbackName,
+  })
 }
 
 /** 下载深度研究结果（MD / DOCX / PDF） */
@@ -2753,61 +2150,19 @@ export async function downloadResearchResult(
   sessionId: number,
   format: 'md' | 'docx' | 'pdf' = 'md',
 ): Promise<void> {
-  const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
-  const url = `${base}/research/${sessionId}/download?format=${format}`
-
-  if (IS_TAURI) {
-    const headers: Record<string, string> = {}
-    const token = getSessionToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    const ext = format === 'docx' ? 'docx' : format === 'pdf' ? 'pdf' : 'md'
-    await tauriDownloadBinary(url, headers, `research_${sessionId}.${ext}`)
-    return
-  }
-
-  const token = getSessionToken()
-  const fetchHeaders: Record<string, string> = {}
-  if (token) fetchHeaders['Authorization'] = `Bearer ${token}`
-  const resp = await fetch(url, { headers: fetchHeaders })
-  if (!resp.ok) throw new Error(`下载失败: ${resp.status}`)
-
-  const blob = await resp.blob()
-  const cd = resp.headers.get('Content-Disposition') || ''
-  const fnMatch = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i)
   const ext = format === 'docx' ? 'docx' : format === 'pdf' ? 'pdf' : 'md'
-  const fileName = fnMatch ? decodeURIComponent(fnMatch[1]) : `research_${sessionId}.${ext}`
-
-  const objectUrl = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objectUrl
-  a.download = fileName
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(objectUrl)
+  await apiClient.download({
+    path: `/research/${sessionId}/download?format=${format}`,
+    fallbackName: `research_${sessionId}.${ext}`,
+  })
 }
 
 /** 下载/导出笔记（触发浏览器下载） */
-export function downloadNote(noteId: number): void {
-  const base = (http.defaults.baseURL || '/api').replace(/\/$/, '')
-  const url = `${base}/download/note/${noteId}`
-
-  if (IS_TAURI) {
-    const headers: Record<string, string> = {}
-    const token = getSessionToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    tauriDownloadBinary(url, headers, `note_${noteId}.md`).catch((e) =>
-      console.error('[download] note failed:', e),
-    )
-    return
-  }
-
-  const a = document.createElement('a')
-  a.href = url
-  a.download = ''
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
+export async function downloadNote(noteId: number): Promise<void> {
+  await apiClient.download({
+    path: `/download/note/${noteId}`,
+    fallbackName: `note_${noteId}.md`,
+  })
 }
 
 export interface BatchDownloadItem {
@@ -2819,26 +2174,12 @@ export interface BatchDownloadItem {
 
 /** 批量下载（返回 zip，触发浏览器保存） */
 export async function downloadBatch(items: BatchDownloadItem[]): Promise<void> {
-  if (IS_TAURI) {
-    // 桌面端：tauriAdapter 不支持 blob responseType，走专用二进制下载命令
-    const url = `${API_ORIGIN}/api/download/batch`
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    const token = getSessionToken()
-    if (token) headers['Authorization'] = `Bearer ${token}`
-    await tauriDownloadBinary(url, headers, 'papers_export.zip', 'POST', JSON.stringify({ items }))
-    return
-  }
-
-  const response = await http.post('/download/batch', { items }, { responseType: 'blob' })
-  const blob = new Blob([response.data as BlobPart], { type: 'application/zip' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'papers_export.zip'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  await apiClient.download({
+    path: '/download/batch',
+    fallbackName: 'papers_export.zip',
+    method: 'POST',
+    body: { items },
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -2981,32 +2322,12 @@ export interface StartResearchPayload {
 
 /** Start a deep research session — returns a fetch Response for SSE streaming */
 export async function fetchResearchStream(payload: StartResearchPayload): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/research/start`
-  const bodyObj: Record<string, unknown> = {
-    question: payload.question,
-    paper_ids: payload.paper_ids,
-    scope: payload.scope ?? 'kb',
-    config: payload.config ?? {},
-  }
-  if (payload.reward_id !== undefined) {
-    bodyObj.reward_id = payload.reward_id
-  }
-  const body = JSON.stringify(bodyObj)
-
-  if (IS_TAURI) {
-    return tauriStreamResponse('POST', url, headers, body, payload.signal)
-  }
-
-  return fetch(url, {
+  const { signal, ...body } = payload
+  return apiClient.stream({
     method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
+    path: '/research/start',
     body,
-    signal: payload.signal,
+    signal,
   })
 }
 
@@ -3052,20 +2373,9 @@ export async function deleteResearchSession(sessionId: number): Promise<void> {
 
 /** Continue a completed session with Round 3 (full-text deep read) — returns a fetch Response for SSE streaming */
 export async function fetchResearchContinueRound3(sessionId: number, signal?: AbortSignal): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/research/${sessionId}/continue-round3`
-
-  if (IS_TAURI) {
-    return tauriStreamResponse('POST', url, headers, '', signal)
-  }
-
-  return fetch(url, {
+  return apiClient.stream({
     method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
+    path: `/research/${sessionId}/continue-round3`,
     signal,
   })
 }
@@ -3076,46 +2386,17 @@ export async function fetchResearchFollowup(
   payload: { question: string; context?: string },
   signal?: AbortSignal,
 ): Promise<Response> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/research/${sessionId}/followup`
-  const body = JSON.stringify({ question: payload.question, context: payload.context })
-
-  if (IS_TAURI) {
-    return tauriStreamResponse('POST', url, headers, body, signal)
-  }
-
-  return fetch(url, {
+  return apiClient.stream({
     method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
-    body,
+    path: `/research/${sessionId}/followup`,
+    body: payload,
     signal,
   })
 }
 
 /** Cancel a running research session so a new one can be started */
 export async function cancelResearchSession(sessionId: number): Promise<void> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  const token = getSessionToken()
-  if (token) headers['Authorization'] = `Bearer ${token}`
-
-  const url = `${API_ORIGIN}/api/research/${sessionId}/cancel`
-
-  if (IS_TAURI) {
-    // Non-streaming POST — use axios http adapter
-    await http.post(`/research/${sessionId}/cancel`)
-    return
-  }
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers,
-    credentials: API_ORIGIN ? 'omit' : 'include',
-  })
-  if (!resp.ok) throw new Error(`Cancel failed: ${resp.status}`)
+  await http.post(`/research/${sessionId}/cancel`)
 }
 
 // ---------------------------------------------------------------------------
@@ -3198,5 +2479,187 @@ export async function updateKbPaperReadStatus(
     `/kb/papers/${paperId}/read-status`,
     { status, scope }
   )
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Preference Learning API
+// ---------------------------------------------------------------------------
+
+export interface NudgeBody {
+  paper_id: string
+  direction: 'more' | 'less'
+  categories?: string[]
+  keywords?: string[]
+  institution_tier?: number
+}
+
+export interface CategoryDetail {
+  category: string
+  weight: number
+  direction: 'positive' | 'negative'
+  signal_count: number
+  last_signal_at: string | null
+}
+
+export interface PreferenceProfileSummary {
+  has_enough_data: boolean
+  total_feedback_count: number
+  top_categories: { category: string; weight: number }[]
+  top_keywords: { keyword: string; weight: number }[]
+  negative_categories: string[]
+  positive_category_details: CategoryDetail[]
+  negative_category_details: CategoryDetail[]
+  min_feedback_needed: number
+  built_at: string
+  score_weights?: { theme: number; pref: number; novel: number } | null
+  exploration_ratio?: number | null
+}
+
+export interface CalibrationHistoryEntry {
+  calibrated_at: string
+  ndcg_old: number
+  ndcg_new: number
+  n_impressions: number
+  n_saves: number
+}
+
+export interface CalibrationStatus {
+  has_personal_weights: boolean
+  score_weights: { theme: number; pref: number; novel: number }
+  last_calibrated: string | null
+  ndcg_old: number | null
+  ndcg_new: number | null
+  ndcg_improvement: number | null
+  n_impressions_last: number | null
+  n_saves_last: number | null
+  history: CalibrationHistoryEntry[]
+  profile_built_at: string
+}
+
+/** Send 'more like this' or 'less like this' preference signal for a paper. */
+export async function nudgePaper(body: NudgeBody): Promise<{ ok: boolean; direction: string }> {
+  const { data } = await http.post<{ ok: boolean; direction: string }>('/preferences/nudge', body)
+  return data
+}
+
+/** Get the current user's preference profile summary. */
+export async function fetchPreferenceProfile(): Promise<PreferenceProfileSummary> {
+  const { data } = await http.get<PreferenceProfileSummary>('/preferences/profile')
+  return data
+}
+
+/** Force-rebuild the preference profile (useful after bulk actions). */
+export async function rebuildPreferenceProfile(): Promise<PreferenceProfileSummary> {
+  const { data } = await http.post<PreferenceProfileSummary>('/preferences/rebuild')
+  return data
+}
+
+/** Send a direct category-level calibration signal (more / less / reset). */
+export async function categoryNudge(
+  category: string,
+  direction: 'more' | 'less' | 'reset',
+): Promise<{ ok: boolean; category: string; direction: string }> {
+  const { data } = await http.post('/preferences/category-nudge', { category, direction })
+  return data
+}
+
+export interface SuppressionContribution {
+  type: 'category_positive' | 'category_negative' | 'keyword_positive' | 'keyword_negative' | 'tier_mismatch'
+  key: string
+  delta: number
+  label: string
+}
+
+export interface SuppressedPaper {
+  paper_id: string
+  short_title: string
+  '📖标题': string
+  institution: string
+  categories: string[]
+  institution_tier?: number
+  relevance_score: number
+  pref_score: number
+  theme_score: number
+  contributions: SuppressionContribution[]
+  suppression_summary: string
+}
+
+/** Fetch papers that were suppressed by the preference filter for a given date. */
+export async function fetchSuppressions(date: string, topN = 5): Promise<{
+  date: string
+  count: number
+  suppressions: SuppressedPaper[]
+}> {
+  const { data } = await http.get('/preferences/suppressions', { params: { date, top_n: topN } })
+  return data
+}
+
+/** Get the current user's calibration status (personal weights, NDCG, history). */
+export async function fetchCalibrationStatus(): Promise<CalibrationStatus> {
+  const { data } = await http.get<CalibrationStatus>('/preferences/calibration/status')
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// PDF Cleanup API
+// ---------------------------------------------------------------------------
+
+export interface PdfCleanupResult {
+  dry_run: boolean
+  retention_days: number
+  scanned: number
+  deletable: number
+  deleted: number
+  skipped_saved: number
+  skipped_recent: number
+  freed_bytes: number
+  freed_mb: number
+  errors: string[]
+  started_at: string
+  finished_at: string
+}
+
+export interface PdfCleanupStatus {
+  ok: boolean
+  auto_enabled: boolean
+  retention_days: number
+  auto_hour: number
+  auto_minute: number
+  scheduler_alive: boolean
+  last_run_at: string | null
+  last_result: PdfCleanupResult | null
+}
+
+export interface PdfCleanupRunResponse extends PdfCleanupResult {
+  ok: boolean
+}
+
+/** 获取 PDF 清理状态（配置 + 最近运行结果） */
+export async function fetchPdfCleanupStatus(): Promise<PdfCleanupStatus> {
+  const { data } = await http.get<PdfCleanupStatus>('/admin/pdf-cleanup/status')
+  return data
+}
+
+/** 手动触发 PDF 清理（dry_run=true 为预览，false 为实际删除） */
+export async function runPdfCleanup(
+  dryRun: boolean,
+  retentionDays?: number,
+): Promise<PdfCleanupRunResponse> {
+  const { data } = await http.post<PdfCleanupRunResponse>('/admin/pdf-cleanup/run', {
+    dry_run: dryRun,
+    retention_days: retentionDays ?? null,
+  })
+  return data
+}
+
+/** 保存 PDF 清理配置 */
+export async function savePdfCleanupConfig(config: {
+  retention_days: number
+  auto_enabled: boolean
+  auto_hour: number
+  auto_minute: number
+}): Promise<{ ok: boolean; message: string }> {
+  const { data } = await http.post<{ ok: boolean; message: string }>('/admin/pdf-cleanup/config', config)
   return data
 }

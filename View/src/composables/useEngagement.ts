@@ -93,9 +93,9 @@ export const MILESTONE_REWARD_PREVIEW: Record<number, MilestoneRewardPreview> = 
   3:   { name: '快速处理加速券', code: 'day3_fast_track_ticket',         brief: '上传论文时插队优先处理，不用等待排队' },
   4:   { name: '灵感增强券',     code: 'day4_idea_boost_ticket',         brief: '生成研究灵感时 AI 读取 1.5 倍知识原子，灵感更多元深入' },
   5:   { name: '扩展对比券',     code: 'day5_compare_plus_ticket',       brief: '在当前套餐基础上额外 +2 篇对比名额，横向比较更多论文' },
-  7:   { name: '深度研究加速券', code: 'day7_research_accelerator',      brief: '深度研究时获得 1.5 倍上下文额度和 30 篇精选范围，让 AI 分析更深入' },
-  14:  { name: '研究达人徽章',   code: 'day14_researcher_badge',         brief: '永久荣誉徽章 + 免费用户额外解锁 3 天 Pro 试用' },
-  30:  { name: '高级对比券',     code: 'day30_compare_premium_ticket',   brief: '在当前套餐基础上额外 +4 篇对比名额，适合做系统性文献综述' },
+  7:   { name: '深度研究加速券', code: 'day7_research_accelerator',      brief: '研究地图自动生成 · 深度研究 1.5 倍上下文额度' },
+  14:  { name: '研究达人徽章',   code: 'day14_researcher_badge',         brief: '领域趋势摘要解锁 · 永久荣誉徽章 + 免费 3 天 Pro' },
+  30:  { name: '高级对比券',     code: 'day30_compare_premium_ticket',   brief: '30 天主题演化图解锁 · 对比名额额外 +4 篇' },
   60:  { name: '全能研究券',     code: 'day60_research_premium_ticket',  brief: '2 倍上下文 + 30 篇精选范围 + 额外 +4 篇对比名额，一张券全面增强' },
   100: { name: '传奇研究者徽章', code: 'day100_legend_badge',            brief: '永久荣誉徽章，100 天连续研究的见证' },
 }

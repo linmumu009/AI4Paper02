@@ -25,7 +25,10 @@ const props = defineProps<{
   autoRefreshMs?: number
 }>()
 
-const md = new MarkdownIt({ html: true, linkify: true, breaks: true }).use(texmath, {
+// Parsed papers and generated translations are untrusted content. Keep raw HTML
+// disabled so event-handler attributes, iframes, and similar payloads cannot be
+// injected through the v-html render target below.
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(texmath, {
   engine: katex,
   delimiters: 'dollars',
   katexOptions: { throwOnError: false },

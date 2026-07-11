@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchAnnouncementById } from '../api'
 import type { Announcement } from '../types/paper'
 
-const props = defineProps<{ id: string }>()
+const props = withDefaults(defineProps<{ id: string; embedded?: boolean }>(), { embedded: false })
+const emit = defineEmits<{ back: [] }>()
 const router = useRouter()
 
 const announcement = ref<Announcement | null>(null)
@@ -39,6 +40,10 @@ function formatDate(ts: string): string {
 }
 
 function goBack() {
+  if (props.embedded) {
+    emit('back')
+    return
+  }
   if (window.history.length > 1) {
     router.back()
   } else {
@@ -46,22 +51,25 @@ function goBack() {
   }
 }
 
-onMounted(async () => {
+async function loadAnnouncement(id: string) {
   loading.value = true
   error.value = null
   try {
-    const res = await fetchAnnouncementById(Number(props.id))
+    const res = await fetchAnnouncementById(Number(id))
     announcement.value = res.announcement
   } catch {
     error.value = '公告加载失败，请稍后重试'
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(() => loadAnnouncement(props.id))
+watch(() => props.id, (id) => loadAnnouncement(id))
 </script>
 
 <template>
-  <div class="min-h-screen bg-bg-base">
+  <div :class="props.embedded ? 'bg-transparent' : 'min-h-screen bg-bg-base'">
     <div class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
       <!-- Back button -->
       <button

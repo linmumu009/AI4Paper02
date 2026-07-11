@@ -152,7 +152,7 @@ export function useEntitlements() {
   const compareMaxItems = computed(() => entitlements.value?.session_caps?.compare_max_items ?? 2)
 
   /** Storage status for KB papers */
-  const kbPaperStorage = computed(() => entitlements.value?.storage?.kb_papers ?? { limit: 20, used: 0, remaining: 20 })
+  const kbPaperStorage = computed(() => entitlements.value?.storage?.kb_papers ?? { limit: 3, used: 0, remaining: 3 })
 
   /** Storage status for KB folders */
   const kbFolderStorage = computed(() => entitlements.value?.storage?.kb_folders ?? { limit: 3, used: 0, remaining: 3 })

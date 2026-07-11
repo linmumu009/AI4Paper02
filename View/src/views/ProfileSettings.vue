@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, defineAsyncComponent, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   fetchUserSettings, saveUserSettings,
@@ -7,26 +7,22 @@ import {
   fetchUserPromptPresets,
   checkUsername, fetchSubscriptionStatus, redeemSubscriptionKey,
   fetchAnnouncements, fetchSubscriptionHistory,
-  fetchEngagementRewards,
-  fetchActivityCalendar,
 } from '../api'
-import type { ActivityCalendarDay } from '../api'
-import type { UserLlmPreset, UserPromptPreset, Announcement, SubscriptionHistoryRecord, EngagementRewardGrant } from '../types/paper'
+import type { UserLlmPreset, UserPromptPreset, Announcement, SubscriptionHistoryRecord } from '../types/paper'
 import { currentUser, saveProfile, setPassword, changePassword, refreshProfile } from '../stores/auth'
-import { useEngagement, isHonoraryReward, rewardIcon, rewardStatusLabel, rewardStatusClass, REWARD_USAGE_HINTS } from '../composables/useEngagement'
 import { useEntitlements } from '../composables/useEntitlements'
 import UserBar from '../components/UserBar.vue'
-import LlmPresetsPanel from '../components/LlmPresetsPanel.vue'
-import PromptPresetsPanel from '../components/PromptPresetsPanel.vue'
 import PresetSelector from '../components/PresetSelector.vue'
-// Entitlement & engagement organism components
-import UsageDashboard from '../components/entitlement/UsageDashboard.vue'
-import PricingTable from '../components/entitlement/PricingTable.vue'
-import StreakHeroCard from '../components/engagement/StreakHeroCard.vue'
-import MilestoneTimeline from '../components/engagement/MilestoneTimeline.vue'
-import ActivityCalendar from '../components/engagement/ActivityCalendar.vue'
-import RewardCard from '../components/engagement/RewardCard.vue'
-import AutoClassifyPanel from '../components/AutoClassifyPanel.vue'
+
+const LlmPresetsPanel = defineAsyncComponent(() => import('../components/LlmPresetsPanel.vue'))
+const PromptPresetsPanel = defineAsyncComponent(() => import('../components/PromptPresetsPanel.vue'))
+const UsageDashboard = defineAsyncComponent(() => import('../components/entitlement/UsageDashboard.vue'))
+const PricingTable = defineAsyncComponent(() => import('../components/entitlement/PricingTable.vue'))
+const ProfileAchievementsPanel = defineAsyncComponent(() => import('../components/profile/ProfileAchievementsPanel.vue'))
+const AutoClassifyPanel = defineAsyncComponent(() => import('../components/AutoClassifyPanel.vue'))
+const PreferenceDashboard = defineAsyncComponent(() => import('./PreferenceDashboard.vue'))
+const TaskCenterView = defineAsyncComponent(() => import('./TaskCenterView.vue'))
+const AnnouncementDetail = defineAsyncComponent(() => import('./AnnouncementDetail.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -35,7 +31,7 @@ const router = useRouter()
 // Page mode: /profile shows account items only; /advanced-settings shows the rest
 // ---------------------------------------------------------------------------
 
-const PROFILE_KEYS = new Set(['account_info', 'announcements', 'subscription', 'achievements'])
+const PROFILE_KEYS = new Set(['account_info', 'announcements', 'subscription', 'achievements', 'research_preferences', 'task_center'])
 
 const isAdvancedMode = computed(() => route.name === 'advanced-settings')
 
@@ -51,17 +47,27 @@ interface NavItem {
   group: string
 }
 
+function selectNav(item: NavItem) {
+  if (!item.enabled) return
+  activeNav.value = item.key
+}
+
 const navItems: NavItem[] = [
   { key: 'account_info', label: '资料设置', icon: 'user', enabled: true, group: '账号设置' },
   { key: 'announcements', label: '公告', icon: 'bell', enabled: true, group: '账号设置' },
   { key: 'subscription', label: '订阅', icon: 'credit-card', enabled: true, group: '账号设置' },
   { key: 'achievements', label: '研究成就', icon: 'trophy', enabled: true, group: '账号设置' },
+  { key: 'research_preferences', label: '研究偏好', icon: 'activity', enabled: true, group: '账号设置' },
+  { key: 'task_center', label: '任务中心', icon: 'check-square', enabled: true, group: '账号设置' },
   { key: 'llm_presets', label: '模型预设', icon: 'cpu', enabled: true, group: '预设管理' },
   { key: 'prompt_presets', label: '提示词预设', icon: 'scroll', enabled: true, group: '预设管理' },
+  { key: 'deep_research', label: '深度研究', icon: 'search', enabled: true, group: '功能配置' },
+  { key: 'translate', label: '全文翻译', icon: 'translate', enabled: true, group: '功能配置' },
   { key: 'compare', label: '对比分析', icon: 'compare', enabled: true, group: '功能配置' },
   { key: 'inspiration', label: '灵感涌现', icon: 'lightbulb', enabled: true, group: '功能配置' },
   { key: 'idea_generate', label: '灵感生成', icon: 'zap', enabled: true, group: '功能配置' },
   { key: 'paper_recommend', label: '推荐论文参数', icon: 'star', enabled: true, group: '功能配置' },
+  { key: 'my_papers', label: '我的论文解析', icon: 'article', enabled: true, group: '功能配置' },
   { key: 'auto_classify', label: '自动分类', icon: 'folder-tree', enabled: true, group: '功能配置' },
   { key: 'paper_summary', label: '论文解读', icon: 'article', enabled: false, group: '功能配置' },
   { key: 'theme_filter', label: '主题筛选', icon: 'filter', enabled: false, group: '功能配置' },
@@ -388,6 +394,68 @@ const noDefaultKeys = new Set([
 // Toggle visibility for token-type fields
 const mineruTokenVisible = ref(false)
 
+// arXiv 检索分类
+const ARXIV_COMMON_CATEGORIES = [
+  { code: 'cs.CL', label: '计算语言学' },
+  { code: 'cs.LG', label: '机器学习' },
+  { code: 'cs.AI', label: '人工智能' },
+  { code: 'stat.ML', label: '统计机器学习' },
+  { code: 'cs.CV', label: '计算机视觉' },
+  { code: 'cs.IR', label: '信息检索' },
+  { code: 'cs.RO', label: '机器人学' },
+  { code: 'cs.NE', label: '神经/进化计算' },
+  { code: 'cs.SE', label: '软件工程' },
+  { code: 'cs.CR', label: '密码学与安全' },
+  { code: 'cs.DC', label: '分布式计算' },
+  { code: 'cs.DS', label: '数据结构与算法' },
+  { code: 'cs.GT', label: '博弈论' },
+  { code: 'eess.SP', label: '信号处理' },
+  { code: 'math.OC', label: '优化与控制' },
+  { code: 'q-bio.BM', label: '生物分子' },
+  { code: 'physics.comp-ph', label: '计算物理' },
+  { code: 'q-fin.ST', label: '统计金融' },
+]
+const categoryCustomInput = ref('')
+
+function getSearchCategories(): string[] {
+  const raw = form.search_categories
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string' && raw) return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+  const def = defaults.value?.search_categories
+  if (Array.isArray(def)) return def
+  return ['cs.CL', 'cs.LG', 'cs.AI', 'stat.ML']
+}
+
+function toggleCategory(code: string) {
+  const cats = getSearchCategories()
+  const idx = cats.indexOf(code)
+  if (idx >= 0) {
+    if (cats.length > 1) {
+      form.search_categories = cats.filter(c => c !== code)
+    }
+  } else {
+    form.search_categories = [...cats, code]
+  }
+}
+
+function addCustomCategory() {
+  const code = categoryCustomInput.value.trim()
+  if (code) {
+    const cats = getSearchCategories()
+    if (!cats.includes(code)) {
+      form.search_categories = [...cats, code]
+    }
+    categoryCustomInput.value = ''
+  }
+}
+
+function removeCategory(code: string) {
+  const cats = getSearchCategories()
+  if (cats.length > 1) {
+    form.search_categories = cats.filter(c => c !== code)
+  }
+}
+
 // Module definitions for paper_recommend preset-based config
 const recommendModules = [
   {
@@ -415,6 +483,42 @@ const recommendModules = [
     label: '摘要生成',
     icon: '📄',
     desc: '生成论文中文摘要笔记',
+    llmFormKey: 'summary_llm_preset_id',
+    prompts: [
+      { formKey: 'summary_prompt_preset_id', label: '摘要生成提示词' },
+    ],
+  },
+  {
+    key: 'summary_limit',
+    label: '摘要精简',
+    icon: '✂️',
+    desc: '压缩摘要各部分至字数上限（按需触发）',
+    llmFormKey: 'summary_limit_llm_preset_id',
+    prompts: [
+      { formKey: 'summary_limit_prompt_intro_preset_id', label: '文章简介精简提示词' },
+      { formKey: 'summary_limit_prompt_method_preset_id', label: '重点思路精简提示词' },
+      { formKey: 'summary_limit_prompt_findings_preset_id', label: '分析总结精简提示词' },
+      { formKey: 'summary_limit_prompt_opinion_preset_id', label: '个人观点精简提示词' },
+    ],
+  },
+]
+
+const myPaperModules = [
+  {
+    key: 'org',
+    label: '机构判别',
+    icon: '🏛️',
+    desc: '从上传或导入论文中提取作者机构、摘要和基础信息',
+    llmFormKey: 'org_llm_preset_id',
+    prompts: [
+      { formKey: 'org_prompt_preset_id', label: '机构判别提示词' },
+    ],
+  },
+  {
+    key: 'summary',
+    label: '摘要生成',
+    icon: '📄',
+    desc: '生成我的论文中文摘要笔记',
     llmFormKey: 'summary_llm_preset_id',
     prompts: [
       { formKey: 'summary_prompt_preset_id', label: '摘要生成提示词' },
@@ -555,92 +659,7 @@ async function loadPromptPresets() {
   } catch {}
 }
 
-// ---------------------------------------------------------------------------
-// Achievements (engagement) state
-// ---------------------------------------------------------------------------
-
-const engagement = useEngagement()
 const ent = useEntitlements()
-const achievementRewards = ref<EngagementRewardGrant[]>([])
-const achievementsLoading = ref(false)
-const activityCalendar = ref<ActivityCalendarDay[]>([])
-const activityCalendarToday = ref('')
-
-const MILESTONES = [1, 2, 3, 4, 5, 7, 14, 30, 60, 100]
-
-async function loadAchievements() {
-  if (achievementsLoading.value) return
-  achievementsLoading.value = true
-  try {
-    const [, rewardsRes, calendarRes] = await Promise.all([
-      engagement.loadStatus(true),
-      fetchEngagementRewards({ limit: 200 }),
-      fetchActivityCalendar(60),
-    ])
-    achievementRewards.value = rewardsRes.rewards
-    activityCalendar.value = calendarRes.calendar
-    activityCalendarToday.value = calendarRes.today
-  } catch {
-    // Silent failure
-  } finally {
-    achievementsLoading.value = false
-  }
-}
-
-function calendarDayClass(day: ActivityCalendarDay): string {
-  if (day.completed) return 'bg-tinder-green/80'
-  if (day.partial) return 'bg-tinder-green/25'
-  return 'bg-bg-elevated'
-}
-
-function calendarDayTitle(day: ActivityCalendarDay): string {
-  const label = day.completed ? '全部完成' : day.partial ? `完成 ${day.tasks_done}/3` : '未记录'
-  return `${day.day_key} · ${label}`
-}
-
-// rewardStatusLabel, rewardStatusClass, isHonoraryReward, rewardIcon imported from useEngagement.ts (P5)
-
-function milestoneUnlocked(day: number): boolean {
-  return achievementRewards.value.some(r => r.streak_day === day)
-}
-
-function milestoneReward(day: number): EngagementRewardGrant | undefined {
-  return achievementRewards.value.find(r => r.streak_day === day)
-}
-
-// Computed helpers for new organism components
-const unlockedMilestoneDays = computed(() =>
-  new Set(achievementRewards.value.map(r => r.streak_day))
-)
-
-const nextMilestoneDay = computed(() =>
-  engagement.status.value?.streak?.next_milestones?.[0] ?? null
-)
-
-// Rewards grouped by status for the achievements page
-const activeAchievementRewards = computed(() =>
-  achievementRewards.value.filter(r => r.status === 'active')
-)
-const usedAchievementRewards = computed(() =>
-  achievementRewards.value.filter(r => r.status === 'used')
-)
-const expiredAchievementRewards = computed(() =>
-  achievementRewards.value.filter(r => r.status === 'expired')
-)
-
-function formatDate(iso: string | undefined | null): string {
-  if (!iso) return ''
-  try {
-    const d = new Date(iso)
-    const thisYear = new Date().getFullYear()
-    if (d.getFullYear() !== thisYear) {
-      return d.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
-    }
-    return d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })
-  } catch {
-    return iso
-  }
-}
 
 // Announcements state
 // ---------------------------------------------------------------------------
@@ -650,6 +669,7 @@ const announcementsLoading = ref(false)
 const announcementsError = ref('')
 const announcementsTotal = ref(0)
 const expandedAnnouncements = ref<Set<number>>(new Set())
+const selectedAnnouncementId = ref<string | null>(null)
 
 async function loadAnnouncements() {
   announcementsLoading.value = true
@@ -758,6 +778,9 @@ function accentColor(feature: string): string {
   if (feature === 'inspiration') return '#f59e0b'
   if (feature === 'idea_generate') return '#f97316'
   if (feature === 'paper_recommend') return '#ec4899'
+  if (feature === 'my_papers') return '#14b8a6'
+  if (feature === 'deep_research') return '#06b6d4'
+  if (feature === 'translate') return '#10b981'
   return '#8b5cf6'
 }
 
@@ -799,8 +822,11 @@ watch(() => route.query.tab, (tabQuery) => {
   }
 })
 
-watch(activeNav, (feature) => {
-  if (feature === 'compare' || feature === 'inspiration' || feature === 'idea_generate' || feature === 'paper_recommend') {
+watch(activeNav, (feature, prev) => {
+  // Reset announcement inline detail when leaving announcements tab
+  if (prev === 'announcements') selectedAnnouncementId.value = null
+
+  if (feature === 'compare' || feature === 'inspiration' || feature === 'idea_generate' || feature === 'paper_recommend' || feature === 'my_papers' || feature === 'deep_research' || feature === 'translate') {
     loadSettings(feature)
   } else if (feature === 'account_info') {
     initProfileForm()
@@ -811,8 +837,6 @@ watch(activeNav, (feature) => {
     loadSubscription()
     loadSubscriptionHistory()
     ent.refreshEntitlements(true)
-  } else if (feature === 'achievements') {
-    loadAchievements()
   }
 })
 
@@ -830,14 +854,14 @@ watch(() => currentUser.value, () => {
     <!-- Mobile sidebar overlay backdrop -->
     <div
       v-if="showSettingsSidebar"
-      class="fixed inset-0 z-20 bg-black/60 md:hidden"
+      class="fixed inset-0 z-20 bg-black/60 lg:hidden"
       @click="showSettingsSidebar = false"
     />
 
     <!-- Mobile settings nav toggle button -->
     <button
       v-if="!showSettingsSidebar"
-      class="absolute top-2 left-2 z-10 md:hidden w-8 h-8 flex items-center justify-center rounded-full bg-bg-card border border-border text-text-secondary hover:bg-bg-hover transition-colors"
+      class="absolute top-2 left-2 z-10 lg:hidden w-8 h-8 flex items-center justify-center rounded-full bg-bg-card border border-border text-text-secondary hover:bg-bg-hover transition-colors"
       :title="isAdvancedMode ? '高级设置导航' : '个人中心导航'"
       @click="showSettingsSidebar = true"
     >
@@ -893,7 +917,7 @@ watch(() => currentUser.value, () => {
                   : 'text-text-muted cursor-not-allowed opacity-40',
               ]"
               :disabled="!item.enabled"
-              @click="item.enabled && (activeNav = item.key, showSettingsSidebar = false)"
+              @click="selectNav(item)"
             >
               <!-- Icon: user -->
               <svg v-if="item.icon === 'user'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -906,6 +930,14 @@ watch(() => currentUser.value, () => {
               <!-- Icon: scroll -->
               <svg v-else-if="item.icon === 'scroll'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M8 21h12a2 2 0 0 0 2-2v-2H10v2a2 2 0 1 1-4 0V5a2 2 0 0 0-2-2H3a2 2 0 0 0-2 2v3h8" /><path d="M19 17V5a2 2 0 0 0-2-2H4" />
+              </svg>
+              <!-- Icon: search (深度研究) -->
+              <svg v-else-if="item.icon === 'search'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              <!-- Icon: translate (全文翻译) -->
+              <svg v-else-if="item.icon === 'translate'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
               </svg>
               <!-- Icon: compare -->
               <svg v-else-if="item.icon === 'compare'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -948,6 +980,14 @@ watch(() => currentUser.value, () => {
               <svg v-else-if="item.icon === 'trophy'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
               </svg>
+              <!-- Icon: activity (研究偏好) -->
+              <svg v-else-if="item.icon === 'activity'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+              </svg>
+              <!-- Icon: check-square (任务中心) -->
+              <svg v-else-if="item.icon === 'check-square'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
+              </svg>
 
               <span class="truncate">{{ item.label }}</span>
               <span v-if="!item.enabled" class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted shrink-0">即将推出</span>
@@ -975,7 +1015,16 @@ watch(() => currentUser.value, () => {
       <!-- ============================== -->
       <!-- Announcements page             -->
       <!-- ============================== -->
-      <div v-if="activeNav === 'announcements'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+      <div v-if="activeNav === 'announcements'">
+        <!-- Inline announcement detail -->
+        <AnnouncementDetail
+          v-if="selectedAnnouncementId"
+          :id="selectedAnnouncementId"
+          :embedded="true"
+          @back="selectedAnnouncementId = null"
+        />
+
+        <div v-else class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
         <!-- Page header -->
         <div class="mb-6">
           <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
@@ -1055,12 +1104,13 @@ watch(() => currentUser.value, () => {
               <div class="mt-3 flex justify-end">
                 <button
                   class="text-xs text-text-muted hover:text-tinder-pink transition-colors bg-transparent border-none cursor-pointer px-0"
-                  @click.stop="router.push(`/announcements/${item.id}`)"
-                >查看详情页 →</button>
+                  @click.stop="selectedAnnouncementId = String(item.id)"
+                >查看详情 →</button>
               </div>
             </div>
           </div>
         </div>
+        </div><!-- end v-else list -->
       </div>
 
       <!-- ============================== -->
@@ -1110,7 +1160,7 @@ watch(() => currentUser.value, () => {
                       :class="subscriptionTier === 'pro' ? 'bg-blue-500/10 border border-blue-500/40' : ''"
                     >
                       <div class="font-bold text-blue-400 text-[11px] mb-0.5">Pro</div>
-                      <div class="text-blue-400/70 text-[10px]">¥9.9 / 月</div>
+                      <div class="text-blue-400/70 text-[10px]">¥99 / 月</div>
                       <div v-if="subscriptionTier === 'pro'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 inline-block">当前套餐</div>
                     </div>
                   </th>
@@ -1126,7 +1176,7 @@ watch(() => currentUser.value, () => {
                         style="background: linear-gradient(135deg, #fd267a33, #a855f733); color: #d580ff; border: 1px solid #a855f730;"
                       >推荐</div>
                       <div class="font-bold text-[11px] mb-0.5" style="background: linear-gradient(135deg, #fd267a, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;">Pro+</div>
-                      <div class="text-violet-400/70 text-[10px]">¥19.9 / 月</div>
+                      <div class="text-violet-400/70 text-[10px]">¥199 / 月</div>
                       <div v-if="subscriptionTier === 'pro_plus'" class="mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 inline-block">当前套餐</div>
                     </div>
                   </th>
@@ -1141,9 +1191,9 @@ watch(() => currentUser.value, () => {
                 </tr>
                 <tr class="hover:bg-bg-elevated/20 transition-colors">
                   <td class="px-3 py-2 text-text-secondary">每日浏览论文</td>
-                  <td class="px-2 py-2 text-center text-text-muted">5 篇</td>
-                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">20 篇</td>
-                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">50 篇</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 篇</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">9 篇</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">不限</td>
                 </tr>
 
                 <!-- ── Group: AI 功能 ── -->
@@ -1182,9 +1232,9 @@ watch(() => currentUser.value, () => {
                 </tr>
                 <tr class="hover:bg-bg-elevated/20 transition-colors">
                   <td class="px-3 py-2 text-text-secondary">全文翻译</td>
-                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
-                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">10 次/月</td>
-                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">50 次/月</td>
+                  <td class="px-2 py-2 text-center text-text-muted">2 次/月</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">15 次/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">28 次/月</td>
                 </tr>
 
                 <!-- ── Group: 知识库与存储 ── -->
@@ -1193,7 +1243,7 @@ watch(() => currentUser.value, () => {
                 </tr>
                 <tr class="hover:bg-bg-elevated/20 transition-colors">
                   <td class="px-3 py-2 text-text-secondary">论文收藏</td>
-                  <td class="px-2 py-2 text-center text-text-muted">20 篇</td>
+                  <td class="px-2 py-2 text-center text-text-muted">3 篇</td>
                   <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">100 篇</td>
                   <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">500 篇</td>
                 </tr>
@@ -1245,9 +1295,9 @@ watch(() => currentUser.value, () => {
                 </tr>
                 <tr class="hover:bg-bg-elevated/20 transition-colors">
                   <td class="px-3 py-2 text-text-secondary">DOCX / PDF 导出</td>
-                  <td class="px-2 py-2 text-center text-text-muted/60">✗</td>
-                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">✓</td>
-                  <td class="px-2 py-2 text-center text-tinder-green" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">✓</td>
+                  <td class="px-2 py-2 text-center text-text-muted">2 次/月</td>
+                  <td class="px-2 py-2 text-center text-text-secondary" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">15 次/月</td>
+                  <td class="px-2 py-2 text-center text-tinder-green font-medium" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">28 次/月</td>
                 </tr>
                 <tr class="hover:bg-bg-elevated/20 transition-colors">
                   <td class="px-3 py-2 text-text-secondary">批量导出</td>
@@ -1287,11 +1337,11 @@ watch(() => currentUser.value, () => {
                   </td>
                   <td class="px-2 pt-4 pb-2 text-center" :class="subscriptionTier === 'pro' ? 'bg-blue-500/5' : ''">
                     <span v-if="subscriptionTier === 'pro'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-blue-500/20 text-blue-300">当前套餐</span>
-                    <span v-else-if="subscriptionTier !== 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-blue-300" style="background: linear-gradient(135deg, #3b82f620, #2563eb20); border: 1px solid #3b82f640;">¥9.9 / 月起</span>
+                    <span v-else-if="subscriptionTier !== 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-blue-300" style="background: linear-gradient(135deg, #3b82f620, #2563eb20); border: 1px solid #3b82f640;">¥99 / 月起</span>
                   </td>
                   <td class="px-2 pt-4 pb-2 text-center" :class="subscriptionTier === 'pro_plus' ? 'bg-violet-500/5' : ''">
                     <span v-if="subscriptionTier === 'pro_plus'" class="inline-block text-[11px] px-2 py-1 rounded-md bg-violet-500/20 text-violet-300">当前套餐</span>
-                    <span v-else class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-violet-300" style="background: linear-gradient(135deg, #7c3aed20, #a855f720); border: 1px solid #a855f740;">¥19.9 / 月起</span>
+                    <span v-else class="inline-block text-[11px] px-2 py-1 rounded-md font-medium text-violet-300" style="background: linear-gradient(135deg, #7c3aed20, #a855f720); border: 1px solid #a855f740;">¥199 / 月起</span>
                   </td>
                 </tr>
 
@@ -1686,141 +1736,20 @@ watch(() => currentUser.value, () => {
       <!-- ============================== -->
       <!-- Achievements page              -->
       <!-- ============================== -->
-      <div v-if="activeNav === 'achievements'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
-        <!-- Page header -->
-        <div class="mb-6">
-          <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#f59e0b]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
-            </svg>
-            研究成就
-          </h2>
-          <p class="text-xs text-text-muted mt-1">每日完成浏览、收藏、分析三项任务，连续研究可解锁对比扩展、深度分析等实用特权</p>
-        </div>
+      <ProfileAchievementsPanel v-if="activeNav === 'achievements'" />
 
-        <!-- Loading -->
-        <div v-if="achievementsLoading" class="flex items-center justify-center py-16">
-          <svg class="w-6 h-6 animate-spin text-text-muted" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
-          </svg>
-        </div>
+      <!-- ============================== -->
+      <!-- Research Preferences (embedded) -->
+      <!-- ============================== -->
+      <div v-if="activeNav === 'research_preferences'" class="min-w-0">
+        <PreferenceDashboard embedded />
+      </div>
 
-        <template v-else>
-          <!-- Streak Hero Card — circular ring progress + goal text -->
-          <div class="mb-5">
-            <StreakHeroCard
-              :current-streak="engagement.status.value?.streak?.current ?? 0"
-              :longest-streak="engagement.status.value?.streak?.longest ?? 0"
-              :next-milestone-day="nextMilestoneDay"
-            />
-          </div>
-
-          <!-- Activity calendar heatmap — with week labels and month separators -->
-          <div v-if="activityCalendar.length > 0" class="rounded-xl border border-border bg-bg-card p-4 mb-5">
-            <h3 class="text-sm font-semibold text-text-primary mb-3">近 60 天研究记录</h3>
-            <ActivityCalendar
-              :days="activityCalendar"
-              :today="activityCalendarToday"
-            />
-          </div>
-
-          <!-- Milestone Timeline — vertical narrative timeline -->
-          <div class="rounded-xl border border-border bg-bg-card p-4 mb-5">
-            <h3 class="text-sm font-semibold text-text-primary mb-4">里程碑路线</h3>
-            <MilestoneTimeline
-              :current-streak="engagement.status.value?.streak?.current ?? 0"
-              :milestones="MILESTONES"
-              :unlocked-days="unlockedMilestoneDays"
-            />
-          </div>
-
-          <!-- Rewards list — grouped by status, using RewardCard component -->
-          <div class="rounded-xl border border-border bg-bg-card overflow-hidden mb-5">
-            <div class="px-4 py-3 border-b border-border flex items-center justify-between">
-              <h3 class="text-sm font-semibold text-text-primary">奖励记录</h3>
-              <span v-if="activeAchievementRewards.length > 0" class="text-[11px] px-2 py-0.5 rounded-full bg-tinder-green/15 text-tinder-green">
-                {{ activeAchievementRewards.length }} 个可用
-              </span>
-            </div>
-            <div v-if="achievementRewards.length === 0" class="flex flex-col items-center justify-center py-12">
-              <span class="text-3xl mb-3">🎯</span>
-              <p class="text-sm text-text-muted">还没有奖励记录</p>
-              <p class="text-xs text-text-muted mt-1">每日完成浏览、收藏、分析三项任务，连续研究可解锁奖励</p>
-            </div>
-            <div v-else class="px-4 py-3 space-y-4">
-              <!-- Active rewards (highlighted) -->
-              <template v-if="activeAchievementRewards.length > 0">
-                <p class="text-[10px] font-semibold text-tinder-green uppercase tracking-wide">可使用</p>
-                <div class="space-y-3">
-                  <RewardCard
-                    v-for="r in activeAchievementRewards"
-                    :key="r.id ?? r.reward_code"
-                    :reward="r"
-                    :show-cta="true"
-                  />
-                </div>
-              </template>
-
-              <!-- Used rewards -->
-              <template v-if="usedAchievementRewards.length > 0">
-                <p class="text-[10px] font-semibold text-text-muted uppercase tracking-wide pt-2">已使用</p>
-                <div class="space-y-3">
-                  <RewardCard
-                    v-for="r in usedAchievementRewards"
-                    :key="r.id ?? r.reward_code"
-                    :reward="r"
-                    :show-cta="false"
-                  />
-                </div>
-              </template>
-
-              <!-- Expired rewards -->
-              <template v-if="expiredAchievementRewards.length > 0">
-                <p class="text-[10px] font-semibold text-text-muted uppercase tracking-wide pt-2">已过期</p>
-                <div class="space-y-3 opacity-60">
-                  <RewardCard
-                    v-for="r in expiredAchievementRewards"
-                    :key="r.id ?? r.reward_code"
-                    :reward="r"
-                    :show-cta="false"
-                  />
-                </div>
-              </template>
-            </div>
-          </div>
-
-          <!-- Rules explanation -->
-          <div class="rounded-xl border border-border bg-bg-elevated/50 p-4">
-            <h3 class="text-sm font-semibold text-text-primary mb-3">激励规则说明</h3>
-            <ul class="space-y-2">
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-tinder-green">✓</span>
-                <span>每日完成 <strong class="text-text-primary">浏览 + 收藏 + 分析</strong> 三项任务，即可积累有效研究日</span>
-              </li>
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-tinder-green">✓</span>
-                <span>连续达到里程碑天数（1 / 2 / 3 / 4 / 5 / 7 / 14 / 30 / 60 / 100 天）时自动解锁对应奖励</span>
-              </li>
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
-                <span><strong class="text-text-primary">扩展对比券</strong>：使用后本次可对比最多 8 篇论文（默认限制 5 篇）</span>
-              </li>
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
-                <span><strong class="text-text-primary">深度研究加速券</strong>：使用后获得 1.5 倍分析上下文长度和更多论文精选范围</span>
-              </li>
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-[#f59e0b]">⚡</span>
-                <span><strong class="text-text-primary">快速处理加速券</strong>：上传论文时使用，论文将被优先处理分析</span>
-              </li>
-              <li class="flex items-start gap-2 text-xs text-text-secondary">
-                <span class="shrink-0 mt-0.5 text-text-muted">ℹ</span>
-                <span>功能券均有有效期（14-30 天），请及时使用；徽章类奖励永久保留</span>
-              </li>
-            </ul>
-          </div>
-        </template>
+      <!-- ============================== -->
+      <!-- Task Center (embedded) -->
+      <!-- ============================== -->
+      <div v-if="activeNav === 'task_center'" class="min-w-0">
+        <TaskCenterView embedded />
       </div>
 
       <!-- ============================== -->
@@ -2110,6 +2039,275 @@ watch(() => currentUser.value, () => {
       />
 
       <!-- ============================== -->
+      <!-- Feature settings: deep_research -->
+      <!-- ============================== -->
+      <div v-else-if="activeNav === 'deep_research'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+        <div v-if="loading" class="flex items-center justify-center h-full min-h-[400px]">
+          <div class="text-center">
+            <div class="relative w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#06b6d4] border-r-[#0891b2] animate-spin"></div>
+            </div>
+            <p class="text-sm text-text-muted">加载设置...</p>
+          </div>
+        </div>
+        <template v-else>
+          <div class="mb-8">
+            <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:#06b6d4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+              深度研究设置
+            </h2>
+            <p class="text-xs text-text-muted mt-1">配置深度研究所使用的大语言模型。未配置时自动回退到「论文问答」设置，再回退到系统默认。</p>
+          </div>
+
+          <!-- LLM Config -->
+          <fieldset class="mb-8 border border-border rounded-xl p-5">
+            <legend class="px-2 text-xs font-semibold text-text-secondary">LLM 连接配置</legend>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-2">选择模型预设</label>
+              <PresetSelector
+                v-model="form.llm_preset_id"
+                :presets="llmPresets"
+                :none-option="{ label: '手动配置' }"
+                :show-model-hint="true"
+                accent-color="#06b6d4"
+                :on-go-to-create="() => activeNav = 'llm_presets'"
+              />
+              <p v-if="form.llm_preset_id" class="text-[11px] text-text-muted mt-2 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                使用预设「{{ llmPresets.find(p => p.id === Number(form.llm_preset_id))?.name || '—' }}」中的连接参数
+              </p>
+            </div>
+            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 max-h-0" enter-to-class="opacity-100 max-h-[500px]" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 max-h-[500px]" leave-to-class="opacity-0 max-h-0">
+              <div v-if="!form.llm_preset_id" class="overflow-hidden">
+                <div class="mb-4">
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API URL</label>
+                  <input v-model="form.llm_base_url" type="text" placeholder="例如: https://api.openai.com/v1" class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                </div>
+                <div class="mb-4">
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API Key</label>
+                  <div class="relative">
+                    <input v-model="form.llm_api_key" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." class="w-full px-3 py-2 pr-10 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#06b6d4] transition-colors font-mono" />
+                    <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-secondary" @click="showApiKey = !showApiKey">
+                      <svg v-if="showApiKey" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">Model</label>
+                  <input v-model="form.llm_model" type="text" placeholder="例如: gpt-4o, qwen-long, deepseek-r1" class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                </div>
+              </div>
+            </Transition>
+          </fieldset>
+
+          <!-- Generation Params -->
+          <fieldset v-if="!form.llm_preset_id" class="mb-8 border border-border rounded-xl p-5">
+            <legend class="px-2 text-xs font-semibold text-text-secondary">生成参数</legend>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Temperature</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                <button v-if="hasDefault('temperature')" :disabled="isDefault('temperature')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('temperature') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#06b6d4]/30 text-[#06b6d4] bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 cursor-pointer'" @click="resetField('temperature')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.temperature }}</p>
+            </div>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Max Tokens</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.max_tokens" type="number" step="256" min="256" max="65536" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                <button v-if="hasDefault('max_tokens')" :disabled="isDefault('max_tokens')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('max_tokens') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#06b6d4]/30 text-[#06b6d4] bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 cursor-pointer'" @click="resetField('max_tokens')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.max_tokens }}（深度研究默认上限较大，支持长上下文模型）</p>
+            </div>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">输入硬上限 (Input Hard Limit)</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.input_hard_limit" type="number" step="1024" min="1024" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                <button v-if="hasDefault('input_hard_limit')" :disabled="isDefault('input_hard_limit')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('input_hard_limit') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#06b6d4]/30 text-[#06b6d4] bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 cursor-pointer'" @click="resetField('input_hard_limit')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.input_hard_limit }}</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">安全边距 (Safety Margin)</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.input_safety_margin" type="number" step="256" min="0" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#06b6d4] transition-colors" />
+                <button v-if="hasDefault('input_safety_margin')" :disabled="isDefault('input_safety_margin')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('input_safety_margin') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#06b6d4]/30 text-[#06b6d4] bg-[#06b6d4]/10 hover:bg-[#06b6d4]/20 cursor-pointer'" @click="resetField('input_safety_margin')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.input_safety_margin }}</p>
+            </div>
+          </fieldset>
+
+          <!-- Action buttons -->
+          <div class="flex items-center justify-between pb-8">
+            <div class="text-xs">
+              <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100" leave-to-class="opacity-0">
+                <span v-if="saveSuccess" class="text-tinder-green flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  保存成功
+                </span>
+                <span v-else-if="saveError" class="text-tinder-pink">{{ saveError }}</span>
+              </Transition>
+            </div>
+            <button
+              class="px-6 py-2.5 rounded-lg text-sm font-semibold border-none cursor-pointer transition-all"
+              :class="saving ? 'opacity-50 cursor-not-allowed' : 'text-white hover:opacity-90 shadow-lg'"
+              :style="{ background: saving ? '#06b6d480' : 'linear-gradient(135deg, #0891b2, #06b6d4)', boxShadow: saving ? 'none' : '0 10px 25px #06b6d433' }"
+              :disabled="saving"
+              @click="handleSave"
+            >{{ saving ? '保存中...' : '保存设置' }}</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================== -->
+      <!-- Feature settings: translate    -->
+      <!-- ============================== -->
+      <div v-else-if="activeNav === 'translate'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+        <div v-if="loading" class="flex items-center justify-center h-full min-h-[400px]">
+          <div class="text-center">
+            <div class="relative w-12 h-12 mx-auto mb-3 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#10b981] border-r-[#059669] animate-spin"></div>
+            </div>
+            <p class="text-sm text-text-muted">加载设置...</p>
+          </div>
+        </div>
+        <template v-else>
+          <div class="mb-8">
+            <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" style="color:#10b981" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 8l6 6"/><path d="M4 14l6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>
+              </svg>
+              全文翻译设置
+            </h2>
+            <p class="text-xs text-text-muted mt-1">配置 PDF 全文翻译所使用的大语言模型。未配置时使用系统默认（<code class="text-text-secondary">TRANSLATE_API_KEY</code> / <code class="text-text-secondary">config.translate_*</code>）。</p>
+          </div>
+
+          <!-- LLM Config -->
+          <fieldset class="mb-8 border border-border rounded-xl p-5">
+            <legend class="px-2 text-xs font-semibold text-text-secondary">LLM 连接配置</legend>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-2">选择模型预设</label>
+              <PresetSelector
+                v-model="form.llm_preset_id"
+                :presets="llmPresets"
+                :none-option="{ label: '手动配置' }"
+                :show-model-hint="true"
+                accent-color="#10b981"
+                :on-go-to-create="() => activeNav = 'llm_presets'"
+              />
+              <p v-if="form.llm_preset_id" class="text-[11px] text-text-muted mt-2 flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                使用预设「{{ llmPresets.find(p => p.id === Number(form.llm_preset_id))?.name || '—' }}」中的连接参数
+              </p>
+            </div>
+            <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0 max-h-0" enter-to-class="opacity-100 max-h-[500px]" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100 max-h-[500px]" leave-to-class="opacity-0 max-h-0">
+              <div v-if="!form.llm_preset_id" class="overflow-hidden">
+                <div class="mb-4">
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API URL</label>
+                  <input v-model="form.llm_base_url" type="text" placeholder="例如: https://dashscope.aliyuncs.com/compatible-mode/v1" class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#10b981] transition-colors" />
+                </div>
+                <div class="mb-4">
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">API Key</label>
+                  <div class="relative">
+                    <input v-model="form.llm_api_key" :type="showApiKey ? 'text' : 'password'" placeholder="sk-..." class="w-full px-3 py-2 pr-10 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#10b981] transition-colors font-mono" />
+                    <button type="button" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-text-muted hover:text-text-secondary" @click="showApiKey = !showApiKey">
+                      <svg v-if="showApiKey" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                      <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-text-secondary mb-1.5">Model</label>
+                  <input v-model="form.llm_model" type="text" placeholder="例如: qwen-turbo, qwen-plus, gpt-4o-mini" class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:border-[#10b981] transition-colors" />
+                </div>
+              </div>
+            </Transition>
+          </fieldset>
+
+          <!-- Generation + Translation params -->
+          <fieldset class="mb-8 border border-border rounded-xl p-5">
+            <legend class="px-2 text-xs font-semibold text-text-secondary">生成参数</legend>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Temperature</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.temperature" type="number" step="0.1" min="0" max="2" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('temperature')" :disabled="isDefault('temperature')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('temperature') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('temperature')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.temperature }}（翻译任务建议保持低 temperature）</p>
+            </div>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Max Tokens（单次请求输出上限）</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.max_tokens" type="number" step="256" min="256" max="32768" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('max_tokens')" :disabled="isDefault('max_tokens')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('max_tokens') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('max_tokens')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.max_tokens }}</p>
+            </div>
+          </fieldset>
+
+          <!-- Translation-specific params -->
+          <fieldset class="mb-8 border border-border rounded-xl p-5">
+            <legend class="px-2 text-xs font-semibold text-text-secondary">翻译分块参数</legend>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Chunk Size（每块字符数）</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.chunk_size" type="number" step="500" min="500" max="20000" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('chunk_size')" :disabled="isDefault('chunk_size')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('chunk_size') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('chunk_size')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.chunk_size }}。较大值减少 API 调用次数；较小值提高并行度，适合速率较低的模型。</p>
+            </div>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">Concurrency（并发请求数）</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.concurrency" type="number" step="1" min="1" max="16" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('concurrency')" :disabled="isDefault('concurrency')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('concurrency') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('concurrency')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.concurrency }}。根据模型的 RPM 限制调整，避免触发速率限制。</p>
+            </div>
+            <div class="mb-5">
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">输入硬上限 (Input Hard Limit)</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.input_hard_limit" type="number" step="1024" min="1024" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('input_hard_limit')" :disabled="isDefault('input_hard_limit')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('input_hard_limit') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('input_hard_limit')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.input_hard_limit }}。超过此长度的文档会被截断（按字符计）。</p>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-text-secondary mb-1.5">安全边距 (Safety Margin)</label>
+              <div class="flex items-center gap-2">
+                <input v-model.number="form.input_safety_margin" type="number" step="256" min="0" class="flex-1 px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#10b981] transition-colors" />
+                <button v-if="hasDefault('input_safety_margin')" :disabled="isDefault('input_safety_margin')" class="shrink-0 px-3 py-2 rounded-lg text-xs border transition-colors" :class="isDefault('input_safety_margin') ? 'border-border text-text-muted bg-transparent cursor-not-allowed' : 'border-[#10b981]/30 text-[#10b981] bg-[#10b981]/10 hover:bg-[#10b981]/20 cursor-pointer'" @click="resetField('input_safety_margin')">恢复默认</button>
+              </div>
+              <p class="text-[11px] text-text-muted mt-1">默认值: {{ defaults.input_safety_margin }}</p>
+            </div>
+          </fieldset>
+
+          <!-- Action buttons -->
+          <div class="flex items-center justify-between pb-8">
+            <div class="text-xs">
+              <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0" enter-to-class="opacity-100" leave-active-class="transition duration-150 ease-in" leave-from-class="opacity-100" leave-to-class="opacity-0">
+                <span v-if="saveSuccess" class="text-tinder-green flex items-center gap-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  保存成功
+                </span>
+                <span v-else-if="saveError" class="text-tinder-pink">{{ saveError }}</span>
+              </Transition>
+            </div>
+            <button
+              class="px-6 py-2.5 rounded-lg text-sm font-semibold border-none cursor-pointer transition-all"
+              :class="saving ? 'opacity-50 cursor-not-allowed' : 'text-white hover:opacity-90 shadow-lg'"
+              :style="{ background: saving ? '#10b98180' : 'linear-gradient(135deg, #059669, #10b981)', boxShadow: saving ? 'none' : '0 10px 25px #10b98133' }"
+              :disabled="saving"
+              @click="handleSave"
+            >{{ saving ? '保存中...' : '保存设置' }}</button>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================== -->
       <!-- Feature settings: compare / inspiration -->
       <!-- ============================== -->
       <div v-else-if="activeNav === 'compare' || activeNav === 'inspiration'" class="max-w-2xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
@@ -2136,7 +2334,7 @@ watch(() => currentUser.value, () => {
               {{ activeNav === 'compare' ? '对比分析设置' : activeNav === 'inspiration' ? '灵感涌现设置' : '灵感生成设置' }}
             </h2>
             <p class="text-xs text-text-muted mt-1">
-              {{ activeNav === 'compare' ? '配置论文对比分析所使用的大语言模型参数' : activeNav === 'inspiration' ? '配置灵感涌现分析所使用的大语言模型参数' : '配置灵感生成所使用的大语言模型参数' }}
+              {{ activeNav === 'compare' ? '配置论文对比分析所使用的大语言模型参数，未配置时使用系统默认值' : activeNav === 'inspiration' ? '配置灵感涌现分析所使用的大语言模型参数，未配置时使用系统默认值' : '配置灵感生成所使用的大语言模型参数，未配置时使用系统默认值' }}
             </p>
           </div>
 
@@ -2632,14 +2830,14 @@ watch(() => currentUser.value, () => {
       </div>
 
       <!-- ============================== -->
-      <!-- Paper Recommend Config page -->
+      <!-- Paper pipeline Config page -->
       <!-- ============================== -->
-      <div v-else-if="activeNav === 'paper_recommend'" class="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
+      <div v-else-if="activeNav === 'paper_recommend' || activeNav === 'my_papers'" class="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-8">
         <!-- Loading state -->
         <div v-if="loading" class="flex items-center justify-center h-full min-h-[400px]">
           <div class="text-center">
             <div class="relative w-12 h-12 mx-auto mb-3 flex items-center justify-center">
-              <div class="absolute inset-0 rounded-full border-2 border-transparent border-t-[#ec4899] border-r-[#f472b6] animate-spin"></div>
+              <div class="absolute inset-0 rounded-full border-2 border-transparent animate-spin" :style="{ borderTopColor: accentColor(activeNav), borderRightColor: accentColor(activeNav) }"></div>
             </div>
             <p class="text-sm text-text-muted">加载设置...</p>
           </div>
@@ -2649,13 +2847,13 @@ watch(() => currentUser.value, () => {
           <!-- Section title -->
           <div class="mb-6">
             <h2 class="text-lg font-bold text-text-primary flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#ec4899]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" :style="{ color: accentColor(activeNav) }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
               </svg>
-              推荐论文参数配置
+              {{ activeNav === 'my_papers' ? '我的论文解析配置' : '推荐论文参数配置' }}
             </h2>
             <p class="text-xs text-text-muted mt-1">
-              为各处理阶段配置大语言模型与提示词预设，未配置时使用系统默认值。
+              {{ activeNav === 'my_papers' ? '为我的论文上传、解析、摘要生成配置独立的大语言模型与提示词预设。' : '为各处理阶段配置大语言模型与提示词预设，未配置时使用系统默认值。' }}
             </p>
           </div>
 
@@ -2674,7 +2872,8 @@ watch(() => currentUser.value, () => {
                   v-model="form.mineru_token"
                   :type="mineruTokenVisible ? 'text' : 'password'"
                   placeholder="留空使用系统配置"
-                  class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#ec4899] transition-colors pr-10 font-mono"
+                  class="w-full px-3 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none transition-colors pr-10 font-mono"
+                  :style="{ '--tw-ring-color': accentColor(activeNav) }"
                 />
                 <button
                   class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors text-xs select-none"
@@ -2684,8 +2883,56 @@ watch(() => currentUser.value, () => {
             </div>
           </div>
 
+          <!-- ===== arXiv 检索分类 ===== -->
+          <div v-if="activeNav === 'paper_recommend'" class="mb-4 rounded-xl bg-bg-card border border-border overflow-hidden">
+            <div class="px-5 py-3.5 border-b border-border bg-bg-elevated/40 flex items-center gap-3">
+              <span class="text-base leading-none">🔍</span>
+              <div class="flex-1 min-w-0">
+                <h3 class="text-sm font-semibold text-text-primary">arXiv 检索分类</h3>
+                <p class="text-[11px] text-text-muted">选择从哪些 arXiv 分类中获取候选论文；留空则沿用系统默认（cs.CL / cs.LG / cs.AI / stat.ML）</p>
+              </div>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+              <!-- 快捷标签 -->
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="cat in ARXIV_COMMON_CATEGORIES"
+                  :key="cat.code"
+                  type="button"
+                  class="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                  :class="getSearchCategories().includes(cat.code)
+                    ? 'bg-[#ec4899] border-[#ec4899] text-white'
+                    : 'bg-transparent border-border text-text-secondary hover:border-[#ec4899]/50 hover:text-text-primary'"
+                  @click="toggleCategory(cat.code)"
+                >{{ cat.code }} <span class="opacity-70">{{ cat.label }}</span></button>
+              </div>
+              <!-- 已选标签（含自定义） -->
+              <div v-if="getSearchCategories().length" class="flex flex-wrap gap-1.5 pt-1">
+                <span
+                  v-for="code in getSearchCategories()"
+                  :key="code"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-[#ec4899]/15 border border-[#ec4899]/40 text-[#ec4899]"
+                >
+                  {{ code }}
+                  <button type="button" class="hover:text-red-400 transition-colors leading-none" @click="removeCategory(code)">×</button>
+                </span>
+              </div>
+              <!-- 自定义输入 -->
+              <div class="flex items-center gap-2">
+                <input
+                  v-model="categoryCustomInput"
+                  placeholder="自定义分类代码，如 cs.NE"
+                  class="flex-1 px-3 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:border-[#ec4899] transition-colors"
+                  @keydown.enter.prevent="addCustomCategory"
+                />
+                <button type="button" class="shrink-0 px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-xs text-text-secondary hover:border-[#ec4899]/50 hover:text-text-primary transition-colors" @click="addCustomCategory">+ 添加</button>
+              </div>
+              <p class="text-[11px] text-text-muted italic">修改后需点击页面底部「保存」按钮生效；下次 pipeline 运行时将使用新分类</p>
+            </div>
+          </div>
+
           <!-- ===== 级联策略说明卡片 (paper_recommend) ===== -->
-          <div class="mb-4 rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
+          <div v-if="activeNav === 'paper_recommend'" class="mb-4 rounded-xl border border-blue-500/30 bg-blue-500/5 p-4">
             <div class="flex items-start gap-3">
               <span class="text-lg shrink-0 mt-0.5">💡</span>
               <div class="flex-1 min-w-0">
@@ -2704,8 +2951,23 @@ watch(() => currentUser.value, () => {
             </div>
           </div>
 
+          <div v-else class="mb-4 rounded-xl border border-teal-500/30 bg-teal-500/5 p-4">
+            <div class="flex items-start gap-3">
+              <span class="text-lg shrink-0 mt-0.5">💡</span>
+              <div class="flex-1 min-w-0">
+                <h4 class="text-sm font-semibold text-text-primary mb-1.5">独立配置策略</h4>
+                <p class="text-xs text-text-secondary leading-relaxed mb-2">
+                  我的论文解析使用 <span class="font-medium text-text-primary">my_papers</span> 配置，不再复用推荐论文参数。
+                </p>
+                <p class="text-xs text-text-secondary leading-relaxed">
+                  机构判别、摘要生成、摘要精简可分别选择模型与提示词；未配置的步骤会回退到系统默认配置。
+                </p>
+              </div>
+            </div>
+          </div>
+
           <!-- ===== 功能模块配置卡片 ===== -->
-          <div v-for="mod in recommendModules" :key="mod.key" class="mb-4 rounded-xl bg-bg-card border border-border overflow-hidden">
+          <div v-for="mod in (activeNav === 'my_papers' ? myPaperModules : recommendModules)" :key="mod.key" class="mb-4 rounded-xl bg-bg-card border border-border overflow-hidden">
             <!-- Module header — matches admin style -->
             <div class="px-5 py-3.5 border-b border-border bg-bg-elevated/40 flex items-center gap-3">
               <span class="text-base leading-none">{{ mod.icon }}</span>
@@ -2727,7 +2989,7 @@ watch(() => currentUser.value, () => {
                     v-model="form[mod.llmFormKey]"
                     :presets="llmPresets"
                     :show-model-hint="true"
-                    accent-color="#ec4899"
+                    :accent-color="accentColor(activeNav)"
                     placeholder="使用全局默认"
                     :on-go-to-create="() => activeNav = 'llm_presets'"
                   />

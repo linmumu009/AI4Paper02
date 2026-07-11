@@ -1,19 +1,27 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { fetchIdeaAtoms, deleteIdeaAtom } from '../api'
 import type { IdeaAtom } from '../types/paper'
 import { ensureAuthInitialized, isAuthenticated } from '../stores/auth'
+import WorkbenchPageShell from '../components/workbench/WorkbenchPageShell.vue'
 
 const router = useRouter()
+const route = useRoute()
 
-const props = defineProps<{ embedded?: boolean }>()
+const props = defineProps<{
+  embedded?: boolean
+  /** When set, only show atoms for this paper_id */
+  initialPaperId?: string
+}>()
 
 const atoms = ref<IdeaAtom[]>([])
 const loading = ref(false)
 const error = ref('')
 const searchQuery = ref('')
 const typeFilter = ref<string>('')
+/** Active paper_id filter — initialised from prop or route query */
+const paperIdFilter = ref<string>(props.initialPaperId || (route.query.paper_id as string) || '')
 
 const atomTypes = [
   { key: '', label: '全部', icon: '📋' },
@@ -41,6 +49,10 @@ const filteredAtoms = computed(() => {
   return list
 })
 
+const titleLabel = computed(() =>
+  paperIdFilter.value ? `论文 ${paperIdFilter.value} 的研究原子` : '研究原子库'
+)
+
 const typeCounts = computed(() => {
   const counts: Record<string, number> = { '': atoms.value.length }
   for (const a of atoms.value) {
@@ -53,7 +65,9 @@ async function loadAtoms() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetchIdeaAtoms({ limit: 1000 })
+    const params: Record<string, any> = { limit: 1000 }
+    if (paperIdFilter.value) params.paper_id = paperIdFilter.value
+    const res = await fetchIdeaAtoms(params)
     atoms.value = res.atoms
   } catch (e: any) {
     error.value = e?.response?.data?.detail || '加载失败'
@@ -72,6 +86,17 @@ onMounted(async () => {
 watch(() => isAuthenticated.value, (authed) => {
   if (authed) loadAtoms()
   else atoms.value = []
+})
+
+watch(paperIdFilter, () => {
+  if (isAuthenticated.value) loadAtoms()
+})
+
+// Keep paperIdFilter in sync with route query when not embedded
+watch(() => route.query.paper_id, (qv) => {
+  if (!props.initialPaperId) {
+    paperIdFilter.value = (qv as string) || ''
+  }
 })
 
 async function handleDelete(id: number) {
@@ -97,26 +122,21 @@ const atomTypeColor: Record<string, string> = {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b border-border bg-bg">
-      <div class="flex items-center gap-3 mb-4">
-        <button
-          v-if="!props.embedded"
-          class="text-xs px-3 py-1.5 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors flex items-center gap-1.5"
-          @click="router.push('/workbench')"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-          返回
-        </button>
-        <h1 class="text-xl font-bold text-text-primary flex items-center gap-2">
-          <span class="text-2xl">🔬</span> 灵感原子库
-        </h1>
-      </div>
+  <WorkbenchPageShell
+    icon="🔬"
+    :title="titleLabel"
+    :back-to="!props.embedded ? '/workbench' : undefined"
+  >
+    <template #title-extra>
+      <button
+        v-if="paperIdFilter"
+        class="text-xs px-2 py-0.5 rounded-full border border-border text-text-muted bg-transparent cursor-pointer hover:text-red-400 hover:border-red-400/30 transition-colors"
+        title="清除论文过滤"
+        @click="paperIdFilter = ''"
+      >✕ 清除过滤</button>
+    </template>
 
-      <!-- Type filter tabs + search -->
+    <template #filters>
       <div class="flex flex-col sm:flex-row sm:items-center gap-3">
         <div class="flex items-center gap-1 overflow-x-auto no-scrollbar">
           <button
@@ -139,7 +159,7 @@ const atomTypeColor: Record<string, string> = {
           class="w-full sm:w-64 px-3 py-1.5 text-xs rounded-lg border border-border bg-bg-elevated text-text-primary placeholder-text-muted focus:outline-none focus:border-border-light transition-colors"
         />
       </div>
-    </div>
+    </template>
 
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -235,7 +255,7 @@ const atomTypeColor: Record<string, string> = {
         </div>
       </div>
     </div>
-  </div>
+  </WorkbenchPageShell>
 </template>
 
 <style scoped>

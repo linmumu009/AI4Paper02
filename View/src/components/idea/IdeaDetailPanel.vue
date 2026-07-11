@@ -190,11 +190,29 @@ async function handleCreatePlan() {
   planAbortController = new AbortController()
   try {
     // 第一步：通过 LLM 流式生成计划文本
-    await fetchGeneratePlanStream(
-      props.candidateId,
-      (chunk) => { planStreamText.value += chunk },
-      planAbortController.signal,
-    )
+    const response = await fetchGeneratePlanStream(props.candidateId, undefined, planAbortController.signal)
+    if (!response.ok) {
+      const txt = await response.text()
+      throw new Error(`生成失败 (${response.status}): ${txt}`)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('无法读取响应流')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    outer: while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (payload === '[DONE]') { reader.cancel(); break outer }
+        try { planStreamText.value += JSON.parse(payload) as string }
+        catch { planStreamText.value += payload }
+      }
+    }
     // 第二步：保存生成的计划
     const res = await createIdeaPlan(props.candidateId, {
       full_plan: planStreamText.value,
@@ -414,7 +432,7 @@ async function markAsExemplar() {
               @click="markAsExemplar"
             >⭐ 标记为范例</button>
             <button
-              v-if="!plan && !creatingPlan"
+              v-if="(!plan || (!plan.full_plan && !plan.milestones?.length && !plan.datasets && !plan.metrics && !plan.timeline && !plan.cost)) && !creatingPlan"
               class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/10 transition-colors"
               @click="handleCreatePlan"
             >📐 生成实验计划</button>
@@ -642,7 +660,8 @@ async function markAsExemplar() {
               v-html="md.render(planStreamText)"
             />
           </div>
-          <div v-else-if="!plan" class="text-center py-12">
+          <!-- 空计划：尚未生成 或 历史空记录 -->
+          <div v-else-if="!plan || (!plan.full_plan && !plan.milestones?.length && !plan.datasets && !plan.metrics && !plan.timeline && !plan.cost)" class="text-center py-12">
             <p class="text-sm text-text-muted mb-4">尚未生成实验计划</p>
             <button
               class="px-5 py-2 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"

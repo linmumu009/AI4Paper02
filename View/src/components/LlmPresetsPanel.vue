@@ -97,6 +97,7 @@ const llmForm = reactive({
   temperature: null as number | null,
   input_hard_limit: null as number | null,
   input_safety_margin: null as number | null,
+  enable_thinking: false,
 })
 const formSaving = ref(false)
 const formError = ref('')
@@ -113,6 +114,7 @@ function openDrawer(preset?: UserLlmPreset) {
     llmForm.temperature = preset.temperature ?? null
     llmForm.input_hard_limit = preset.input_hard_limit ?? null
     llmForm.input_safety_margin = preset.input_safety_margin ?? null
+    llmForm.enable_thinking = preset.enable_thinking ?? false
   } else {
     editingPreset.value = null
     llmForm.name = ''
@@ -123,6 +125,7 @@ function openDrawer(preset?: UserLlmPreset) {
     llmForm.temperature = null
     llmForm.input_hard_limit = null
     llmForm.input_safety_margin = null
+    llmForm.enable_thinking = false
   }
   showApiKey.value = false
   formError.value = ''
@@ -148,6 +151,7 @@ async function savePreset() {
       temperature: llmForm.temperature,
       input_hard_limit: llmForm.input_hard_limit,
       input_safety_margin: llmForm.input_safety_margin,
+      enable_thinking: llmForm.enable_thinking,
     }
     if (editingPreset.value) {
       await updateUserLlmPreset(editingPreset.value.id, payload)
@@ -214,6 +218,7 @@ async function copyPreset(preset: UserLlmPreset) {
       temperature: preset.temperature ?? null,
       input_hard_limit: preset.input_hard_limit ?? null,
       input_safety_margin: preset.input_safety_margin ?? null,
+      enable_thinking: preset.enable_thinking ?? false,
     })
     await loadPresets()
   } catch (e: any) {
@@ -461,12 +466,15 @@ onMounted(async () => {
           </div>
 
           <!-- Parameter badges -->
-          <div v-if="preset.temperature != null || preset.max_tokens != null" class="flex flex-wrap gap-1.5 mt-2.5">
+          <div v-if="preset.temperature != null || preset.max_tokens != null || preset.enable_thinking" class="flex flex-wrap gap-1.5 mt-2.5">
             <span v-if="preset.temperature != null" class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted">
               <span class="text-text-muted/60">temp</span> {{ preset.temperature }}
             </span>
             <span v-if="preset.max_tokens != null" class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-bg-elevated text-text-muted">
               <span class="text-text-muted/60">tokens</span> {{ preset.max_tokens }}
+            </span>
+            <span v-if="preset.enable_thinking" class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[#6366f1]/10 text-[#6366f1]">
+              思考模式
             </span>
           </div>
 
@@ -661,6 +669,18 @@ onMounted(async () => {
                     placeholder="4096"
                     class="w-full px-2.5 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#8b5cf6] transition-colors"
                   />
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <div>
+                    <p class="text-[11px] text-text-muted font-medium">思考模式</p>
+                    <p class="text-[10px] text-text-muted/60 mt-0.5">是否生效取决于模型/服务商支持</p>
+                  </div>
+                  <button type="button" @click="llmForm.enable_thinking = !llmForm.enable_thinking"
+                    :class="llmForm.enable_thinking ? 'bg-[#6366f1]' : 'bg-bg-elevated border border-border'"
+                    class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
+                    <span :class="llmForm.enable_thinking ? 'translate-x-4' : 'translate-x-1'"
+                      class="inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform" />
+                  </button>
                 </div>
               </div>
             </div>

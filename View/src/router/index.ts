@@ -11,7 +11,7 @@ const isTauri = typeof import.meta.env.VITE_API_BASE === 'string'
 const ROUTE_META: Record<string, { title: string; description: string }> = {
   'digest': {
     title: 'AI4Papers - 每日 arXiv 论文推荐 | 免费 AI 论文日报 · 中文摘要',
-    description: '免费的 AI 论文推荐工具，每日自动筛选 arXiv 最新 AI/ML 论文，LLM 智能评分 + 顶级机构过滤 + 中文摘要 + 结果图摘要，10 分钟掌握前沿研究。',
+    description: 'AI4Papers 每日自动筛选 arXiv 最新 AI/ML 论文，提供 LLM 智能评分、顶级机构过滤与中文摘要，帮你 10 分钟掌握前沿研究。',
   },
   'inspiration': {
     title: '灵感库 - AI4Papers 论文灵感生成工具',
@@ -27,7 +27,7 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
   },
   'register': {
     title: '注册 - AI4Papers 免费论文推荐工具',
-    description: '注册 AI4Papers 账号，开始每日 arXiv 论文智能推荐之旅。完全免费，所有功能均可免费使用。',
+    description: '完全免费注册，核心功能免费使用；高级 AI 功能支持自带 API Key 无限制调用。',
   },
   'profile': {
     title: '个人中心 - AI4Papers',
@@ -37,9 +37,17 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
     title: '高级设置 - AI4Papers',
     description: '管理 AI4Papers 的模型预设、提示词预设及各功能参数配置。',
   },
+  'preferences': {
+    title: '研究偏好 - AI4Papers',
+    description: '查看推荐系统学到的你的偏好画像、探索比例、校准状态，并对推荐进行纠偏。',
+  },
   'my-papers': {
     title: '我的论文 - AI4Papers',
     description: '上传或导入你自己的论文，支持 PDF 上传、arXiv 导入和手动录入，统一管理个人论文库。',
+  },
+  'task-center': {
+    title: '任务中心 - AI4Papers',
+    description: '查看所有论文解析、翻译、分类等长任务的进度与状态，支持失败重试。',
   },
   'community': {
     title: '社区 - AI4Papers',
@@ -48,6 +56,10 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
   'tutorial': {
     title: '使用教程 - AI4Papers',
     description: 'AI4Papers 使用教程，了解如何使用每日论文推荐、知识库、论文对比、灵感生成等功能。',
+  },
+  'weekly-recap': {
+    title: '本周回顾 - AI4Papers',
+    description: '查看本周的研究脉络总结，包括收藏论文的主题分析、研究联系与建议追问。',
   },
   'community-post': {
     title: '帖子详情 - AI4Papers 社区',
@@ -59,8 +71,8 @@ const ROUTE_META: Record<string, { title: string; description: string }> = {
   },
 }
 
-const DEFAULT_TITLE = 'AI4Papers - 免费 AI 论文推荐工具 | arXiv 每日论文 · 中文摘要 · 论文阅读助手'
-const DEFAULT_DESC  = 'AI4Papers 是免费的 AI 论文推荐工具和论文阅读助手，每日自动筛选 arXiv 最新论文，LLM 智能评分 + 中文摘要 + 结果图摘要 + 知识库 + 论文对比 + 灵感生成。'
+const DEFAULT_TITLE = 'AI4Papers - 免费 AI 论文工作流平台 | 每日 arXiv 推荐 · 摘要阅读 · 研究沉淀'
+const DEFAULT_DESC  = 'AI4Papers 是一个以每日 arXiv 论文发现为入口的 AI 科研工作流平台。提供智能筛选、中文摘要生成、多论文对比分析与灵感研究等核心功能，帮助研究者构建个人专属知识库。'
 
 /** 更新 <title> 和 <meta name="description"> */
 export function setPageMeta(title: string, description?: string) {
@@ -102,27 +114,25 @@ const router = createRouter({
     },
     {
       path: '/idea/candidates/:id',
-      name: 'idea-detail',
-      component: () => import('../views/IdeaDetailView.vue'),
-      props: true,
-      meta: { requiresAuth: true },
+      redirect: (to) => ({ path: '/workbench', query: { candidate_id: to.params.id as string } }),
     },
     {
       path: '/idea/atoms',
-      name: 'idea-atoms',
-      component: () => import('../views/AtomBrowser.vue'),
-      meta: { requiresAuth: true },
+      redirect: '/workbench?tab=atoms',
     },
     {
       path: '/idea/exemplars',
-      name: 'idea-exemplars',
-      component: () => import('../views/ExemplarView.vue'),
-      meta: { requiresAuth: true },
+      redirect: '/workbench?tab=exemplars',
     },
     {
       path: '/idea/eval',
-      name: 'idea-eval',
-      component: () => import('../views/EvalReplayView.vue'),
+      redirect: '/workbench?tab=eval',
+    },
+    // ---------------------------------------------------------------------------
+    {
+      path: '/recap',
+      name: 'weekly-recap',
+      component: () => import('../views/WeeklyRecapView.vue'),
       meta: { requiresAuth: true },
     },
     // ---------------------------------------------------------------------------
@@ -192,6 +202,14 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/preferences',
+      redirect: '/profile?tab=research_preferences',
+    },
+    {
+      path: '/tasks',
+      redirect: '/profile?tab=task_center',
+    },
+    {
       path: '/admin',
       redirect: '/admin/users',
     },
@@ -205,6 +223,12 @@ const router = createRouter({
       component: () => import('../views/AdminUsers.vue'),
       meta: { requiresAuth: true, requiresAdmin: true },
     },
+    {
+      path: '/admin/preference-loop',
+      name: 'admin-preference-loop',
+      component: () => import('../views/AdminPreferenceLoop.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+    },
   ],
 })
 
@@ -213,13 +237,14 @@ const router = createRouter({
 import { trackPageView } from '../composables/useAnalytics'
 
 router.afterEach((to) => {
+  // Page-view tracking applies to every successful navigation, including paper
+  // detail pages that manage their own document title.
+  trackPageView(String(to.name || to.path))
+
   // paper-detail pages handle their own title in the component
   if (to.name === 'paper-detail') return
   const m = ROUTE_META[to.name as string]
   setPageMeta(m?.title || DEFAULT_TITLE, m?.description)
-
-  // Track page view for analytics
-  trackPageView(String(to.name || to.path))
 })
 
 router.beforeEach(async (to) => {

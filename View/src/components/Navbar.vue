@@ -7,12 +7,14 @@ import { API_ORIGIN, fetchUnreadAnnouncementCount, markAllAnnouncementsRead, fet
 import type { Announcement } from '../types/paper'
 import { useEngagement } from '../composables/useEngagement'
 import EngagementProgressBar from './EngagementProgressBar.vue'
+import { useGlobalChat } from '../composables/useGlobalChat'
 
 // 在 Tauri 桌面端（API_ORIGIN 有值）时隐藏下载安装包按钮
 const isDesktop = !!API_ORIGIN
 
 const route = useRoute()
 const router = useRouter()
+const globalChat = useGlobalChat()
 
 // ── 桌面端自动更新 ────────────────────────────────────────────────────────────
 const _tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null =
@@ -65,6 +67,60 @@ const navItems = [
     svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>`,
   },
 ]
+
+// ---------------------------------------------------------------------------
+// Research tools dropdown
+// ---------------------------------------------------------------------------
+const showToolsMenu = ref(false)
+const toolsMenuRef = ref<HTMLElement | null>(null)
+
+const toolGroups = [
+  {
+    label: '研究资产',
+    items: [
+      { key: 'knowledge',        label: '知识库',   desc: '沉淀收藏论文' },
+      { key: 'compare-library',  label: '对比库',   desc: '已保存对比结果' },
+      { key: 'research-library', label: '研究库',   desc: '深度研究会话' },
+      { key: 'mypapers',         label: '我的论文', desc: '上传 / 导入文献' },
+      { key: 'recap',            label: '本周回顾', desc: '研究脉络总结' },
+    ],
+  },
+  {
+    label: 'AI 工具',
+    items: [
+      { key: 'chat',      label: 'AI 对话',   desc: '全局问答助手' },
+      { key: 'research',  label: '深度研究',   desc: '多文献精读' },
+      { key: 'compare',   label: '论文对比',   desc: '横向差异分析' },
+      { key: 'workbench', label: '灵感工作台', desc: '生成研究提案' },
+      { key: 'atoms',     label: '原子库',     desc: '方法 / 数据集碎片' },
+    ],
+  },
+  {
+    label: '设置与校准',
+    items: [
+      { key: 'preferences', label: '研究偏好', desc: '校准推荐方向' },
+      { key: 'tasks',       label: '任务中心', desc: '后台任务进度' },
+    ],
+  },
+]
+
+function handleToolClick(key: string) {
+  showToolsMenu.value = false
+  switch (key) {
+    case 'knowledge':        router.push('/?tool=knowledge'); break
+    case 'compare-library':  router.push('/?tool=compare-library'); break
+    case 'research-library': router.push('/?tool=research-library'); break
+    case 'mypapers':         router.push('/?tab=mypapers'); break
+    case 'recap':            router.push('/recap'); break
+    case 'chat':             globalChat.open(); break
+    case 'research':         router.push('/?tool=research'); break
+    case 'compare':          router.push('/?tool=compare'); break
+    case 'workbench':        router.push('/workbench'); break
+    case 'atoms':            router.push('/workbench?tab=atoms'); break
+    case 'preferences':      router.push('/profile?tab=research_preferences'); break
+    case 'tasks':            router.push('/profile?tab=task_center'); break
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Announcement bell + popover
@@ -149,9 +205,12 @@ function formatAnnouncementDate(ts: string): string {
   }
 }
 
-function handleClickOutsideAnnouncement(e: MouseEvent) {
+function handleClickOutside(e: MouseEvent) {
   if (announcementPopoverRef.value && !announcementPopoverRef.value.contains(e.target as Node)) {
     closeAnnouncementPopover()
+  }
+  if (toolsMenuRef.value && !toolsMenuRef.value.contains(e.target as Node)) {
+    showToolsMenu.value = false
   }
 }
 
@@ -183,19 +242,20 @@ onMounted(async () => {
     if (document.visibilityState === 'visible') refreshUnreadCount()
   }, 90_000)
   document.addEventListener('visibilitychange', _handleVisibilityChange)
-  document.addEventListener('click', handleClickOutsideAnnouncement)
+  document.addEventListener('click', handleClickOutside)
 })
 
 onBeforeUnmount(() => {
   if (_pollTimer) clearInterval(_pollTimer)
   document.removeEventListener('visibilitychange', _handleVisibilityChange)
-  document.removeEventListener('click', handleClickOutsideAnnouncement)
+  document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
 <template>
-  <nav class="h-12 sm:h-14 flex items-center justify-between px-3 sm:px-5 bg-bg-sidebar border-b border-border">
-    <!-- Logo -->
+  <nav class="relative h-12 sm:h-14 flex items-center px-3 sm:px-5 bg-bg-sidebar border-b border-border">
+
+    <!-- LEFT: Logo -->
     <router-link to="/" class="flex items-center gap-1.5 no-underline shrink-0">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"
            class="w-7 h-7 sm:w-8 sm:h-8 flex-shrink-0" aria-hidden="true">
@@ -232,62 +292,98 @@ onBeforeUnmount(() => {
       <span class="text-lg sm:text-xl gradient-text font-bold tracking-tight">AI4Papers</span>
     </router-link>
 
-    <!-- Center nav icons -->
-    <div class="flex items-center gap-1 sm:gap-2">
-      <router-link
-        v-for="item in navItems"
-        :key="item.to"
-        :to="item.to"
-        :title="item.label"
-        class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl no-underline transition-all duration-200 group"
-        :class="(item.to === '/' ? route.path === '/' : route.path.startsWith(item.to))
-          ? 'text-tinder-pink'
-          : 'text-text-muted hover:text-text-secondary'"
-      >
-        <span
-          class="w-[18px] h-[18px] sm:w-5 sm:h-5 flex items-center justify-center transition-all duration-200"
-          v-html="item.svg"
-        />
-        <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">{{ item.label }}</span>
-        <!-- Active indicator dot -->
-        <span
-          v-if="item.to === '/' ? route.path === '/' : route.path.startsWith(item.to)"
-          class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-tinder-pink"
-        />
-      </router-link>
+    <!-- CENTER: 发现 / 灵感 / 研究工具，通过 .navbar-center 居中对齐内容区 -->
+    <div class="navbar-center">
+      <div class="flex items-center gap-1 sm:gap-2 shrink-0">
+        <router-link
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          :title="item.label"
+          class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl no-underline transition-all duration-200 group"
+          :class="(item.to === '/' ? route.path === '/' : route.path.startsWith(item.to))
+            ? 'text-tinder-pink'
+            : 'text-text-muted hover:text-text-secondary'"
+        >
+          <span
+            class="w-[18px] h-[18px] sm:w-5 sm:h-5 flex items-center justify-center transition-all duration-200"
+            v-html="item.svg"
+          />
+          <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">{{ item.label }}</span>
+          <!-- Active indicator dot -->
+          <span
+            v-if="item.to === '/' ? route.path === '/' : route.path.startsWith(item.to)"
+            class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-tinder-pink"
+          />
+        </router-link>
+
+        <!-- 研究工具 dropdown -->
+        <div ref="toolsMenuRef" class="relative">
+          <button
+            type="button"
+            class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 cursor-pointer bg-transparent border-none"
+            :class="showToolsMenu ? 'text-tinder-pink' : 'text-text-muted hover:text-text-secondary'"
+            title="研究工具"
+            @click.stop="showToolsMenu = !showToolsMenu"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px] sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">研究工具</span>
+            <span v-if="showToolsMenu" class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-tinder-pink" />
+          </button>
+
+          <!-- Tools dropdown panel -->
+          <Transition
+            enter-active-class="transition duration-150 ease-out"
+            enter-from-class="opacity-0 scale-95 -translate-y-1"
+            enter-to-class="opacity-100 scale-100 translate-y-0"
+            leave-active-class="transition duration-100 ease-in"
+            leave-from-class="opacity-100 scale-100 translate-y-0"
+            leave-to-class="opacity-0 scale-95 -translate-y-1"
+          >
+            <div
+              v-if="showToolsMenu"
+              class="absolute left-1/2 -translate-x-1/2 top-full mt-2 w-72 bg-bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
+              @click.stop
+            >
+              <div
+                v-for="(group, gi) in toolGroups"
+                :key="group.label"
+                :class="gi > 0 ? 'border-t border-border/60' : ''"
+              >
+                <p class="px-4 pt-3 pb-1 text-[10px] font-semibold text-text-muted uppercase tracking-widest">{{ group.label }}</p>
+                <div class="px-2 pb-2">
+                  <button
+                    v-for="item in group.items"
+                    :key="item.key"
+                    type="button"
+                    class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left cursor-pointer bg-transparent border-none transition-colors hover:bg-bg-hover group/tool"
+                    @click="handleToolClick(item.key)"
+                  >
+                    <span class="flex-1 min-w-0">
+                      <span class="block text-sm font-medium text-text-primary group-hover/tool:text-tinder-pink transition-colors">{{ item.label }}</span>
+                      <span class="block text-[11px] text-text-muted leading-tight mt-0.5">{{ item.desc }}</span>
+                    </span>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-text-muted/40 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+        </div>
+      </div>
     </div>
 
-    <!-- Right auth area -->
-    <div class="flex items-center justify-end gap-2 shrink-0">
-      <!-- Tutorial entry -->
-      <router-link
-        to="/tutorial"
-        title="使用教程"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline"
-        :class="route.path === '/tutorial'
-          ? 'bg-bg-elevated text-text-primary scale-110'
-          : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
-          <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
-        </svg>
-      </router-link>
+    <!-- RIGHT: 页面控件 + 实用按钮 -->
+    <div class="flex items-center gap-1 shrink-0 ml-auto">
 
-      <!-- Download installer button (web-only; hidden in Tauri desktop) -->
-      <a
-        v-if="!isDesktop"
-        href="/api/download/latest-installer"
-        download
-        title="下载客户端安装包"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline text-text-muted hover:text-text-secondary hover:bg-bg-hover"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-      </a>
+      <!-- Page-specific controls (filled via Teleport by DailyDigest when in card/list mode) -->
+      <div id="navbar-page-controls" class="flex items-center" />
 
-      <!-- Workbench entry button -->
+      <!-- 工作台 -->
       <router-link
         to="/workbench"
         title="工作台"
@@ -301,38 +397,19 @@ onBeforeUnmount(() => {
         </svg>
       </router-link>
 
-      <!-- 检查更新按钮（桌面端专属） -->
+      <!-- 检查更新（桌面端专属，有更新时高亮，无更新时静默不显示） -->
       <button
-        v-if="isDesktop"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer bg-transparent border-none"
-        :class="updateState === 'available'
-          ? 'text-tinder-green animate-pulse'
-          : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'"
-        :title="updateState === 'available'
-          ? `发现新版本 ${updateVersion}，点击安装`
-          : updateState === 'checking' ? '检查中…'
-          : updateState === 'installing' ? '安装中…'
-          : updateState === 'none' ? '已是最新版本'
-          : updateState === 'error' ? '检查失败'
-          : '检查更新'"
-        :disabled="updateState === 'checking' || updateState === 'installing'"
-        @click="updateState === 'available' ? installUpdate() : checkForUpdate()"
+        v-if="isDesktop && updateState === 'available'"
+        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer bg-transparent border-none text-tinder-green animate-pulse"
+        :title="`发现新版本 ${updateVersion}，点击安装`"
+        @click="installUpdate()"
       >
-        <!-- 有更新：向下箭头（安装）-->
-        <svg v-if="updateState === 'available'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        <!-- 检查中 / 安装中：旋转圆圈 -->
-        <svg v-else-if="updateState === 'checking' || updateState === 'installing'" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px] animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-        </svg>
-        <!-- 默认：刷新图标 -->
-        <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
         </svg>
       </button>
 
-      <!-- Mobile engagement icon (xs only — shows daily progress + new indicator) -->
+      <!-- 移动端激励图标（xs only） -->
       <router-link
         v-if="isAuthenticated && engagement.status.value"
         to="/profile?tab=achievements"
@@ -343,19 +420,17 @@ onBeforeUnmount(() => {
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4H2v3a5 5 0 0 0 5 5h0"/><path d="M17 4h5v3a5 5 0 0 1-5 5h0"/><rect x="7" y="2" width="10" height="9" rx="1"/>
         </svg>
-        <!-- Progress fraction badge -->
         <span
           class="absolute -bottom-0.5 -right-0.5 min-w-[15px] h-[13px] px-0.5 flex items-center justify-center rounded-full text-[8px] font-bold leading-none select-none"
           :class="engAllDoneVal ? 'bg-tinder-gold text-white' : 'bg-bg-elevated text-text-muted border border-border'"
         >{{ engTasksDone }}</span>
-        <!-- NEW reward dot -->
         <span
           v-if="engHasNew"
           class="absolute top-0 right-0 w-2 h-2 rounded-full bg-[#f59e0b]"
         />
       </router-link>
 
-      <!-- C3: Global engagement progress bar (authenticated only, desktop) -->
+      <!-- 激励进度条（桌面，已登录） -->
       <div v-if="isAuthenticated && engagement.status.value" class="hidden sm:block">
         <EngagementProgressBar
           :task-items="engTaskItems"
@@ -364,7 +439,7 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <!-- P7: Highest honorary badge (authenticated, earned badge only; hidden when progress bar is visible since bar is more informative) -->
+      <!-- 最高徽章（已登录，无进度条时） -->
       <router-link
         v-if="isAuthenticated && highestBadge && !engagement.status.value"
         to="/profile?tab=achievements"
@@ -374,7 +449,7 @@ onBeforeUnmount(() => {
         <span class="text-base leading-none select-none">{{ highestBadge.emoji }}</span>
       </router-link>
 
-      <!-- Announcement bell (authenticated only) -->
+      <!-- 公告铃铛（已登录） -->
       <div v-if="isAuthenticated" ref="announcementPopoverRef" class="relative">
         <button
           class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 cursor-pointer bg-transparent border-none relative"
@@ -387,7 +462,6 @@ onBeforeUnmount(() => {
           <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
           </svg>
-          <!-- Unread badge -->
           <span
             v-if="unreadCount > 0"
             class="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none select-none"
@@ -408,7 +482,6 @@ onBeforeUnmount(() => {
             class="absolute right-0 top-full mt-2 w-80 bg-bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden"
             @click.stop
           >
-            <!-- Popover header -->
             <div class="px-4 py-3 border-b border-border flex items-center justify-between">
               <span class="text-sm font-semibold text-text-primary flex items-center gap-1.5">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-tinder-pink" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -417,21 +490,15 @@ onBeforeUnmount(() => {
                 公告
               </span>
             </div>
-
-            <!-- Loading -->
             <div v-if="announcementsLoading" class="flex items-center justify-center py-8">
               <svg class="w-5 h-5 animate-spin text-text-muted" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
               </svg>
             </div>
-
-            <!-- Empty -->
             <div v-else-if="recentAnnouncements.length === 0" class="py-8 text-center text-sm text-text-muted">
               暂无公告
             </div>
-
-            <!-- List -->
             <div v-else class="divide-y divide-border/60">
               <div
                 v-for="item in recentAnnouncements"
@@ -439,7 +506,6 @@ onBeforeUnmount(() => {
                 class="px-4 py-3 flex items-start gap-2.5 hover:bg-bg-hover transition-colors cursor-pointer"
                 @click="goToAnnouncement(item.id)"
               >
-                <!-- Unread dot -->
                 <span
                   v-if="!item.is_read"
                   class="mt-1.5 w-1.5 h-1.5 rounded-full bg-tinder-pink shrink-0"
@@ -457,8 +523,6 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </div>
-
-            <!-- Footer link -->
             <div class="px-4 py-2.5 border-t border-border">
               <button
                 class="w-full text-xs text-text-muted hover:text-tinder-pink transition-colors text-center bg-transparent border-none cursor-pointer py-0.5"
@@ -469,7 +533,7 @@ onBeforeUnmount(() => {
         </Transition>
       </div>
 
-      <!-- Login / Register buttons (unauthenticated only) -->
+      <!-- 登录 / 注册（未登录） -->
       <template v-if="!isAuthenticated">
         <router-link
           :to="{ path: '/login', query: { redirect: route.fullPath } }"
@@ -481,17 +545,15 @@ onBeforeUnmount(() => {
         >注册</router-link>
       </template>
 
-      <!-- Theme toggle -->
+      <!-- 主题切换 -->
       <button
         class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-primary hover:bg-bg-hover transition-all duration-200 cursor-pointer bg-transparent border-none"
         :title="isDark ? '切换到日间模式' : '切换到夜间模式'"
         @click="toggleTheme"
       >
-        <!-- Sun icon (shown in dark mode → click to go light) -->
         <svg v-if="isDark" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px] transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
         </svg>
-        <!-- Moon icon (shown in light mode → click to go dark) -->
         <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 sm:w-[18px] sm:h-[18px] transition-transform duration-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>

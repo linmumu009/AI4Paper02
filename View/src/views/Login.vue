@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { login, loginBySms, sendSms, isAuthenticated } from '../stores/auth'
 import { API_ORIGIN, getSessionToken } from '../api'
+import { getApiErrorMessage, reportClientError } from '../utils/apiError'
 
 function getTauriInvoke(): ((cmd: string, args?: Record<string, unknown>) => Promise<any>) | null {
   return (window as any).__TAURI_INTERNALS__?.invoke ?? null
@@ -32,16 +33,16 @@ let countdownTimer: ReturnType<typeof setInterval> | null = null
 // ---------------------------------------------------------------------------
 // 网络诊断（仅在桌面端显示，帮助定位连接问题）
 // ---------------------------------------------------------------------------
-const diagShow = ref(!!API_ORIGIN)       // 仅桌面端显示
+const diagShow = ref(import.meta.env.DEV && !!API_ORIGIN)
 const diagStatus = ref('检测中...')
 const diagDetail = ref('')
 const diagLoginResult = ref('')          // 最近一次登录响应摘要
-const diagSessionId = ref('')            // localStorage 中的 session_id
+const diagTokenState = ref('未设置')      // Never expose the bearer token itself.
 const diagIsAuthed = ref<boolean | null>(null)  // isAuthenticated 当前值
 const diagRawShape = ref('')             // 登录响应原始结构摘要
 
 function refreshDiagState() {
-  diagSessionId.value = getSessionToken() || '(未设置)'
+  diagTokenState.value = getSessionToken() ? '已设置（内容已隐藏）' : '未设置'
   diagIsAuthed.value = isAuthenticated.value
 }
 
@@ -86,16 +87,6 @@ onMounted(() => { runDiag() })
 // ---------------------------------------------------------------------------
 // 把原始错误格式化为用户可读的文字
 // ---------------------------------------------------------------------------
-function formatError(e: any, fallback: string): string {
-  // 服务器返回的业务错误
-  if (e?.response?.data?.detail) return e.response.data.detail
-  // 有 HTTP 状态码但无 detail
-  if (e?.response?.status) return `服务器错误 (HTTP ${e.response.status})`
-  // 网络层错误（含 CORS 阻断、DNS 失败、超时等）
-  if (e?.message) return `网络错误: ${e.message}`
-  return fallback
-}
-
 function startCountdown() {
   countdown.value = 60
   countdownTimer = setInterval(() => {
@@ -117,8 +108,9 @@ async function handleSendSms() {
   try {
     await sendSms(phone.value.trim())
     startCountdown()
-  } catch (e: any) {
-    smsError.value = formatError(e, '发送失败，请稍后重试')
+  } catch (error: unknown) {
+    reportClientError('auth.sms.send', error, '发送失败，请稍后重试')
+    smsError.value = getApiErrorMessage(error, '发送失败，请稍后重试')
   } finally {
     smsSending.value = false
   }
@@ -133,21 +125,21 @@ async function handlePasswordLogin() {
     const user = await login(username.value.trim(), password.value)
     if (API_ORIGIN) {
       refreshDiagState()
-      const token = getSessionToken() || ''
       diagRawShape.value = `login()返回 user=${user ? user.username ?? user.id : 'null'}`
       const authed = isAuthenticated.value
       diagLoginResult.value = authed
-        ? `✅ 已登录 | token=${token.slice(0, 16)}…`
-        : `⚠️ user=${user ? 'ok' : 'null'} token=${token ? token.slice(0, 16) + '…' : '(空)'} isAuthed=false`
+        ? '✅ 已登录'
+        : `⚠️ user=${user ? 'ok' : 'null'} isAuthed=false`
     }
     const redirect = (route.query.redirect as string) || '/'
     await router.replace(redirect)
-  } catch (e: any) {
+  } catch (error: unknown) {
     if (API_ORIGIN) {
       refreshDiagState()
-      diagLoginResult.value = `login() 失败: ${String(e?.message || e).slice(0, 200)}`
+      diagLoginResult.value = `login() 失败: ${getApiErrorMessage(error, '未知错误').slice(0, 200)}`
     }
-    pwdError.value = formatError(e, '登录失败，请检查用户名和密码')
+    reportClientError('auth.login.password', error, '登录失败，请检查用户名和密码')
+    pwdError.value = getApiErrorMessage(error, '登录失败，请检查用户名和密码')
   } finally {
     pwdLoading.value = false
   }
@@ -166,11 +158,10 @@ async function handleSmsLogin() {
     const res = await loginBySms(phone.value.trim(), smsCode.value.trim())
     if (API_ORIGIN) {
       refreshDiagState()
-      const token = getSessionToken() || ''
       const authed = isAuthenticated.value
       diagLoginResult.value = authed
-        ? `✅ SMS已登录 | token=${token.slice(0, 16)}…`
-        : `⚠️ SMS user=${res?.user ? 'ok' : 'null'} token=${token ? token.slice(0, 16) + '…' : '(空)'} isAuthed=false`
+        ? '✅ SMS已登录'
+        : `⚠️ SMS user=${res?.user ? 'ok' : 'null'} isAuthed=false`
     }
     if (res.is_new_user) {
       await router.replace({ path: '/profile', query: { tab: 'account_info', welcome: '1' } })
@@ -178,12 +169,13 @@ async function handleSmsLogin() {
       const redirect = (route.query.redirect as string) || '/'
       await router.replace(redirect)
     }
-  } catch (e: any) {
+  } catch (error: unknown) {
     if (API_ORIGIN) {
       refreshDiagState()
-      diagLoginResult.value = `SMS登录失败: ${String(e?.message || e).slice(0, 200)}`
+      diagLoginResult.value = `SMS登录失败: ${getApiErrorMessage(error, '未知错误').slice(0, 200)}`
     }
-    smsError.value = formatError(e, '登录失败，请检查手机号和验证码')
+    reportClientError('auth.login.sms', error, '登录失败，请检查手机号和验证码')
+    smsError.value = getApiErrorMessage(error, '登录失败，请检查手机号和验证码')
   } finally {
     smsLoading.value = false
   }
@@ -197,8 +189,13 @@ async function handleSmsLogin() {
       <p class="text-sm text-text-muted mb-5">免费使用全部功能：AI 论文推荐 · 中文摘要 · 知识库 · 论文对比 · AI 问答 · 灵感生成</p>
 
       <!-- Tab 切换 -->
-      <div class="flex rounded-lg bg-bg border border-border mb-6 overflow-hidden">
+      <div class="flex rounded-lg bg-bg border border-border mb-6 overflow-hidden" role="tablist" aria-label="登录方式">
         <button
+          id="password-login-tab"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'password'"
+          aria-controls="password-login-panel"
           class="flex-1 py-2 text-sm font-medium transition-colors"
           :class="activeTab === 'password'
             ? 'bg-brand-gradient text-white'
@@ -208,6 +205,11 @@ async function handleSmsLogin() {
           用户名密码
         </button>
         <button
+          id="sms-login-tab"
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'sms'"
+          aria-controls="sms-login-panel"
           class="flex-1 py-2 text-sm font-medium transition-colors"
           :class="activeTab === 'sms'
             ? 'bg-brand-gradient text-white'
@@ -219,12 +221,14 @@ async function handleSmsLogin() {
       </div>
 
       <!-- 用户名密码登录 -->
-      <form v-if="activeTab === 'password'" class="space-y-4" @submit.prevent="handlePasswordLogin">
+      <form v-if="activeTab === 'password'" id="password-login-panel" class="space-y-4" role="tabpanel" aria-labelledby="password-login-tab" @submit.prevent="handlePasswordLogin">
         <div>
-          <label class="block text-sm text-text-secondary mb-1">用户名</label>
+          <label for="login-username" class="block text-sm text-text-secondary mb-1">用户名</label>
           <input
+            id="login-username"
             v-model="username"
             type="text"
+            autocomplete="username"
             minlength="3"
             maxlength="32"
             required
@@ -233,10 +237,12 @@ async function handleSmsLogin() {
           />
         </div>
         <div>
-          <label class="block text-sm text-text-secondary mb-1">密码</label>
+          <label for="login-password" class="block text-sm text-text-secondary mb-1">密码</label>
           <input
+            id="login-password"
             v-model="password"
             type="password"
+            autocomplete="current-password"
             minlength="8"
             maxlength="128"
             required
@@ -244,7 +250,7 @@ async function handleSmsLogin() {
             placeholder="请输入密码"
           />
         </div>
-        <p v-if="pwdError" class="text-sm text-red-500">{{ pwdError }}</p>
+        <p v-if="pwdError" class="text-sm text-red-500" role="alert" aria-live="polite">{{ pwdError }}</p>
         <button
           type="submit"
           :disabled="pwdLoading"
@@ -255,13 +261,15 @@ async function handleSmsLogin() {
       </form>
 
       <!-- 手机号验证码登录 -->
-      <form v-else class="space-y-4" @submit.prevent="handleSmsLogin">
+      <form v-else id="sms-login-panel" class="space-y-4" role="tabpanel" aria-labelledby="sms-login-tab" @submit.prevent="handleSmsLogin">
         <div>
-          <label class="block text-sm text-text-secondary mb-1">手机号</label>
+          <label for="login-phone" class="block text-sm text-text-secondary mb-1">手机号</label>
           <div class="flex gap-2">
             <input
+              id="login-phone"
               v-model="phone"
               type="tel"
+              autocomplete="tel"
               maxlength="11"
               required
               class="flex-1 px-3 py-2 rounded-lg border border-border bg-bg text-text-primary focus:outline-none focus:border-tinder-pink/60"
@@ -278,17 +286,20 @@ async function handleSmsLogin() {
           </div>
         </div>
         <div>
-          <label class="block text-sm text-text-secondary mb-1">验证码</label>
+          <label for="login-sms-code" class="block text-sm text-text-secondary mb-1">验证码</label>
           <input
+            id="login-sms-code"
             v-model="smsCode"
             type="text"
+            inputmode="numeric"
+            autocomplete="one-time-code"
             maxlength="8"
             required
             class="w-full px-3 py-2 rounded-lg border border-border bg-bg text-text-primary focus:outline-none focus:border-tinder-pink/60"
             placeholder="请输入短信验证码"
           />
         </div>
-        <p v-if="smsError" class="text-sm text-red-500">{{ smsError }}</p>
+        <p v-if="smsError" class="text-sm text-red-500" role="alert" aria-live="polite">{{ smsError }}</p>
         <button
           type="submit"
           :disabled="smsLoading"
@@ -312,7 +323,7 @@ async function handleSmsLogin() {
       <div v-if="diagShow" class="mt-4 p-2 rounded-lg bg-bg border border-border text-[11px] text-text-muted leading-relaxed space-y-1">
         <div class="flex items-center justify-between">
           <span class="font-semibold">桌面端诊断</span>
-          <button class="text-tinder-pink underline" @click="runDiag">重新检测</button>
+          <button type="button" class="text-tinder-pink underline" @click="runDiag">重新检测</button>
         </div>
         <div>API: {{ API_ORIGIN || '(未设置)' }}</div>
         <div>{{ diagStatus }}</div>
@@ -320,7 +331,7 @@ async function handleSmsLogin() {
         <div v-if="diagRawShape" class="text-yellow-400 break-all">{{ diagRawShape }}</div>
         <div v-if="diagLoginResult" :class="diagLoginResult.startsWith('✅') ? 'text-green-400' : 'text-red-400'" class="break-all">{{ diagLoginResult }}</div>
         <div v-if="diagIsAuthed !== null">isAuthenticated: <span :class="diagIsAuthed ? 'text-green-400' : 'text-red-400'">{{ diagIsAuthed }}</span></div>
-        <div>localStorage token: {{ diagSessionId }}</div>
+        <div>localStorage token: {{ diagTokenState }}</div>
       </div>
     </div>
   </div>

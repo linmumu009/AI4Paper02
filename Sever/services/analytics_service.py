@@ -362,9 +362,19 @@ def get_user_activity_stats(limit: int = 50, offset: int = 0) -> dict:
                     "SELECT COUNT(*) FROM analytics_events WHERE user_id=? AND event_type='page_view'",
                     (uid,),
                 ).fetchone()[0]
-                # Total time spent (sum of session_duration events, in seconds)
+                # Session duration is reported as cumulative snapshots. Keep the
+                # largest snapshot for each session ID before summing so periodic
+                # safety reports do not double-count the same session.
                 row = conn.execute(
-                    "SELECT COALESCE(SUM(value), 0) FROM analytics_events WHERE user_id=? AND event_type='session_duration'",
+                    """
+                    SELECT COALESCE(SUM(session_value), 0)
+                    FROM (
+                        SELECT MAX(value) AS session_value
+                        FROM analytics_events
+                        WHERE user_id=? AND event_type='session_duration'
+                        GROUP BY COALESCE(NULLIF(target_id, ''), 'legacy:' || id)
+                    )
+                    """,
                     (uid,),
                 ).fetchone()
                 stats["total_time_spent_seconds"] = row[0] if row else 0
@@ -1706,13 +1716,20 @@ def get_engagement_depth(days: int = 30) -> dict:
                 "data_available": False,
             }
 
-        # Daily avg session duration
+        # Session events are cumulative snapshots keyed by target_id. Collapse
+        # each session to its maximum duration before calculating aggregates.
         session_rows = conn.execute(
             """
-            SELECT DATE(created_at) as day, AVG(value) as avg_val, COUNT(*) as cnt
-            FROM analytics_events
-            WHERE event_type = 'session_duration' AND value > 0 AND created_at >= ?
-            GROUP BY DATE(created_at)
+            SELECT day, AVG(session_value) AS avg_val, COUNT(*) AS cnt
+            FROM (
+                SELECT
+                    DATE(MIN(created_at)) AS day,
+                    MAX(value) AS session_value
+                FROM analytics_events
+                WHERE event_type = 'session_duration' AND value > 0 AND created_at >= ?
+                GROUP BY user_id, COALESCE(NULLIF(target_id, ''), 'legacy:' || id)
+            )
+            GROUP BY day
             """,
             (start_iso,),
         ).fetchall()
@@ -1733,9 +1750,14 @@ def get_engagement_depth(days: int = 30) -> dict:
         read_daily = [read_by_day.get(d) for d in date_labels]
 
         # Window aggregates
+        session_values_sql = """
+            SELECT MAX(value) AS session_value
+            FROM analytics_events
+            WHERE event_type='session_duration' AND value > 0 AND created_at >= ?
+            GROUP BY user_id, COALESCE(NULLIF(target_id, ''), 'legacy:' || id)
+        """
         window_session = conn.execute(
-            "SELECT AVG(value) FROM analytics_events"
-            " WHERE event_type='session_duration' AND value > 0 AND created_at >= ?",
+            f"SELECT AVG(session_value) FROM ({session_values_sql})",
             (start_iso,),
         ).fetchone()[0]
         window_read = conn.execute(
@@ -1748,14 +1770,13 @@ def get_engagement_depth(days: int = 30) -> dict:
         def _bucket(min_v, max_v):
             if max_v is None:
                 return conn.execute(
-                    "SELECT COUNT(*) FROM analytics_events"
-                    " WHERE event_type='session_duration' AND value >= ? AND created_at >= ?",
-                    (min_v, start_iso),
+                    f"SELECT COUNT(*) FROM ({session_values_sql}) WHERE session_value >= ?",
+                    (start_iso, min_v),
                 ).fetchone()[0]
             return conn.execute(
-                "SELECT COUNT(*) FROM analytics_events"
-                " WHERE event_type='session_duration' AND value >= ? AND value < ? AND created_at >= ?",
-                (min_v, max_v, start_iso),
+                f"SELECT COUNT(*) FROM ({session_values_sql})"
+                " WHERE session_value >= ? AND session_value < ?",
+                (start_iso, min_v, max_v),
             ).fetchone()[0]
 
         dist = {

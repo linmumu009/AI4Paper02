@@ -8,6 +8,9 @@ import KbContextMenu from './KbContextMenu.vue'
 import FolderPickerDialog from './FolderPickerDialog.vue'
 import SidebarFolder from './SidebarFolder.vue'
 import UserPaperFolderItem from './UserPaperFolderItem.vue'
+import InspirationPaperRow from './inspiration/InspirationPaperRow.vue'
+import InspirationMyFolder from './inspiration/InspirationMyFolder.vue'
+import InspirationKbFolder from './inspiration/InspirationKbFolder.vue'
 import TranslateProgressRing from './TranslateProgressRing.vue'
 import UserBar from './UserBar.vue'
 import DatePill from './DatePill.vue'
@@ -30,6 +33,8 @@ import {
   moveCompareResult as apiMoveCompare,
   fetchUserPapers,
   fetchUserPaperTree,
+  fetchUserPaperTranslateStatus,
+  fetchUserPaperFiles,
   deleteUserPaper,
   deleteUserPaperDerivative,
   processUserPaper,
@@ -48,11 +53,16 @@ import {
   fetchAutoClassifyPendingCount,
   fetchAutoClassifyUnclassifiedCount,
   updateKbPaperReadStatus,
+  fetchKbPaperTranslateStatus,
+  fetchKbPaperFiles,
   API_ORIGIN,
 } from '../api'
 import type { KbScope, BatchDownloadItem } from '../api'
 import { openExternal } from '../utils/openExternal'
 import { trackEvent } from '../composables/useAnalytics'
+import { useToast } from '../composables/useToast'
+
+const { showError } = useToast()
 
 const props = withDefaults(defineProps<{
   kbTree: KbTree
@@ -68,10 +78,19 @@ const props = withDefaults(defineProps<{
   thirdTab?: 'mypapers' | 'paper-inspiration' | 'none'
   /** 第四个 Tab：'research'（默认）| 'none'（隐藏） */
   fourthTab?: 'research' | 'none'
+  /** 主区正在查看的知识库论文 ID */
+  activePaperId?: string | null
   /** 主区正在查看的用户论文 ID（详情或子链接所属论文） */
   activeUserPaperId?: string | null
   /** 主区正在查看的子链接，格式 paperId:pdf|mineru|zh|bilingual */
   activeViewMdKey?: string | null
+  /** 主区正在查看的对比库结果 ID */
+  activeCompareResultId?: number | null
+  /** 主区正在查看的深度研究会话 ID */
+  activeResearchSessionId?: number | null
+  /** 论文灵感 Tab 专用：普通知识库（scope=kb）的收藏论文树。
+   *  传入后，「知识库论文」子 Tab 会展示这批论文；不传则隐藏该子 Tab。 */
+  paperInspirationKbTree?: KbTree | null
 }>(), {
   title: '知识库',
   emptyTitle: '开始浏览',
@@ -80,8 +99,11 @@ const props = withDefaults(defineProps<{
   thirdTab: 'mypapers',
   fourthTab: 'research',
   compareTree: null,
+  activePaperId: null,
   activeUserPaperId: null,
   activeViewMdKey: null,
+  activeCompareResultId: null,
+  activeResearchSessionId: null,
 })
 
 // ---- Tab switching ----
@@ -133,10 +155,136 @@ const myPaperTree = ref<UserPaperTree | null>(null)
 const myPapersLoading = ref(false)
 const myPapersError = ref('')
 let _pollTimer: ReturnType<typeof setInterval> | null = null
+// Per-paper translate pollers for mypapers (mirrors KB _kbTranslatePollers).
+// Each entry stays alive until status is completed/failed, providing rapid
+// file-URL updates without waiting for the full tree to be re-fetched.
+const _myPaperTranslatePollers = new Map<string, ReturnType<typeof setInterval>>()
+
+function _findMyPaper(paperId: string): UserPaper | undefined {
+  if (!myPaperTree.value) return undefined
+  return _collectAllMyPapers(myPaperTree.value).find(p => p.paper_id === paperId)
+}
+
+function _startMyPaperTranslatePoll(paperId: string) {
+  if (_myPaperTranslatePollers.has(paperId)) return
+  const timer = setInterval(async () => {
+    try {
+      const status = await fetchUserPaperTranslateStatus(paperId)
+      const paper = _findMyPaper(paperId)
+      if (paper) {
+        paper.translate_status = status.translate_status as UserPaper['translate_status']
+        paper.translate_progress = status.translate_progress ?? 0
+      }
+      if (status.translate_status === 'completed' || status.translate_status === 'failed') {
+        _stopMyPaperTranslatePoll(paperId)
+        // Fetch final file URLs; always assign (including null) to clear stale pending previews.
+        try {
+          const files = await fetchUserPaperFiles(paperId)
+          if (paper) {
+            paper.zh_static_url = files.zh_static_url ?? null
+            paper.bilingual_static_url = files.bilingual_static_url ?? null
+          }
+        } catch { /* non-fatal */ }
+        _startOrStopPolling()
+      } else if (status.translate_status === 'processing') {
+        // Merge partial file URLs as they become available on disk
+        try {
+          const files = await fetchUserPaperFiles(paperId)
+          if (paper) {
+            if (files.zh_static_url && !paper.zh_static_url) paper.zh_static_url = files.zh_static_url
+            if (files.bilingual_static_url && !paper.bilingual_static_url) paper.bilingual_static_url = files.bilingual_static_url
+          }
+        } catch { /* non-fatal */ }
+      }
+    } catch { /* ignore transient errors */ }
+  }, 2000)
+  _myPaperTranslatePollers.set(paperId, timer)
+}
+
+function _stopMyPaperTranslatePoll(paperId: string) {
+  const timer = _myPaperTranslatePollers.get(paperId)
+  if (timer !== undefined) {
+    clearInterval(timer)
+    _myPaperTranslatePollers.delete(paperId)
+  }
+}
+
+function _stopAllMyPaperTranslatePollers() {
+  for (const [, timer] of _myPaperTranslatePollers) clearInterval(timer)
+  _myPaperTranslatePollers.clear()
+}
 
 // ---- Paper Inspiration tab state ----
 /** 正在生成灵感候选的论文 ID 集合 */
 const generatingPaperIds = ref<Set<string>>(new Set())
+
+/** 论文灵感区当前激活的子 Tab */
+const inspirationSubTab = ref<'mypapers' | 'kb'>('mypapers')
+
+/** 判断 KB 论文是否可用于灵感生成 */
+function _kbPaperReadyForInspiration(p: KbPaper): boolean {
+  return !p.process_status
+    || p.process_status === 'none'
+    || p.process_status === 'completed'
+    || !!p.mineru_static_url
+}
+
+/** 过滤 UserPaperFolder 树，只保留 process_status==='completed' 的论文；
+ *  若某文件夹过滤后既无论文也无子目录，则返回 null（调用方可跳过）。 */
+function _filterUserFolderForInspiration(folder: UserPaperFolder): UserPaperFolder | null {
+  const papers = (folder.papers ?? []).filter(p => p.process_status === 'completed')
+  const children = (folder.children ?? []).map(_filterUserFolderForInspiration).filter(Boolean) as UserPaperFolder[]
+  if (papers.length === 0 && children.length === 0) return null
+  return { ...folder, papers, children }
+}
+
+/** 过滤 KbFolder 树，只保留可生成灵感的论文并去重；
+ *  若某文件夹过滤后既无论文也无子目录，则返回 null。 */
+function _filterKbFolderForInspiration(folder: KbFolder, seen: Set<string>): KbFolder | null {
+  const papers = (folder.papers ?? []).filter(p => {
+    if (seen.has(p.paper_id) || !_kbPaperReadyForInspiration(p)) return false
+    seen.add(p.paper_id)
+    return true
+  })
+  const children = (folder.children ?? []).map(c => _filterKbFolderForInspiration(c, seen)).filter(Boolean) as KbFolder[]
+  if (papers.length === 0 && children.length === 0) return null
+  return { ...folder, papers, children }
+}
+
+/** 我的论文子 Tab — 保留原始文件夹结构，只过滤掉未完成的论文 */
+const inspirationMyPaperTree = computed((): UserPaperTree | null => {
+  const tree = myPaperTree.value
+  if (!tree) return null
+  const papers = (tree.papers ?? []).filter(p => p.process_status === 'completed')
+  const folders = (tree.folders ?? []).map(_filterUserFolderForInspiration).filter(Boolean) as UserPaperFolder[]
+  return { papers, folders }
+})
+
+/** 知识库论文子 Tab — 保留原始文件夹结构，只过滤掉不可用论文 */
+const inspirationKbPaperTree = computed((): KbTree | null => {
+  const tree = props.paperInspirationKbTree
+  if (!tree) return null
+  const seen = new Set<string>()
+  const papers = (tree.papers ?? []).filter(p => {
+    if (seen.has(p.paper_id) || !_kbPaperReadyForInspiration(p)) return false
+    seen.add(p.paper_id)
+    return true
+  })
+  const folders = (tree.folders ?? []).map(f => _filterKbFolderForInspiration(f, seen)).filter(Boolean) as KbFolder[]
+  return { papers, folders }
+})
+
+/** 灵感生成用：从 UserPaper 中取标题 */
+function _myPaperTitle(p: UserPaper): string {
+  return p.title || p.paper_id
+}
+
+/** 灵感生成用：从 KbPaper 中取标题 */
+function _kbPaperTitle(p: KbPaper): string {
+  return (p.paper_data as any)?.short_title
+    || (p.paper_data as any)?.['📖标题']
+    || p.paper_id
+}
 
 function openPaperInspiration(paperId: string, title?: string) {
   // 即便正在生成中也允许重新触发：后端有幂等缓存不会重复 LLM 调用；
@@ -309,6 +457,8 @@ function loadResearchSessions() {
 onBeforeUnmount(() => {
   _stopPolling()
   _stopKbPolling()
+  _stopAllKbTranslatePollers()
+  _stopAllMyPaperTranslatePollers()
 })
 
 /** Called by parent after an upload to refresh the list */
@@ -377,19 +527,21 @@ function myPaperMdSubLinkClass(paperId: string, mode: UserPaperFileViewMode): st
 }
 
 async function handleTranslateMyPaper(paper: UserPaper) {
-  if (ent.isGated('translate')) {
-    myPapersError.value = '论文全文翻译需要 Pro 套餐，请升级后使用。'
-    return
-  }
+  // Optimistic update: show translating state immediately without waiting for tree refresh
+  paper.translate_status = 'processing'
+  paper.translate_progress = 0
   try {
     const r = await translateUserPaper(paper.paper_id)
     if (!r.ok) {
+      paper.translate_status = 'none'
       myPapersError.value = r.message || '无法启动翻译'
       return
     }
-    await loadMyPapers()
+    // Per-paper poller gives 2s granularity for file URL updates during processing
+    _startMyPaperTranslatePoll(paper.paper_id)
     _startOrStopPolling()
   } catch (e: any) {
+    paper.translate_status = 'none'
     myPapersError.value = e?.message || '翻译请求失败'
   }
 }
@@ -457,11 +609,15 @@ async function handleMyPaperDerivativeMenuSelect(key: string) {
     try {
       if (derivative === 'mineru') {
         await processUserPaper(paper.paper_id)
+        await loadMyPapers()
+        _startOrStopPolling()
       } else {
+        paper.translate_status = 'processing'
+        paper.translate_progress = 0
         await retranslateUserPaper(paper.paper_id)
+        _startMyPaperTranslatePoll(paper.paper_id)
+        _startOrStopPolling()
       }
-      await loadMyPapers()
-      _startOrStopPolling()
     } catch {}
   }
 }
@@ -1021,7 +1177,9 @@ async function handleMoveTo(targetId: number | null) {
       } else {
         emit('refresh')
       }
-    } catch {}
+    } catch (e: any) {
+      showError(e?.response?.data?.detail || e?.message || '移动文件夹失败，请稍后重试')
+    }
     movingFolderId.value = null
     return
   }
@@ -1033,13 +1191,17 @@ async function handleMoveTo(targetId: number | null) {
       await moveUserPapers(movingPaperIds.value, targetId)
       checkedPapers.value = new Set()
       await loadMyPapers()
-    } catch {}
+    } catch (e: any) {
+      showError(e?.response?.data?.detail || e?.message || '移动论文失败，请稍后重试')
+    }
   } else {
     try {
       await moveKbPapers(movingPaperIds.value, targetId, props.scope)
       checkedPapers.value = new Set()
       emit('refresh')
-    } catch {}
+    } catch (e: any) {
+      showError(e?.response?.data?.detail || e?.message || '移动论文失败，请稍后重试')
+    }
   }
   movingPaperIds.value = []
 }
@@ -1207,22 +1369,40 @@ async function handleKbDerivativeMenuSelect(key: string) {
     return
   }
   if (key === 'regenerate') {
-    try {
-      if (derivative === 'mineru') {
-        await processKbPaper(paper.paper_id, props.scope)
-      } else {
-        await retranslateKbPaper(paper.paper_id, props.scope)
-      }
-      emit('refresh')
+    // Optimistic update: reflect new state immediately
+    if (derivative === 'mineru') {
+      paper.process_status = 'pending'
+      paper.process_step = 'queued'
+      paper.mineru_static_url = null
       _startKbPolling()
-    } catch {}
+      try {
+        await processKbPaper(paper.paper_id, props.scope)
+        emit('refresh')
+      } catch {
+        // Real state will be restored by the next polling refresh
+      }
+    } else {
+      paper.translate_status = 'processing'
+      paper.translate_progress = 0
+      try {
+        await retranslateKbPaper(paper.paper_id, props.scope)
+        _startKbTranslatePoll(paper.paper_id)
+      } catch {
+        // Real state will be restored by the next polling refresh
+      }
+    }
   }
 }
 
-// ---- KB paper process/translate polling ----
+// ---- KB paper process polling (MinerU only) ----
 let _kbPollTimer: ReturnType<typeof setInterval> | null = null
+// Minimum number of poll ticks before we allow auto-stop. This prevents the
+// poller from stopping on the very first tick when the tree data is still
+// stale (the backend tree cache has up to 15s TTL, so we guard for ~15s =
+// 5 ticks × 3s).
+let _kbPollMinTicks = 0
 
-function _kbPapersHaveActivity(): boolean {
+function _kbPapersHaveProcessActivity(): boolean {
   const allPapers = [
     ...(props.kbTree?.papers ?? []),
     ...(() => {
@@ -1238,20 +1418,20 @@ function _kbPapersHaveActivity(): boolean {
     })(),
   ]
   return allPapers.some(
-    p =>
-      p.process_status === 'processing' ||
-      p.process_status === 'pending' ||
-      p.translate_status === 'processing',
+    p => p.process_status === 'processing' || p.process_status === 'pending',
   )
 }
 
 function _startKbPolling() {
   if (!_kbPollTimer) {
+    _kbPollMinTicks = 5
     _kbPollTimer = setInterval(() => {
-      if (!_kbPapersHaveActivity()) {
+      emit('refresh')
+      if (_kbPollMinTicks > 0) {
+        _kbPollMinTicks--
+      } else if (!_kbPapersHaveProcessActivity()) {
         _stopKbPolling()
       }
-      emit('refresh')
     }, 3000)
   }
 }
@@ -1263,24 +1443,112 @@ function _stopKbPolling() {
   }
 }
 
+// ---- KB paper translate-specific polling (bypasses /kb/tree cache) ----
+// Maps paper_id → interval timer. Each translating paper gets its own loop
+// so progress and completion are reflected immediately without waiting for
+// the 15s tree cache to expire.
+const _kbTranslatePollers = new Map<string, ReturnType<typeof setInterval>>()
+
+function _collectAllKbPapers(): KbPaper[] {
+  const out: KbPaper[] = [...(props.kbTree?.papers ?? [])]
+  function walk(folders: typeof props.kbTree.folders) {
+    for (const f of folders) {
+      out.push(...(f.papers ?? []))
+      if (f.children?.length) walk(f.children)
+    }
+  }
+  walk(props.kbTree?.folders ?? [])
+  return out
+}
+
+function _findKbPaper(paperId: string): KbPaper | undefined {
+  return _collectAllKbPapers().find(p => p.paper_id === paperId)
+}
+
+function _startKbTranslatePoll(paperId: string) {
+  if (_kbTranslatePollers.has(paperId)) return
+  const timer = setInterval(async () => {
+    try {
+      const status = await fetchKbPaperTranslateStatus(paperId, props.scope as any)
+      const paper = _findKbPaper(paperId)
+      if (paper) {
+        paper.translate_status = status.translate_status as KbPaper['translate_status']
+        paper.translate_progress = status.translate_progress ?? 0
+        if (status.translate_error) paper.translate_error = status.translate_error
+      }
+      if (status.translate_status === 'completed' || status.translate_status === 'failed') {
+        _stopKbTranslatePoll(paperId)
+        // Fetch final file URLs; always assign (including null) to clear stale pending previews.
+        try {
+          const files = await fetchKbPaperFiles(paperId, props.scope as any)
+          if (paper) {
+            paper.zh_static_url = files.zh_static_url ?? null
+            paper.bilingual_static_url = files.bilingual_static_url ?? null
+          }
+        } catch {}
+        // Also trigger a full tree refresh so folder-level paper objects update
+        emit('refresh')
+      } else if (status.translate_status === 'processing') {
+        // Merge partial file URLs as they become available on disk during processing
+        try {
+          const files = await fetchKbPaperFiles(paperId, props.scope as any)
+          if (paper) {
+            if (files.zh_static_url && !paper.zh_static_url) paper.zh_static_url = files.zh_static_url
+            if (files.bilingual_static_url && !paper.bilingual_static_url) paper.bilingual_static_url = files.bilingual_static_url
+          }
+        } catch {}
+      }
+    } catch {}
+  }, 2000)
+  _kbTranslatePollers.set(paperId, timer)
+}
+
+function _stopKbTranslatePoll(paperId: string) {
+  const timer = _kbTranslatePollers.get(paperId)
+  if (timer !== undefined) {
+    clearInterval(timer)
+    _kbTranslatePollers.delete(paperId)
+  }
+}
+
+function _stopAllKbTranslatePollers() {
+  for (const [, timer] of _kbTranslatePollers) clearInterval(timer)
+  _kbTranslatePollers.clear()
+}
+
 async function handleKbPaperProcess(paper: KbPaper) {
+  // Optimistic update: show progress immediately without waiting for API + tree reload
+  paper.process_status = 'pending'
+  paper.process_step = 'queued'
   try {
     await processKbPaper(paper.paper_id, props.scope)
-    emit('refresh')
+    // Start polling only after the POST succeeds and cache is invalidated,
+    // to avoid the first poll tick fetching stale cached data and overwriting
+    // the optimistic update (especially on the desktop client where the request
+    // can take several seconds via Rust IPC).
     _startKbPolling()
-  } catch {}
+    emit('refresh')
+  } catch (e: any) {
+    paper.process_status = 'none'
+    paper.process_step = ''
+    showError(e?.response?.data?.detail || e?.message || 'MinerU 解析启动失败，请稍后重试')
+  }
 }
 
 async function handleKbPaperTranslate(paper: KbPaper) {
-  if (ent.isGated('translate')) {
-    void router.push('/profile?tab=subscription')
-    return
-  }
+  // Optimistic update: show "translating" immediately without waiting for API + tree reload
+  paper.translate_status = 'processing'
+  paper.translate_progress = 0
   try {
     await translateKbPaper(paper.paper_id, props.scope)
-    emit('refresh')
-    _startKbPolling()
-  } catch {}
+    // Use per-paper translate poller (bypasses /kb/tree cache) instead of the
+    // tree-wide poller so progress is reflected immediately.
+    _startKbTranslatePoll(paper.paper_id)
+  } catch (e: any) {
+    paper.translate_status = 'none'
+    paper.translate_progress = 0
+    showError(e?.response?.data?.detail || e?.message || '生成翻译失败，请稍后重试')
+  }
 }
 
 // ---- My Papers notes (for "+" button) ----
@@ -1566,6 +1834,10 @@ function switchToPapersTab() {
   activeTab.value = 'papers'
 }
 
+function switchToCompareTab() {
+  activeTab.value = 'compare'
+}
+
 function switchToResearchTab() {
   if (activeTab.value === 'research') {
     // 已在 research tab，watch 不会重新触发，需手动刷新列表
@@ -1589,7 +1861,7 @@ function handleResearchTabClick() {
   activeTab.value = 'research'
 }
 
-defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switchToMyPapersTab, loadMyPapers, onPaperInspirationDone, switchToResearchTab, switchToPapersTab })
+defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switchToMyPapersTab, loadMyPapers, onPaperInspirationDone, switchToResearchTab, switchToPapersTab, switchToCompareTab })
 </script>
 
 <template>
@@ -1829,8 +2101,10 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
         :key="folder.id"
         :folder="folder"
         :depth="0"
+        :scope="props.scope ?? 'kb'"
         :expanded-folders="expandedFolders"
         :active-folder-id="activeFolderId"
+        :active-paper-id="activePaperId"
         :renaming-folder-id="renamingFolderId"
         :renaming-folder-name="renamingFolderName"
         :show-new-folder-input="showNewFolderInput"
@@ -1863,6 +2137,10 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
         @update:renaming-paper-title="renamingPaperTitle = $event"
         @confirm-rename-paper="confirmRenamePaper"
         @cancel-rename-paper="renamingPaperId = null"
+        @view-md="(payload) => emit('viewMd', payload)"
+        @process-kb-paper="handleKbPaperProcess"
+        @translate-kb-paper="handleKbPaperTranslate"
+        @open-derivative-menu="openKbDerivativeMenu"
       />
 
       <!-- Unclassified nudge: shown when ≥10 papers are in 「未分类」 -->
@@ -1887,8 +2165,14 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
         >
           <!-- Paper row -->
           <div
-            class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors group border-l-2"
-            :class="(!paper.read_status || paper.read_status === 'unread') ? 'border-tinder-green/60' : 'border-transparent'"
+            class="flex items-center gap-2 px-2 py-2 rounded-lg transition-colors group border-l-2"
+            :class="[
+              activePaperId === paper.paper_id
+                ? 'bg-tinder-pink/8 border-tinder-pink'
+                : (!paper.read_status || paper.read_status === 'unread')
+                  ? 'border-tinder-green/60 hover:bg-bg-hover'
+                  : 'border-transparent hover:bg-bg-hover'
+            ]"
           >
             <!-- Checkbox (only in batch mode) -->
             <label
@@ -1906,12 +2190,10 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
 
             <!-- Expand arrow -->
             <button
-              v-if="(paper.note_count ?? 0) > 0"
               class="w-4 h-4 flex items-center justify-center text-[8px] text-text-muted bg-transparent border-none cursor-pointer shrink-0 transition-transform duration-150"
               :class="expandedPapers.has(paper.paper_id) ? 'rotate-90' : ''"
               @click.stop="togglePaper(paper.paper_id)"
             >▶</button>
-            <div v-else class="w-4 shrink-0"></div>
 
             <!-- Paper content (inline rename or normal) -->
             <template v-if="renamingPaperId === paper.paper_id">
@@ -1945,7 +2227,13 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
               <div class="min-w-0 flex-1">
                 <div
                   class="text-xs truncate"
-                  :class="(!paper.read_status || paper.read_status === 'unread') ? 'font-semibold text-text-primary' : 'font-medium text-text-secondary'"
+                  :class="[
+                    activePaperId === paper.paper_id
+                      ? 'font-semibold text-text-primary'
+                      : (!paper.read_status || paper.read_status === 'unread')
+                        ? 'font-semibold text-text-primary'
+                        : 'font-medium text-text-secondary'
+                  ]"
                 >
                   {{ paper.paper_data.short_title }}
                 </div>
@@ -2009,7 +2297,46 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
               <span class="text-xs text-text-secondary truncate flex-1">原 PDF</span>
               <button type="button" class="shrink-0 w-5 h-5 flex items-center justify-center text-text-muted hover:text-tinder-green bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity" title="下载" @click.stop="downloadPaperFile(paper.paper_id, 'pdf', props.scope as 'kb' | 'mypapers')">↓</button>
             </div>
-            <!-- MinerU link -->
+            <!-- PDF not available -->
+            <div
+              v-else
+              class="flex items-center gap-2 py-1.5 px-2 rounded"
+              style="padding-left: 50px; padding-right: 8px;"
+            >
+              <span class="text-xs shrink-0">📄</span>
+              <span class="text-xs text-text-muted truncate flex-1">原 PDF（暂无）</span>
+            </div>
+            <!-- MinerU processing in progress -->
+            <div
+              v-if="!paper.mineru_static_url && (paper.process_status === 'pending' || paper.process_status === 'processing')"
+              class="flex items-center gap-2 py-1.5 px-2 rounded"
+              style="padding-left: 50px; padding-right: 8px;"
+            >
+              <span class="text-xs shrink-0">⏳</span>
+              <span class="text-xs text-amber-500 truncate flex-1">MinerU 解析中…</span>
+              <svg class="animate-spin shrink-0 w-3 h-3 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            </div>
+            <!-- MinerU process failed -->
+            <div
+              v-if="!paper.mineru_static_url && paper.process_status === 'failed'"
+              class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+              style="padding-left: 50px; padding-right: 8px;"
+              @click="handleKbPaperProcess(paper)"
+            >
+              <span class="text-xs shrink-0">❌</span>
+              <span class="text-xs text-red-400 truncate flex-1">MinerU 解析失败，点击重试</span>
+            </div>
+            <!-- Trigger MinerU processing -->
+            <div
+              v-if="!paper.mineru_static_url && (!paper.process_status || paper.process_status === 'none' || paper.process_status === 'completed')"
+              class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+              style="padding-left: 50px; padding-right: 8px;"
+              @click="handleKbPaperProcess(paper)"
+            >
+              <span class="text-xs shrink-0">✨</span>
+              <span class="text-xs text-tinder-pink truncate flex-1 font-medium">生成 MinerU 解析</span>
+            </div>
+            <!-- MinerU link (shown when available; backend handles generation automatically) -->
             <div
               v-if="paper.mineru_static_url"
               class="flex items-center gap-1 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors group/der"
@@ -2020,35 +2347,6 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
                 <span class="text-xs text-text-secondary truncate flex-1">MinerU 解析 (Markdown)</span>
               </div>
               <button type="button" class="shrink-0 w-6 h-6 flex items-center justify-center text-text-muted hover:text-text-primary bg-transparent border-none cursor-pointer rounded text-[10px] opacity-0 group-hover/der:opacity-100 transition-opacity" title="更多" @click.stop="openKbDerivativeMenu($event, paper, 'mineru')">⋯</button>
-            </div>
-            <!-- MinerU not yet processed -->
-            <div
-              v-else-if="paper.process_status === 'none' || !paper.process_status"
-              class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
-              style="padding-left: 50px; padding-right: 8px;"
-              @click="handleKbPaperProcess(paper)"
-            >
-              <span class="text-xs shrink-0">✨</span>
-              <span class="text-xs text-tinder-pink truncate flex-1 font-medium">生成 MinerU 解析</span>
-            </div>
-            <!-- Processing in progress -->
-            <div
-              v-else-if="paper.process_status === 'processing' || paper.process_status === 'pending'"
-              class="flex items-center gap-2 py-1.5 px-2 rounded"
-              style="padding-left: 50px; padding-right: 8px;"
-            >
-              <span class="inline-block text-amber-500 animate-spin text-xs leading-none">⟳</span>
-              <span class="text-xs text-amber-500 truncate flex-1">{{ kbPaperStepLabel(paper.process_step || '') }}</span>
-            </div>
-            <!-- Process failed -->
-            <div
-              v-else-if="paper.process_status === 'failed'"
-              class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover cursor-pointer"
-              style="padding-left: 50px; padding-right: 8px;"
-              @click="handleKbPaperProcess(paper)"
-            >
-              <span class="text-xs shrink-0">❌</span>
-              <span class="text-xs text-red-500 truncate flex-1" :title="paper.process_error">{{ paper.process_error || '处理失败，点击重试' }}</span>
             </div>
             <!-- Chinese translation -->
             <div
@@ -2076,7 +2374,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
             </div>
             <!-- Generate translation button -->
             <div
-              v-if="paper.mineru_static_url && !paper.zh_static_url && paper.translate_status !== 'processing'"
+              v-if="paper.mineru_static_url && !paper.zh_static_url && (!paper.translate_status || paper.translate_status === 'none')"
               class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
               style="padding-left: 50px; padding-right: 8px;"
               @click="handleKbPaperTranslate(paper)"
@@ -2084,7 +2382,16 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
               <span class="text-xs shrink-0">✨</span>
               <span class="text-xs text-tinder-pink truncate flex-1 font-medium">生成中文翻译与对照</span>
             </div>
-            <!-- Translating in progress -->
+            <!-- Translation failed -->
+            <div
+              v-if="paper.mineru_static_url && !paper.zh_static_url && paper.translate_status === 'failed'"
+              class="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-bg-hover transition-colors cursor-pointer"
+              style="padding-left: 50px; padding-right: 8px;"
+              @click="handleKbPaperTranslate(paper)"
+            >
+              <span class="text-xs shrink-0">❌</span>
+              <span class="text-xs text-red-400 truncate flex-1">翻译失败，点击重试</span>
+            </div>
             <!-- Translating in progress (show even when partial zh already exists) -->
             <div
               v-if="paper.mineru_static_url && paper.translate_status === 'processing'"
@@ -2131,6 +2438,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
       v-if="activeTab === 'compare'"
       ref="compareTabRef"
       :compare-tree="compareTree"
+      :active-compare-result-id="activeCompareResultId"
       @open-compare-result="emit('openCompareResult', $event)"
       @refresh-compare="emit('refreshCompare')"
       @open-menu="handleCompareMenu"
@@ -2240,10 +2548,10 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
           <div
             v-for="paper in myPaperTree.papers"
             :key="paper.paper_id"
-            class="border-b border-border/30 last:border-b-0 flex flex-col transition-colors group"
+            class="border-b border-border/30 last:border-b-0 flex flex-col transition-colors group border-l-2"
             :class="[
               batchMode ? '' : 'hover:bg-bg-hover',
-              !batchMode && activeUserPaperId === paper.paper_id ? 'bg-amber-500/8' : '',
+              !batchMode && activeUserPaperId === paper.paper_id ? 'bg-amber-500/8 border-amber-500' : 'border-transparent',
             ]"
           >
             <div
@@ -2304,7 +2612,10 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
 
               <!-- Paper info -->
               <div class="flex-1 min-w-0">
-                <div class="text-xs font-medium text-text-primary truncate">
+                <div
+                  class="text-xs truncate"
+                  :class="!batchMode && activeUserPaperId === paper.paper_id ? 'font-semibold text-text-primary' : 'font-medium text-text-primary'"
+                >
                   {{ paper.title || '（未命名）' }}
                 </div>
                 <div class="text-[10px] text-text-muted truncate">
@@ -2591,131 +2902,116 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
     </div>
 
     <!-- ============ Paper Inspiration tab ============ -->
-    <div v-if="activeTab === 'paper-inspiration'" class="flex-1 overflow-y-auto flex flex-col">
-      <!-- Header -->
-      <div class="px-3 pt-3 pb-2 shrink-0">
-        <p class="text-xs text-text-muted leading-relaxed">
-          选择一篇已处理完成的论文，AI 将基于其内容为你生成研究灵感方向。
-        </p>
+    <div v-if="activeTab === 'paper-inspiration'" class="flex-1 flex flex-col overflow-hidden">
+
+      <!-- Sub-tab bar -->
+      <div class="px-3 pt-2.5 pb-0 shrink-0">
+        <div class="flex gap-1">
+          <button
+            class="flex-1 px-2 py-1.5 text-xs font-semibold rounded-t-md border-none cursor-pointer transition-colors"
+            :class="inspirationSubTab === 'mypapers'
+              ? 'bg-bg-elevated text-text-primary border-b-2 border-tinder-pink'
+              : 'bg-transparent text-text-muted hover:text-text-secondary'"
+            @click="inspirationSubTab = 'mypapers'"
+          >我的论文</button>
+          <button
+            v-if="paperInspirationKbTree != null"
+            class="flex-1 px-2 py-1.5 text-xs font-semibold rounded-t-md border-none cursor-pointer transition-colors"
+            :class="inspirationSubTab === 'kb'
+              ? 'bg-bg-elevated text-text-primary border-b-2 border-tinder-pink'
+              : 'bg-transparent text-text-muted hover:text-text-secondary'"
+            @click="inspirationSubTab = 'kb'"
+          >知识库论文</button>
+        </div>
+        <div class="border-b border-border"></div>
       </div>
 
-      <!-- Loading / error -->
-      <div v-if="myPapersLoading && !myPaperTree" class="flex-1 flex items-center justify-center text-xs text-text-muted">
-        加载中...
-      </div>
-      <div v-else-if="myPapersError" class="flex-1 flex items-center justify-center text-xs text-red-500 px-4 text-center">
-        {{ myPapersError }}
-      </div>
-
-      <template v-else>
-        <!-- Collect all completed papers from tree -->
-        <template v-if="myPaperTree">
-          <!-- Empty state -->
-          <div
-            v-if="myPaperTree.papers.filter(p => p.process_status === 'completed').length === 0 && myPaperTree.folders.every(f => f.papers.filter(p => p.process_status === 'completed').length === 0)"
-            class="flex-1 flex flex-col items-center justify-center text-center px-4 py-8"
-          >
-            <div class="w-16 h-16 mx-auto mb-3 rounded-xl bg-mypapers-gradient-br opacity-60 flex items-center justify-center">
-              <svg class="w-8 h-8 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.7-1.5 5-3.5 6.3V17a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.7C6.5 14 5 11.7 5 9a7 7 0 0 1 7-7z"/>
-              </svg>
-            </div>
-            <p class="text-sm font-semibold text-text-primary mb-1">暂无可用论文</p>
-            <p class="text-xs text-text-muted leading-relaxed">
-              请先在「发现」页上传并处理你的论文，<br/>完成后即可在此生成灵感。
-            </p>
-          </div>
-
-          <!-- Paper list (root + folders, only completed) -->
-          <div v-else class="flex-1 overflow-y-auto p-2">
-            <!-- Root-level completed papers -->
-            <div
-              v-for="paper in myPaperTree.papers.filter(p => p.process_status === 'completed')"
-              :key="paper.paper_id"
-              class="border-b border-border/30 last:border-b-0"
-            >
-              <div class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors group">
-                <!-- Avatar -->
-                <div
-                  class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-[10px] font-bold ring-1 ring-white/20"
-                  :style="{ background: avatarColor(paper.paper_id) }"
-                >
-                  {{ (paper.title || '?').slice(0, 2) }}
-                </div>
-                <!-- Info (clickable: open idea detail) -->
-                <div
-                  class="flex-1 min-w-0 cursor-pointer"
-                  title="查看灵感详情"
-                  @click="emit('paperInspirationDetail', paper.paper_id, paper.title)"
-                >
-                  <div class="text-xs font-medium text-text-primary truncate">{{ paper.title }}</div>
-                  <div class="text-[10px] text-text-muted truncate">{{ paper.institution || paper.paper_id }}</div>
-                </div>
-                <!-- Inspiration button -->
-                <button
-                  class="shrink-0 flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer transition-all font-medium"
-                  :class="generatingPaperIds.has(paper.paper_id)
-                    ? 'text-amber-600 bg-amber-500/10 cursor-not-allowed'
-                    : 'text-white bg-brand-gradient hover:opacity-90'"
-                  :disabled="generatingPaperIds.has(paper.paper_id)"
-                  title="基于此论文生成灵感候选"
-                  @click.stop="openPaperInspiration(paper.paper_id, paper.title)"
-                >
-                  <span v-if="generatingPaperIds.has(paper.paper_id)" class="animate-spin">⟳</span>
-                  <svg v-else class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.7-1.5 5-3.5 6.3V17a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.7C6.5 14 5 11.7 5 9a7 7 0 0 1 7-7z"/>
-                  </svg>
-                  <span>{{ generatingPaperIds.has(paper.paper_id) ? '生成中' : '灵感涌现' }}</span>
-                </button>
-              </div>
-            </div>
-
-            <!-- Folder papers (only completed) -->
-            <template v-for="folder in myPaperTree.folders" :key="folder.id">
-              <template v-for="paper in folder.papers.filter(p => p.process_status === 'completed')" :key="paper.paper_id">
-                <div class="border-b border-border/30 last:border-b-0">
-                  <div class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors group">
-                    <div
-                      class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-white text-[10px] font-bold ring-1 ring-white/20"
-                      :style="{ background: avatarColor(paper.paper_id) }"
-                    >
-                      {{ (paper.title || '?').slice(0, 2) }}
-                    </div>
-                    <!-- Info (clickable: open idea detail) -->
-                    <div
-                      class="flex-1 min-w-0 cursor-pointer"
-                      title="查看灵感详情"
-                      @click="emit('paperInspirationDetail', paper.paper_id, paper.title)"
-                    >
-                      <div class="text-xs font-medium text-text-primary truncate">{{ paper.title }}</div>
-                      <div class="text-[10px] text-text-muted truncate">{{ folder.name }} · {{ paper.institution || paper.paper_id }}</div>
-                    </div>
-                    <button
-                      class="shrink-0 flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer transition-all font-medium"
-                      :class="generatingPaperIds.has(paper.paper_id)
-                        ? 'text-amber-600 bg-amber-500/10 cursor-not-allowed'
-                        : 'text-white bg-brand-gradient hover:opacity-90'"
-                      :disabled="generatingPaperIds.has(paper.paper_id)"
-                      title="基于此论文生成灵感候选"
-                      @click.stop="openPaperInspiration(paper.paper_id, paper.title)"
-                    >
-                      <span v-if="generatingPaperIds.has(paper.paper_id)" class="animate-spin">⟳</span>
-                      <svg v-else class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.7-1.5 5-3.5 6.3V17a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.7C6.5 14 5 11.7 5 9a7 7 0 0 1 7-7z"/>
-                      </svg>
-                      <span>{{ generatingPaperIds.has(paper.paper_id) ? '生成中' : '灵感涌现' }}</span>
-                    </button>
-                  </div>
-                </div>
-              </template>
-            </template>
-          </div>
-        </template>
-
-        <div v-else class="flex-1 flex items-center justify-center text-xs text-text-muted">
+      <!-- ── 我的论文 sub-tab ── -->
+      <template v-if="inspirationSubTab === 'mypapers'">
+        <div v-if="myPapersLoading && !myPaperTree" class="flex-1 flex items-center justify-center text-xs text-text-muted">
           加载中...
         </div>
+        <div v-else-if="myPapersError" class="flex-1 flex items-center justify-center text-xs text-red-500 px-4 text-center">
+          {{ myPapersError }}
+        </div>
+        <div
+          v-else-if="!inspirationMyPaperTree || (inspirationMyPaperTree.papers.length === 0 && inspirationMyPaperTree.folders.length === 0)"
+          class="flex-1 flex flex-col items-center justify-center text-center px-4 py-8"
+        >
+          <div class="w-14 h-14 mx-auto mb-3 rounded-xl bg-mypapers-gradient-br opacity-60 flex items-center justify-center">
+            <svg class="w-7 h-7 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 18h6M10 22h4M12 2a7 7 0 0 1 7 7c0 2.7-1.5 5-3.5 6.3V17a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1v-1.7C6.5 14 5 11.7 5 9a7 7 0 0 1 7-7z"/>
+            </svg>
+          </div>
+          <p class="text-sm font-semibold text-text-primary mb-1">暂无可用论文</p>
+          <p class="text-xs text-text-muted leading-relaxed">请先上传并处理一篇论文，<br/>完成后即可在此生成灵感。</p>
+        </div>
+        <div v-else class="flex-1 overflow-y-auto py-1">
+          <!-- Folders first -->
+          <InspirationMyFolder
+            v-for="folder in inspirationMyPaperTree.folders"
+            :key="folder.id"
+            :folder="folder"
+            :depth="0"
+            :generating-paper-ids="generatingPaperIds"
+            @open-detail="(id: string, title: string) => emit('paperInspirationDetail', id, title)"
+            @generate="(id: string, title: string) => openPaperInspiration(id, title)"
+          />
+          <!-- Root-level papers (unfiled, after folders) -->
+          <InspirationPaperRow
+            v-for="paper in inspirationMyPaperTree.papers"
+            :key="paper.paper_id"
+            :paper-id="paper.paper_id"
+            :title="_myPaperTitle(paper)"
+            :subtitle="paper.institution || ''"
+            :depth="0"
+            :generating-paper-ids="generatingPaperIds"
+            @open-detail="emit('paperInspirationDetail', paper.paper_id, _myPaperTitle(paper))"
+            @generate="openPaperInspiration(paper.paper_id, _myPaperTitle(paper))"
+          />
+        </div>
       </template>
+
+      <!-- ── 知识库论文 sub-tab ── -->
+      <template v-else-if="inspirationSubTab === 'kb'">
+        <div
+          v-if="!inspirationKbPaperTree || (inspirationKbPaperTree.papers.length === 0 && inspirationKbPaperTree.folders.length === 0)"
+          class="flex-1 flex flex-col items-center justify-center text-center px-4 py-8"
+        >
+          <div class="w-14 h-14 mx-auto mb-3 rounded-xl bg-bg-elevated border border-border flex items-center justify-center">
+            <svg class="w-7 h-7 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+            </svg>
+          </div>
+          <p class="text-sm font-semibold text-text-primary mb-1">暂无知识库论文</p>
+          <p class="text-xs text-text-muted leading-relaxed">在「发现」页对论文点赞收藏后，<br/>它们会出现在这里。</p>
+        </div>
+        <div v-else class="flex-1 overflow-y-auto py-1">
+          <!-- Folders first (mirrors KB tab behavior) -->
+          <InspirationKbFolder
+            v-for="folder in inspirationKbPaperTree.folders"
+            :key="folder.id"
+            :folder="folder"
+            :depth="0"
+            :generating-paper-ids="generatingPaperIds"
+            @open-detail="(id: string, title: string) => emit('paperInspirationDetail', id, title)"
+            @generate="(id: string, title: string) => openPaperInspiration(id, title)"
+          />
+          <!-- Root-level papers (unfiled, after folders) -->
+          <InspirationPaperRow
+            v-for="paper in inspirationKbPaperTree.papers"
+            :key="paper.paper_id"
+            :paper-id="paper.paper_id"
+            :title="_kbPaperTitle(paper)"
+            :subtitle="(paper.paper_data as any)?.institution || ''"
+            :depth="0"
+            :generating-paper-ids="generatingPaperIds"
+            @open-detail="emit('paperInspirationDetail', paper.paper_id, _kbPaperTitle(paper))"
+            @generate="openPaperInspiration(paper.paper_id, _kbPaperTitle(paper))"
+          />
+        </div>
+      </template>
+
     </div>
 
     <!-- Batch download dialog -->
@@ -2875,6 +3171,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
     <SidebarResearchTab
       v-if="activeTab === 'research'"
       ref="researchTabRef"
+      :active-session-id="activeResearchSessionId"
       @open-research-session="emit('openResearchSession', $event)"
       @start-new-research="handleStartNewResearchFromTab"
     />

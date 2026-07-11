@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onUnmounted } from 'vue'
 import { openExternal } from '../../utils/openExternal'
-import { IS_TAURI, tauriFetchPdfBlobUrl } from '../../api'
+import { IS_TAURI, tauriFetchPdfBlobUrl, API_ORIGIN } from '../../api'
 
 const props = defineProps<{
   src: string
@@ -65,18 +65,36 @@ watch(
       return
     }
 
+    // If the file URL is relative (e.g. /api/papers/{id}/pdf), resolve it against
+    // API_ORIGIN so that the IPC transport can reach the remote server with auth.
+    if (pdfFileUrl && !pdfFileUrl.startsWith('http') && !pdfFileUrl.startsWith('blob:')) {
+      pdfFileUrl = `${API_ORIGIN}${pdfFileUrl}`
+    }
+
+    // Extract paperId for highlight persistence
+    let paperId = ''
+    try {
+      paperId = new URL(newSrc, window.location.origin).searchParams.get('paperId') || ''
+    } catch { /* ignore */ }
+
+    const papaIdSuffix = paperId ? `&paperId=${encodeURIComponent(paperId)}` : ''
+
+    // Tauri 模式：直接用远程 URL 交给 pdfjs，让它自行 Range-stream。
+    // 不再做 HEAD 探测（HEAD 是额外一轮 RTT，阻塞 iframe 出现）。
+    // 若 pdfjs 加载失败（CORS/网络问题），viewer 内部会显示错误信息。
+    // 只有在明确无法用 URL 时（如 file:// blob），才 fallback 到 IPC 下载。
+    if (pdfFileUrl.startsWith('https://') || pdfFileUrl.startsWith('http://')) {
+      // Remote URL: pass directly — PDF.js will Range-stream it
+      actualSrc.value = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(pdfFileUrl)}${papaIdSuffix}`
+      return
+    }
+
+    // Local / unknown URL: fallback to IPC blob download
     loading.value = true
     try {
       const blobUrl = await tauriFetchPdfBlobUrl(pdfFileUrl)
       currentBlobUrl = blobUrl
-
-      // Extract paperId for highlight persistence
-      let paperId = ''
-      try {
-        paperId = new URL(newSrc, window.location.origin).searchParams.get('paperId') || ''
-      } catch { /* ignore */ }
-
-      actualSrc.value = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(blobUrl)}${paperId ? `&paperId=${encodeURIComponent(paperId)}` : ''}`
+      actualSrc.value = `/static/pdfjs/web/viewer.html?file=${encodeURIComponent(blobUrl)}${papaIdSuffix}`
     } catch (e: unknown) {
       errorMsg.value = e instanceof Error ? e.message : 'PDF 加载失败'
       actualSrc.value = ''

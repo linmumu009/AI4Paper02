@@ -27,6 +27,14 @@ export const isProfileComplete = computed(() => {
   return !u.is_phone_auto_created && !!u.nickname
 })
 
+/** Drop all client-side authentication state after logout or session expiry. */
+export function invalidateAuthSession() {
+  clearSessionToken()
+  state.user = null
+  state.initialized = true
+  state.isNewUser = false
+}
+
 export async function fetchMe() {
   state.loading = true
   try {
@@ -111,11 +119,12 @@ export async function logout() {
   state.loading = true
   try {
     await authLogout()
-    clearSessionToken()
-    state.user = null
-    state.initialized = true
-    state.isNewUser = false
+  } catch {
+    // A local logout must still succeed when the server is unavailable. In the
+    // browser the server-side cookie expires independently; in Tauri this
+    // immediately removes the bearer token used for every request.
   } finally {
+    invalidateAuthSession()
     state.loading = false
   }
 }

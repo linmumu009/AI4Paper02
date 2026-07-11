@@ -67,7 +67,7 @@ onBeforeUnmount(() => document.removeEventListener('click', handleClickOutside))
     >
       <div
         v-if="showPanel"
-        class="absolute top-full left-1/2 -translate-x-1/2 mt-2 z-30"
+        class="absolute top-full right-0 mt-2 z-30"
       >
         <EngagementPanel :task-items="taskItems" />
       </div>

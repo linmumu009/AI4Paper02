@@ -2,23 +2,100 @@
 import { computed, ref } from 'vue'
 import type { PaperSummary } from '../types/paper'
 import { openExternal } from '../utils/openExternal'
+import { useEntitlements } from '../composables/useEntitlements'
+import PaperCardShareMenu from './PaperCardShareMenu.vue'
+import { nudgePaper } from '../api/index'
 
 const props = defineProps<{
   paper: PaperSummary
   animClass?: string
   source?: 'recommendation' | 'user_upload'
+  recDate?: string
 }>()
 
-const copiedId = ref(false)
+const emit = defineEmits<{
+  (e: 'nudge', direction: 'more' | 'less'): void
+}>()
 
-async function copyArxivId() {
+async function onNudge(direction: 'more' | 'less') {
   try {
-    await navigator.clipboard.writeText(props.paper.paper_id)
-    copiedId.value = true
-    setTimeout(() => { copiedId.value = false }, 1500)
+    await nudgePaper({
+      paper_id: props.paper.paper_id,
+      direction,
+      categories: props.paper.categories || [],
+      institution_tier: props.paper.institution_tier || 4,
+    })
+    emit('nudge', direction)
   } catch {
-    // fallback: do nothing
+    // fail silently — preference nudge is non-critical
   }
+}
+
+const cardRootEl = ref<HTMLElement | null>(null)
+const { tier } = useEntitlements()
+
+function buildCardPlainText(): string {
+  const p = props.paper
+  const lines: string[] = []
+
+  if (p.institution) lines.push(p.institution)
+  if (p.short_title) lines.push(p.short_title)
+  if (p['📖标题']) lines.push(p['📖标题'])
+  if (p['🌐来源']) lines.push(p['🌐来源'])
+  if (p.authors?.length) lines.push(formatAuthors(p.authors))
+  if (p['推荐理由']) lines.push(`推荐理由：${p['推荐理由']}`)
+
+  if (p['🛎️文章简介']) {
+    lines.push('')
+    lines.push('文章简介')
+    if (p['🛎️文章简介']['🔸研究问题'])
+      lines.push(`研究问题：${p['🛎️文章简介']['🔸研究问题']}`)
+    if (p['🛎️文章简介']['🔸主要贡献'])
+      lines.push(`主要贡献：${p['🛎️文章简介']['🔸主要贡献']}`)
+  }
+
+  if (p['📝重点思路']?.length) {
+    lines.push('')
+    lines.push('重点思路')
+    p['📝重点思路'].forEach((item, i) => {
+      lines.push(`${i + 1}. ${cleanBullet(item)}`)
+    })
+  }
+
+  if (p['🔎分析总结']?.length) {
+    lines.push('')
+    lines.push('分析总结')
+    p['🔎分析总结'].forEach(item => {
+      lines.push(`- ${cleanBullet(item)}`)
+    })
+  }
+
+  if (p['💡个人观点']) {
+    lines.push('')
+    lines.push(`个人观点：${p['💡个人观点']}`)
+  }
+
+  if (p['一句话记忆版']) {
+    lines.push('')
+    lines.push(p['一句话记忆版'])
+  }
+
+  return lines.join('\n')
+}
+
+function formatAuthors(authors: string[] | undefined): string {
+  if (!authors || authors.length === 0) return ''
+  const clean = authors.slice(0, 3).map(a => {
+    // Strip email/affiliation in brackets if present
+    return a.replace(/\s*\(.*?\)\s*/g, '').trim()
+  })
+  if (authors.length <= 2) return clean.join(', ')
+  return `${clean[0]}, ${clean[1]}${authors.length > 2 ? ' et al.' : ''}`
+}
+
+function mainCategory(categories: string[] | undefined): string {
+  if (!categories || categories.length === 0) return ''
+  return categories[0]
 }
 
 function openArxivPage() {
@@ -43,6 +120,8 @@ const effectiveTier = computed(() => {
   }
   return props.paper.is_large_institution ? 3 : 4
 })
+
+const firstImage = computed(() => props.paper.images?.[0] ?? null)
 
 /** Return CSS class for institution badge based on tier */
 function tierBadgeClass(tier: number): string {
@@ -69,6 +148,7 @@ function tierLabel(tier: number): string {
 
 <template>
   <div
+    ref="cardRootEl"
     class="card-bg relative w-full h-full rounded-2xl overflow-hidden flex flex-col"
     :class="animClass"
   >
@@ -129,10 +209,54 @@ function tierLabel(tier: number): string {
         <p class="text-xs text-text-muted mt-1 font-mono">
           🌐 {{ paper['🌐来源'] }}
         </p>
+        <!-- 作者信息 -->
+        <p v-if="paper.authors && paper.authors.length" class="text-xs text-text-muted mt-1 truncate">
+          👤 {{ formatAuthors(paper.authors) }}
+        </p>
         <!-- 推荐理由（新格式） -->
         <p v-if="paper['推荐理由']" class="text-xs mt-2 text-tinder-blue leading-relaxed">
           <span class="font-semibold">推荐理由：</span>{{ paper['推荐理由'] }}
         </p>
+        <!-- 个性化推荐解释 + 轻量纠偏按钮 -->
+        <div v-if="paper.why_recommended || paper.is_exploration" class="flex items-center gap-2 mt-2 flex-wrap">
+          <span
+            v-if="paper.is_exploration"
+            class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300 border border-violet-300/40 shrink-0"
+          >探索</span>
+          <p v-if="paper.why_recommended" class="text-[11px] text-text-muted leading-relaxed flex-1 min-w-0">
+            {{ paper.why_recommended }}
+          </p>
+          <div v-if="source === 'recommendation'" class="flex items-center gap-1 shrink-0">
+            <button
+              class="preference-nudge-btn preference-nudge-btn--less"
+              title="减少此类推荐"
+              aria-label="减少此类推荐"
+              @click.stop="onNudge('less')"
+            >👎</button>
+            <button
+              class="preference-nudge-btn preference-nudge-btn--more"
+              title="多看此类论文"
+              aria-label="多看此类论文"
+              @click.stop="onNudge('more')"
+            >👍</button>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="firstImage"
+        class="rounded-xl overflow-hidden border border-border bg-bg-elevated"
+      >
+        <img
+          :src="firstImage.url"
+          :alt="firstImage.caption || firstImage.filename"
+          loading="lazy"
+          class="w-full h-32 object-contain bg-bg-card"
+        />
+        <div class="px-3 py-1.5 border-t border-border flex items-center justify-between gap-2">
+          <span class="text-[11px] text-text-muted">图表预览</span>
+          <span class="text-[11px] text-text-muted">{{ paper.image_count || 1 }} 张图</span>
+        </div>
       </div>
 
       <!-- === 🛎️文章简介 === -->
@@ -197,24 +321,22 @@ function tierLabel(tier: number): string {
         <span class="not-italic font-semibold">💡 </span>{{ paper['一句话记忆版'] }}
       </div>
 
-      <!-- === Footer: paper ID + quick actions === -->
+      <!-- === Footer: rec date + quick actions === -->
       <div class="flex items-center justify-between pt-2 border-t border-border select-none">
         <span class="text-xs text-text-muted font-mono">
-          {{ paper.paper_id }}
+          {{ recDate || '' }}
         </span>
         <div class="flex items-center gap-2">
           <span class="text-xs text-text-muted">
             arXiv · {{ paper.image_count || 0 }} 张图
           </span>
-          <!-- Quick action: copy arXiv ID -->
-          <button
-            class="quick-action-btn"
-            :title="copiedId ? '已复制！' : '复制 arXiv ID'"
-            :aria-label="copiedId ? '已复制 arXiv ID' : '复制 arXiv ID'"
-            @click.stop="copyArxivId"
-          >
-            {{ copiedId ? '✓' : '⎘' }}
-          </button>
+          <!-- Quick action: share menu -->
+          <PaperCardShareMenu
+            :paper="paper"
+            :card-ref="cardRootEl"
+            :tier="tier"
+            :plain-text="buildCardPlainText()"
+          />
           <!-- Quick action: open arXiv page -->
           <button
             class="quick-action-btn"
@@ -235,6 +357,7 @@ function tierLabel(tier: number): string {
 /* Card background — uses theme variable */
 .card-bg {
   background: var(--color-bg-card);
+  will-change: transform;
 }
 
 /* Prominent institution badge */
@@ -301,6 +424,9 @@ function tierLabel(tier: number): string {
 .card-body {
   color: var(--color-text-secondary);
   line-height: 1.6;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .scrollbar-thin {
@@ -336,5 +462,25 @@ function tierLabel(tier: number): string {
 .quick-action-btn:hover {
   background: var(--color-bg-elevated);
   color: var(--color-text-primary);
+}
+
+/* Preference nudge micro-buttons */
+.preference-nudge-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: transparent;
+  border: 1px solid var(--color-border-light);
+  cursor: pointer;
+  opacity: 0.55;
+  transition: opacity 0.15s, background 0.15s;
+}
+.preference-nudge-btn:hover {
+  opacity: 1;
+  background: var(--color-bg-elevated);
 }
 </style>

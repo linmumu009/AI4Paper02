@@ -16,6 +16,17 @@ export function useResearchStream() {
     onEvent: (evt: ResearchSseEvent) => Promise<void>,
     shouldAbort: () => boolean,
   ): Promise<void> {
+    if (!response.ok) {
+      const raw = await response.text()
+      let detail = raw || response.statusText || '请求失败'
+      try {
+        const parsed = JSON.parse(raw) as { detail?: unknown; message?: unknown }
+        detail = String(parsed.detail ?? parsed.message ?? detail)
+      } catch {
+        // Keep the plain-text response as the error detail.
+      }
+      throw new Error(`请求失败 (${response.status}): ${detail}`)
+    }
     if (!response.body) throw new Error('No response body')
 
     const reader = response.body.getReader()

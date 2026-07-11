@@ -5,6 +5,7 @@ import { renameCompareResult, deleteCompareResult } from '../../api'
 
 const props = defineProps<{
   compareTree: KbCompareResultsTree | null
+  activeCompareResultId: number | null
 }>()
 
 const emit = defineEmits<{
@@ -130,7 +131,12 @@ defineExpose({ startRename, handleDelete })
             class="border-b border-border/20 last:border-b-0"
           >
             <div
-              class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors cursor-pointer group"
+              class="flex items-center gap-2 px-2 py-2 rounded-lg transition-colors cursor-pointer group border-l-2"
+              :class="[
+                activeCompareResultId === result.id
+                  ? 'bg-[#6366f1]/8 border-[#6366f1]'
+                  : 'border-transparent hover:bg-bg-hover'
+              ]"
               @click="emit('openCompareResult', result.id)"
             >
               <div class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] ring-1 ring-white/20 text-white text-[10px] font-bold">
@@ -149,7 +155,10 @@ defineExpose({ startRename, handleDelete })
               </template>
               <template v-else>
                 <div class="min-w-0 flex-1">
-                  <div class="text-xs font-medium text-text-primary truncate">{{ result.title }}</div>
+                  <div
+                    class="text-xs truncate"
+                    :class="activeCompareResultId === result.id ? 'font-semibold text-text-primary' : 'font-medium text-text-primary'"
+                  >{{ result.title }}</div>
                   <div class="text-[10px] text-text-muted">{{ result.paper_ids.length }} 篇</div>
                 </div>
                 <button
@@ -173,7 +182,12 @@ defineExpose({ startRename, handleDelete })
         class="border-b border-border/30 last:border-b-0"
       >
         <div
-          class="flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-bg-hover transition-colors cursor-pointer group"
+          class="flex items-center gap-2 px-2 py-2 rounded-lg transition-colors cursor-pointer group border-l-2"
+          :class="[
+            activeCompareResultId === result.id
+              ? 'bg-[#6366f1]/8 border-[#6366f1]'
+              : 'border-transparent hover:bg-bg-hover'
+          ]"
           @click="emit('openCompareResult', result.id)"
         >
           <div class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center bg-gradient-to-br from-[#6366f1] to-[#8b5cf6] ring-1 ring-white/20 text-white text-[10px] font-bold">
@@ -192,7 +206,10 @@ defineExpose({ startRename, handleDelete })
           </template>
           <template v-else>
             <div class="min-w-0 flex-1">
-              <div class="text-xs font-medium text-text-primary truncate">{{ result.title }}</div>
+              <div
+                class="text-xs truncate"
+                :class="activeCompareResultId === result.id ? 'font-semibold text-text-primary' : 'font-medium text-text-primary'"
+              >{{ result.title }}</div>
               <div class="text-[10px] text-text-muted">{{ result.paper_ids.length }} 篇</div>
             </div>
             <button

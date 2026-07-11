@@ -180,16 +180,25 @@ function startResize(e: MouseEvent) {
     setSplitRatio(Math.min(maxLeftPct, Math.max(20, newPercent)))
   }
 
-  function onMouseUp() {
+  // Extracted so the same function reference can be used to remove all three listeners.
+  // Handles: normal mouseup, pointer released inside an iframe (window.blur),
+  // and pointer released outside the window.
+  function stopResize() {
     isResizing.value = false
     document.body.style.userSelect = ''
     document.body.style.cursor = ''
     document.removeEventListener('mousemove', onMouseMove)
-    document.removeEventListener('mouseup', onMouseUp)
+    document.removeEventListener('mouseup', stopResize)
+    document.removeEventListener('pointerup', stopResize)
+    window.removeEventListener('blur', stopResize)
   }
 
   document.addEventListener('mousemove', onMouseMove)
-  document.addEventListener('mouseup', onMouseUp)
+  document.addEventListener('mouseup', stopResize)
+  // pointerup fires even when the pointer is released inside a cross-origin iframe
+  document.addEventListener('pointerup', stopResize)
+  // window blur fires when focus moves into an iframe (e.g. user releases mouse there)
+  window.addEventListener('blur', stopResize)
 }
 
 function resetPanelWidth() {
@@ -366,45 +375,45 @@ defineExpose({
 </script>
 
 <template>
-  <div class="flex flex-col h-full min-h-0 overflow-hidden bg-bg">
-    <!-- 鼠标热区：工具栏隐藏时悬停此区域可恢复显示 -->
-    <div
-      v-if="showToolbar"
-      class="shrink-0 relative"
-      :class="toolbarHidden ? 'h-4' : 'h-0'"
-      @mouseenter="showToolbarTemporarily(); cancelHideToolbar()"
-    >
-      <!-- 视觉指示器：小横线，提示用户此处可悬浮展开 -->
+  <div class="flex flex-col h-full min-h-0 overflow-hidden bg-bg relative">
+    <!-- 悬浮工具栏：绝对定位，不占文档流高度 -->
+    <template v-if="showToolbar">
+      <!-- 鼠标热区：覆盖顶部薄条，供用户悬停触发展开 -->
       <div
-        v-if="toolbarHidden"
-        class="absolute left-1/2 -translate-x-1/2 top-1.5 w-14 h-1 rounded-full bg-border hover:bg-text-muted transition-colors duration-200"
-      />
-    </div>
-    <!-- 工具栏容器：带折叠过渡；展开时 overflow-visible 允许下拉菜单溢出 -->
-    <div
-      v-if="showToolbar"
-      class="shrink-0"
-      :style="toolbarHidden
-        ? { maxHeight: '0px', opacity: '0', overflow: 'hidden', transition: 'max-height 0.2s ease-in-out, opacity 0.2s ease-in-out' }
-        : { maxHeight: '60px', opacity: '1', overflow: 'visible', transition: 'max-height 0.2s ease-in-out, opacity 0.2s ease-in-out' }"
-      @mouseenter="cancelHideToolbar()"
-      @mouseleave="scheduleHideToolbar()"
-    >
-      <PanelToolbar
-        :mode="layout.mode"
-        :left-panel="layout.leftPanel"
-        :right-panel="layout.rightPanel"
-        :panels="panelConfigs"
-        :show-close="showClose"
-        :download-params="activeDownloadParams?.downloadParams"
-        :download-url="activeDownloadParams?.downloadUrl"
-        @update:left-panel="setLeftPanel"
-        @update:right-panel="setRightPanel"
-        @toggle-split="toggleSplit"
-        @swap="swapPanels"
-        @close="emit('closeView')"
-      />
-    </div>
+        class="absolute top-0 left-0 right-0 z-20 h-5 cursor-default"
+        @mouseenter="showToolbarTemporarily(); cancelHideToolbar()"
+      >
+        <!-- 视觉指示器：小横线 -->
+        <div
+          v-if="toolbarHidden"
+          class="absolute left-1/2 -translate-x-1/2 top-1.5 w-14 h-0.5 rounded-full bg-border hover:bg-text-muted transition-colors duration-200"
+        />
+      </div>
+      <!-- 工具栏本体：绝对定位覆盖内容，过渡用 translateY + opacity -->
+      <div
+        class="absolute top-0 left-0 right-0 z-30"
+        :style="toolbarHidden
+          ? { transform: 'translateY(-100%)', opacity: '0', pointerEvents: 'none', transition: 'transform 0.2s ease-in-out, opacity 0.15s ease-in-out' }
+          : { transform: 'translateY(0)', opacity: '1', pointerEvents: 'auto', overflow: 'visible', transition: 'transform 0.2s ease-in-out, opacity 0.15s ease-in-out' }"
+        @mouseenter="cancelHideToolbar()"
+        @mouseleave="scheduleHideToolbar()"
+      >
+        <PanelToolbar
+          :mode="layout.mode"
+          :left-panel="layout.leftPanel"
+          :right-panel="layout.rightPanel"
+          :panels="panelConfigs"
+          :show-close="showClose"
+          :download-params="activeDownloadParams?.downloadParams"
+          :download-url="activeDownloadParams?.downloadUrl"
+          @update:left-panel="setLeftPanel"
+          @update:right-panel="setRightPanel"
+          @toggle-split="toggleSplit"
+          @swap="swapPanels"
+          @close="emit('closeView')"
+        />
+      </div>
+    </template>
 
     <div
       ref="splitContainerRef"
@@ -413,7 +422,7 @@ defineExpose({
     >
       <!-- 单栏 -->
       <template v-if="!isSplit">
-        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-6 pt-2 sm:pt-3 pb-6" @scroll="onContentScroll">
+        <div class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 sm:px-6 pt-1 sm:pt-1.5 pb-6" @scroll="onContentScroll">
           <div :class="leftMaxWidthClass(layout.leftPanel)">
             <PanelRenderer
               ref="singlePanelRef"
@@ -440,7 +449,7 @@ defineExpose({
       <!-- 分栏 -->
       <template v-else>
         <div
-          class="split-left h-[45vh] md:h-full min-w-0 overflow-y-auto overflow-x-hidden px-2 sm:px-4 py-3 md:py-4"
+          class="split-left h-[45vh] md:h-full min-w-0 overflow-y-auto overflow-x-hidden px-2 sm:px-4 pt-1.5 pb-3 md:pt-2 md:pb-4"
           :style="isResizing ? { pointerEvents: 'none' } : {}"
           @scroll="onContentScroll"
         >

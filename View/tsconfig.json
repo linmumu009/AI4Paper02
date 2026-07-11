@@ -20,7 +20,8 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"],
-      "@shared/*": ["../shared/*"]
+      "@shared/*": ["../shared/*"],
+      "axios": ["./node_modules/axios"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.vue", "env.d.ts"]

@@ -9,6 +9,7 @@ const props = defineProps<{
   renamingId: number | null
   renamingText: string
   indent: boolean
+  active?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -46,8 +47,11 @@ function formatTime(iso: string): string {
   <div class="border-b border-border/30 last:border-b-0">
     <!-- Session row -->
     <div
-      class="flex items-center gap-2 py-2 rounded-lg hover:bg-bg-hover transition-colors group cursor-pointer"
-      :class="indent ? 'pl-6 pr-2' : 'px-2'"
+      class="flex items-center gap-2 py-2 rounded-lg transition-colors group cursor-pointer border-l-2"
+      :class="[
+        indent ? 'pl-6 pr-2' : 'px-2',
+        active ? 'bg-accent-primary/8 border-accent-primary' : 'border-transparent hover:bg-bg-hover'
+      ]"
       @click="batchMode ? emit('toggleCheck') : emit('open')"
     >
       <!-- Batch checkbox -->
@@ -105,7 +109,10 @@ function formatTime(iso: string): string {
           />
         </template>
         <template v-else>
-          <div class="text-xs font-medium text-text-primary truncate flex items-center gap-1">
+          <div
+            class="text-xs truncate flex items-center gap-1"
+            :class="active ? 'font-semibold text-text-primary' : 'font-medium text-text-primary'"
+          >
             <span class="truncate">{{ session.question }}</span>
             <svg v-if="session.saved" class="w-3 h-3 shrink-0 text-amber-400" viewBox="0 0 24 24" fill="currentColor" stroke="none">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>

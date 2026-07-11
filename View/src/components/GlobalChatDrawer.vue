@@ -42,18 +42,22 @@ function startDrawerResize(e: MouseEvent) {
     setDrawerWidth(startWidth - deltaX)
   }
 
-  function onUp() {
+  function stopDrawerResize() {
     isResizingDrawer.value = false
     document.body.style.userSelect = ''
     document.body.style.cursor = ''
     document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
+    document.removeEventListener('mouseup', stopDrawerResize)
+    document.removeEventListener('pointerup', stopDrawerResize)
+    window.removeEventListener('blur', stopDrawerResize)
   }
 
   document.body.style.userSelect = 'none'
   document.body.style.cursor = 'col-resize'
   document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  document.addEventListener('mouseup', stopDrawerResize)
+  document.addEventListener('pointerup', stopDrawerResize)
+  window.addEventListener('blur', stopDrawerResize)
 }
 
 async function syncRoutePaperContext() {

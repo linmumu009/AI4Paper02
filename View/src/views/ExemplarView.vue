@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { fetchIdeaExemplars, deleteIdeaExemplar } from '../api'
 import type { IdeaExemplar } from '../types/paper'
 import { ensureAuthInitialized, isAuthenticated } from '../stores/auth'
-
-const router = useRouter()
+import WorkbenchPageShell from '../components/workbench/WorkbenchPageShell.vue'
 
 const props = defineProps<{ embedded?: boolean }>()
 
@@ -45,28 +43,16 @@ async function handleDelete(id: number) {
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b border-border bg-bg">
-      <div class="flex items-center gap-3">
-        <button
-          v-if="!props.embedded"
-          class="text-xs px-3 py-1.5 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors flex items-center gap-1.5"
-          @click="router.push('/workbench')"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"/>
-          </svg>
-          返回
-        </button>
-        <h1 class="text-xl font-bold text-text-primary flex items-center gap-2">
-          <span class="text-2xl">⭐</span> 范例库
-        </h1>
-        <span class="text-xs text-text-muted bg-bg-elevated px-2.5 py-1 rounded-full border border-border">
-          {{ exemplars.length }} 个范例
-        </span>
-      </div>
-    </div>
+  <WorkbenchPageShell
+    icon="⭐"
+    title="范例库"
+    :back-to="!props.embedded ? '/workbench' : undefined"
+  >
+    <template #title-extra>
+      <span class="text-xs text-text-muted bg-bg-elevated px-2.5 py-1 rounded-full border border-border">
+        {{ exemplars.length }} 个范例
+      </span>
+    </template>
 
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -127,5 +113,5 @@ async function handleDelete(id: number) {
         </div>
       </div>
     </div>
-  </div>
+  </WorkbenchPageShell>
 </template>

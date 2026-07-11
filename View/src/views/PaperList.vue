@@ -13,7 +13,9 @@ import ErrorState from '../components/ErrorState.vue'
 import SidebarPageLayout from '../components/SidebarPageLayout.vue'
 import UpgradePrompt from '../components/UpgradePrompt.vue'
 import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } from '../composables/usePanelLayout'
-import { fetchDates, addKbPaper, deleteNote, fetchIdeaDigest, createIdeaFeedback, addNoteLink, fetchIdeaAtom, fetchPaperDetail, generateCandidatesForPaper, API_ORIGIN } from '../api'
+import { fetchDates, addKbPaper, deleteNote, fetchIdeaDigest, createIdeaFeedback, addNoteLink, fetchIdeaAtom, fetchPaperDetail, fetchKbTree } from '../api'
+import { buildPdfViewerUrl, resolvePaperPdfUrl, buildKbPdfViewerUrl, buildKbFileUrl } from '../composables/usePdfUrl'
+import { useAnnotationAdapter } from '../composables/useAnnotationAdapter'
 import type { IdeaCandidate, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
@@ -28,6 +30,7 @@ const globalChat = useGlobalChat()
 const engagement = useEngagement()
 const ent = useEntitlements()
 const ideaGenQuotaBlocked = computed(() => !ent.canUse('idea_gen'))
+const { attachAnnotationAdapter, detachAnnotationAdapter } = useAnnotationAdapter()
 
 // Dates
 const dates = ref<string[]>([])
@@ -35,6 +38,16 @@ const selectedDate = ref('')
 
 // Knowledge base + sidebar shared state
 const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState('inspiration')
+
+// 普通知识库收藏树（scope=kb）— 供「论文灵感 > 知识库论文」子 Tab 使用
+const paperInspirationKbTree = ref<Awaited<ReturnType<typeof fetchKbTree>> | null>(null)
+async function loadPaperInspirationKbTree() {
+  try {
+    paperInspirationKbTree.value = await fetchKbTree('kb')
+  } catch {
+    // 加载失败时静默处理，子 Tab 显示空态
+  }
+}
 
 // Sidebar ref
 const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
@@ -147,6 +160,7 @@ function paperCandidateReset() {
 
 // Load dates
 onMounted(async () => {
+  attachAnnotationAdapter('inspiration')
   await ensureAuthInitialized()
   try {
     const res = await fetchDates()
@@ -160,6 +174,7 @@ onMounted(async () => {
     await loadKbTree()
     await loadCompareTree()
     await engagement.loadStatus(true)
+    loadPaperInspirationKbTree()
   }
 })
 
@@ -254,6 +269,11 @@ const ideaHistory = ref<number[]>([])
 const ideaTotalAvailable = ref(0)
 const ideaQuotaLimit = ref<number | null>(null)
 const ideaResponseTier = ref<string>('free')
+const ideaEffectiveDate = ref<string | null>(null)
+const ideaIsFallback = ref(false)
+const allIdeaDatesExhausted = ref(false)
+const ideaDateTransitionNotice = ref<string | null>(null)
+let _ideaDateNoticeTimer: ReturnType<typeof setTimeout> | null = null
 
 const currentCandidate = computed(() => ideaCandidates.value[ideaCurrentIndex.value] ?? null)
 const ideaAllSwiped = computed(
@@ -286,19 +306,31 @@ async function loadIdeaDigest(date: string) {
   ideaLoading.value = true
   ideaError.value = ''
   ideaErrorType.value = 'unknown'
+  ideaIsFallback.value = false
+  ideaEffectiveDate.value = null
   try {
     const res = await fetchIdeaDigest(date)
     ideaCandidates.value = res.candidates
     ideaTotalAvailable.value = res.total_available
     ideaQuotaLimit.value = res.quota_limit
     ideaResponseTier.value = res.tier ?? currentTier.value
+    ideaEffectiveDate.value = res.effective_date ?? date
+    ideaIsFallback.value = res.is_fallback ?? false
     ideaCurrentIndex.value = 0
     ideaHistory.value = []
     ideaCardAnimClass.value = 'card-enter'
+    // When the backend fell back to an earlier date, sync the date selector so
+    // that auto-advance (watch ideaAllSwiped) navigates from the correct position.
+    // The watcher below skips reloading when it detects this programmatic sync.
+    if (ideaIsFallback.value && ideaEffectiveDate.value && ideaEffectiveDate.value !== date) {
+      selectedDate.value = ideaEffectiveDate.value
+    }
   } catch (e: any) {
     ideaErrorType.value = e?.errorType || (e?.response ? 'server' : 'unknown')
     ideaError.value = e?.response?.data?.detail || e?.message || '加载灵感失败'
     ideaCandidates.value = []
+    ideaIsFallback.value = false
+    ideaEffectiveDate.value = null
   } finally {
     ideaLoading.value = false
   }
@@ -307,7 +339,27 @@ async function loadIdeaDigest(date: string) {
 // Reload ideas when date changes
 watch(selectedDate, async (date) => {
   if (date && isAuthenticated.value) {
+    // Skip reload triggered by our own programmatic sync of selectedDate to ideaEffectiveDate
+    if (ideaIsFallback.value && date === ideaEffectiveDate.value) return
     await loadIdeaDigest(date)
+  }
+})
+
+// Auto-advance to the previous day when ideas are all swiped.
+// Skip when quota is truly exceeded — show the upgrade gate instead.
+watch(ideaAllSwiped, (val) => {
+  if (!val) return
+  if (isIdeaQuotaExceeded.value && isIdeaActuallyLimited.value) return
+  const currentIdx = dates.value.indexOf(selectedDate.value)
+  const nextIdx = currentIdx + 1
+  if (nextIdx < dates.value.length) {
+    const nextDate = dates.value[nextIdx]
+    if (_ideaDateNoticeTimer) clearTimeout(_ideaDateNoticeTimer)
+    ideaDateTransitionNotice.value = nextDate
+    _ideaDateNoticeTimer = setTimeout(() => { ideaDateTransitionNotice.value = null }, 3500)
+    selectedDate.value = nextDate
+  } else {
+    allIdeaDatesExhausted.value = true
   }
 })
 
@@ -459,31 +511,25 @@ watch(isInPanelView, (v) => { globalChat.setPageInPanelView(v) }, { immediate: t
 
 const pdfViewerSrc = computed(() => {
   if (!viewingPdf.value) return ''
-  const viewerPath = `${API_ORIGIN}/static/pdfjs/web/viewer.html`
-  const relPath = viewingPdf.value.filePath.replace(/^\/static\/kb_files\//, '')
-  const fileUrl = `${API_ORIGIN}/static/kb_files/${relPath}`
-  return `${viewerPath}?file=${encodeURIComponent(fileUrl)}&paperId=${encodeURIComponent(viewingPdf.value.paperId)}`
+  return buildKbPdfViewerUrl(viewingPdf.value.filePath, viewingPdf.value.paperId)
 })
 
 const pdfBareUrl = computed(() => {
   if (!viewingPdf.value) return ''
-  const relPath = viewingPdf.value.filePath.replace(/^\/static\/kb_files\//, '')
-  return `${API_ORIGIN}/static/kb_files/${relPath}`
+  return buildKbFileUrl(viewingPdf.value.filePath)
 })
 
 const viewingMdPdfIframeSrc = computed(() => {
   if (!viewingMd.value?.pdfUrl) return ''
-  const viewerPath = `${API_ORIGIN}/static/pdfjs/web/viewer.html`
-  return `${viewerPath}?file=${encodeURIComponent(viewingMd.value.pdfUrl)}&paperId=${encodeURIComponent(viewingMd.value.paperId)}`
+  return buildPdfViewerUrl(viewingMd.value.pdfUrl, viewingMd.value.paperId)
 })
 
 function inspireArxivPdfUrl(paperId: string): string {
-  return `${API_ORIGIN}/api/papers/${paperId}/pdf`
+  return resolvePaperPdfUrl(paperId)
 }
 
 function inspirePdfJsSrc(pdfUrl: string, paperId: string): string {
-  const viewerPath = `${API_ORIGIN}/static/pdfjs/web/viewer.html`
-  return `${viewerPath}?file=${encodeURIComponent(pdfUrl)}&paperId=${encodeURIComponent(paperId)}`
+  return buildPdfViewerUrl(pdfUrl, paperId)
 }
 
 const inspireNoteLayoutKey = computed(() =>
@@ -626,6 +672,7 @@ const inspireMdContext = computed<ContentLayoutContext>(() => ({
   mdBilingualUrl: viewingMd.value?.bilingualUrl,
   paperId: viewingMd.value?.paperId,
   paperViewScope: viewingMd.value?.scope,
+  translateInProgress: viewingMd.value?.translateInProgress ?? false,
 }))
 
 const inspireIdeaKey = computed(
@@ -1046,6 +1093,7 @@ function onDateChange(event: Event) {
 
 // 路由离开时自动保存笔记
 onBeforeRouteLeave(async (_to, _from, next) => {
+  detachAnnotationAdapter()
   if (editingNote.value && getInspirationNoteEditor()) {
     const isEmpty = getInspirationNoteEditor().isEffectivelyEmpty()
     if (isEmpty) {
@@ -1088,6 +1136,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             empty-title="收藏灵感"
             empty-desc="当你收藏灵感中关联的论文后，它们会在这里出现。"
             third-tab="paper-inspiration"
+            :paper-inspiration-kb-tree="paperInspirationKbTree"
+            :active-paper-id="sidebarPaperId"
             @open-paper="openPaperFromSidebar"
             @open-note="openNoteFromSidebar"
             @open-pdf="openPdfFromSidebar"
@@ -1105,6 +1155,8 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @update-read-status="markPaperReadStatus"
             :active-user-paper-id="inspirationActiveUserPaperId"
             :active-view-md-key="inspirationActiveViewMdKey"
+            :active-compare-result-id="viewingCompareResultId"
+            :active-research-session-id="inspireResearchInitialSessionId"
           />
         </div>
       </Transition>
@@ -1173,7 +1225,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       <ContentLayout
         v-if="editingNote !== null"
         ref="inspirationContentLayoutRef"
-        class="flex-1 min-h-0 border-l border-border mt-3"
+        class="flex-1 min-h-0 border-l border-border mt-1"
         :context-key="inspireNoteLayoutKey"
         :panel-configs="inspireNotePanelConfigs"
         :default-layout="inspireNoteDefaultLayout"
@@ -1186,7 +1238,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       <!-- 放在 paperInspirationPaperId 之前，以便从论文灵感点「详情」后关闭可自然回到卡片视图 -->
       <ContentLayout
         v-else-if="viewingIdeaId !== null"
-        class="flex-1 min-h-0 mt-3"
+        class="flex-1 min-h-0 mt-1"
         :context-key="inspireIdeaKey"
         :panel-configs="inspireIdeaPanels"
         :default-layout="inspireIdeaDefaultLayout"
@@ -1264,7 +1316,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             </div>
 
             <!-- 卡片 -->
-            <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
+            <div class="w-full px-3 sm:px-0 mx-auto" style="max-width: var(--card-max-w); height: clamp(var(--card-min-h), calc(100dvh - var(--card-height-offset)), var(--card-max-h))">
               <IdeaCard
                 :key="currentPaperCandidate.id"
                 :candidate="currentPaperCandidate"
@@ -1304,7 +1356,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <ContentLayout
         v-else-if="researchPaperIds"
-        class="flex-1 min-h-0 mt-3"
+        class="flex-1 min-h-0 mt-1"
         :context-key="inspireResearchLayoutKey"
         :panel-configs="inspireResearchPanels"
         :default-layout="inspireResearchDefaultLayout"
@@ -1315,7 +1367,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <ContentLayout
         v-else-if="comparingPaperIds"
-        class="flex-1 min-h-0 mt-3"
+        class="flex-1 min-h-0 mt-1"
         :context-key="inspireCompareLayoutKey"
         :panel-configs="inspireComparePanels"
         :default-layout="inspireCompareDefaultLayout"
@@ -1326,7 +1378,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <ContentLayout
         v-else-if="viewingCompareResultId !== null"
-        class="flex-1 min-h-0 mt-3"
+        class="flex-1 min-h-0 mt-1"
         :context-key="inspireCompareResultKey"
         :panel-configs="inspireCompareResultPanels"
         :default-layout="inspireCompareResultDefaultLayout"
@@ -1336,7 +1388,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <div
         v-else-if="viewingPdf"
-        class="flex-1 flex flex-col overflow-hidden mt-3 px-2 sm:px-4 pb-4 min-h-0"
+        class="flex-1 flex flex-col overflow-hidden mt-1 px-2 sm:px-4 pb-4 min-h-0"
       >
         <PdfPanel
           class="flex-1 min-h-0 rounded-xl border border-border overflow-hidden"
@@ -1350,7 +1402,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <div
         v-else-if="viewingMd"
-        class="flex-1 flex flex-col overflow-hidden mt-3 px-2 sm:px-4 pb-4 min-h-0"
+        class="flex-1 flex flex-col overflow-hidden mt-1 px-2 sm:px-4 pb-4 min-h-0"
       >
         <div class="shrink-0 flex items-center justify-between rounded-t-xl border border-border border-b-0 bg-bg-card px-4 py-2">
           <div class="text-sm text-text-secondary truncate pr-4">{{ viewingMd.title }}</div>
@@ -1373,7 +1425,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <ContentLayout
         v-else-if="sidebarPaperId"
-        class="flex-1 min-h-0 mt-3"
+        class="flex-1 min-h-0 mt-1"
         :context-key="inspireSidebarKey"
         :panel-configs="inspireSidebarPanels"
         :default-layout="inspireSidebarDefaultLayout"
@@ -1399,7 +1451,6 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
       <!-- ==================== 灵感推荐主界面（刷卡模式）==================== -->
       <div v-else class="flex-1 flex flex-col items-center justify-center relative">
-
 
         <!-- 未登录 -->
         <div v-if="!isAuthenticated" class="flex flex-col items-center gap-4 text-center px-8">
@@ -1431,12 +1482,12 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           <UpgradePrompt feature="idea_gen" class="w-full" />
         </div>
 
-        <!-- 全部浏览完 -->
+        <!-- 所有日期灵感已全部浏览（最终态） -->
         <EmptyState
-          v-else-if="ideaAllSwiped"
+          v-else-if="ideaAllSwiped && allIdeaDatesExhausted"
           icon="🎉"
-          title="今日灵感已全部浏览"
-          :description="`共浏览 ${ideaCandidates.length} 条灵感`"
+          title="所有灵感已全部浏览"
+          description="知识库中已收藏今天喜欢的灵感，新灵感将在明天更新"
         >
           <button
             class="px-6 py-2.5 rounded-full bg-brand-gradient text-white text-sm font-semibold cursor-pointer border-none hover:opacity-90 transition-opacity"
@@ -1450,24 +1501,26 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
         <!-- 灵感卡片 -->
         <template v-else-if="currentCandidate">
-          <!-- 计数 -->
-          <div class="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5">
-            <span
-              class="text-xs tabular-nums px-2.5 py-0.5 rounded-full backdrop-blur-sm"
-              :class="isIdeaActuallyLimited
-                ? 'text-amber-400 bg-amber-500/15 border border-amber-500/25'
-                : 'text-text-muted bg-bg-card/70 border border-border/50'"
+          <!-- 日期切换 toast（刷完某日自动切到前一天时短暂显示） -->
+          <Transition name="date-toast">
+            <div
+              v-if="ideaDateTransitionNotice"
+              class="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full bg-bg-card/90 border border-border/60 backdrop-blur-sm shadow-md text-xs text-text-secondary whitespace-nowrap pointer-events-none"
             >
-              {{ ideaCurrentIndex + 1 }} / {{ ideaCandidates.length }}
-              <template v-if="isIdeaActuallyLimited && ideaTotalAvailable > ideaCandidates.length">
-                <span class="opacity-70">· 共 {{ ideaTotalAvailable }} 条</span>
-                <span class="ml-0.5 text-[10px]">🔒</span>
-              </template>
-            </span>
+              已切换至 {{ ideaDateTransitionNotice }}
+            </div>
+          </Transition>
+
+          <!-- fallback 日期提示 -->
+          <div
+            v-if="ideaIsFallback && ideaEffectiveDate"
+            class="absolute top-4 right-4 z-20 px-2 py-1 rounded-lg bg-bg-elevated/80 border border-border/40 backdrop-blur-sm text-[11px] text-text-muted pointer-events-none"
+          >
+            来自 {{ ideaEffectiveDate }}
           </div>
 
           <!-- 卡片 -->
-          <div class="w-full max-w-[400px] px-3 sm:px-0 mx-auto" style="height: clamp(320px, calc(100dvh - 210px), 620px)">
+          <div class="w-full px-3 sm:px-0 mx-auto" style="max-width: var(--card-max-w); height: clamp(var(--card-min-h), calc(100dvh - var(--card-height-offset)), var(--card-max-h))">
             <IdeaCard
               :key="currentCandidate.id"
               :candidate="currentCandidate"
@@ -1495,7 +1548,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             {{ selectedDate ? `${selectedDate} 暂无灵感` : '还没有灵感' }}
           </h2>
           <p class="text-sm text-text-secondary leading-relaxed">
-            灵感由管理员从当日论文中生成。请先确认已选择正确的日期，或等待管理员运行流水线。
+            灵感由系统从当日论文中自动生成。如有疑问请刷新，或切换到其他日期查看。
           </p>
           <button
             class="mt-2 px-6 py-2.5 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity flex items-center gap-2 shadow-lg shadow-[#fd267a]/20"
@@ -1521,5 +1574,16 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 .sidebar-slide-leave-to {
   transform: translateX(-100%);
   opacity: 0;
+}
+
+/* Date-advance toast */
+.date-toast-enter-active,
+.date-toast-leave-active {
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+.date-toast-enter-from,
+.date-toast-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px);
 }
 </style>

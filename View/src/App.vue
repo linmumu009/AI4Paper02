@@ -7,11 +7,15 @@ import EngagementToast from './components/EngagementToast.vue'
 import AppToast from './components/AppToast.vue'
 import AppErrorBoundary from './components/AppErrorBoundary.vue'
 import { useRouter, useRoute } from 'vue-router'
-import { trackSessionDuration, flushAnalytics } from './composables/useAnalytics'
+import {
+  trackSessionDuration,
+  flushAnalytics,
+  flushAnalyticsForPageHide,
+} from './composables/useAnalytics'
 import { useGlobalChat } from './composables/useGlobalChat'
 import { useEngagement } from './composables/useEngagement'
 import { useEntitlements } from './composables/useEntitlements'
-import { isAuthenticated } from './stores/auth'
+import { invalidateAuthSession, isAuthenticated } from './stores/auth'
 
 const router = useRouter()
 const route = useRoute()
@@ -22,12 +26,43 @@ const mainChatOffset = computed(() =>
 const engagement = useEngagement()
 const { refreshEntitlements } = useEntitlements()
 
-// Session duration tracking
-const sessionStart = Date.now()
+// Session duration tracking. Periodic events are cumulative snapshots sharing
+// one ID; the backend keeps the maximum snapshot instead of summing duplicates.
+const analyticsSessionId = globalThis.crypto?.randomUUID?.()
+  ?? `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
+let accumulatedSessionSeconds = 0
+let sessionActiveSince: number | null = document.visibilityState === 'visible' ? Date.now() : null
 let sessionTimer: ReturnType<typeof setInterval> | null = null
 
+function reportSessionSnapshot(pause = false) {
+  const now = Date.now()
+  if (sessionActiveSince !== null) {
+    accumulatedSessionSeconds += (now - sessionActiveSince) / 1000
+    sessionActiveSince = pause ? null : now
+  }
+  if (accumulatedSessionSeconds > 0) {
+    trackSessionDuration(accumulatedSessionSeconds, analyticsSessionId)
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === 'hidden') {
+    reportSessionSnapshot(true)
+    flushAnalyticsForPageHide()
+  } else if (sessionActiveSince === null) {
+    sessionActiveSince = Date.now()
+  }
+}
+
+function handlePageHide() {
+  reportSessionSnapshot(true)
+  flushAnalyticsForPageHide()
+}
+
 function handleAuthRequired() {
-  if (route.path === '/login' || route.path === '/register') return
+  const hadAuthenticatedSession = isAuthenticated.value
+  invalidateAuthSession()
+  if (!hadAuthenticatedSession || route.path === '/login' || route.path === '/register') return
   router.push({
     path: '/login',
     query: { redirect: route.fullPath },
@@ -60,20 +95,21 @@ watch(compareRequest, (req) => {
 
 onMounted(() => {
   window.addEventListener('auth-required', handleAuthRequired)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
+  window.addEventListener('pagehide', handlePageHide)
 
   // Report session duration every 5 minutes
   sessionTimer = setInterval(() => {
-    const duration = (Date.now() - sessionStart) / 1000
-    trackSessionDuration(duration)
+    reportSessionSnapshot()
   }, 5 * 60 * 1000)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('auth-required', handleAuthRequired)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
+  window.removeEventListener('pagehide', handlePageHide)
   if (sessionTimer) clearInterval(sessionTimer)
-  // Final session duration report
-  const duration = (Date.now() - sessionStart) / 1000
-  trackSessionDuration(duration)
+  reportSessionSnapshot(true)
   flushAnalytics()
 })
 </script>

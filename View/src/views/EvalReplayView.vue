@@ -1,17 +1,14 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { fetchIdeaBenchmarks, createIdeaBenchmark, deleteIdeaBenchmark } from '../api'
 import type { IdeaEvalBenchmark } from '../types/paper'
 import { ensureAuthInitialized, isAuthenticated } from '../stores/auth'
-
-const router = useRouter()
+import WorkbenchPageShell from '../components/workbench/WorkbenchPageShell.vue'
 
 const benchmarks = ref<IdeaEvalBenchmark[]>([])
 const loading = ref(false)
 const error = ref('')
 
-// New benchmark form
 const showForm = ref(false)
 const newName = ref('')
 const newDesc = ref('')
@@ -61,32 +58,15 @@ const expandedId = ref<number | null>(null)
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
-    <!-- Header -->
-    <div class="shrink-0 px-4 sm:px-6 pt-4 sm:pt-6 pb-4 border-b border-border bg-bg">
-      <div class="flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-          <button
-            class="text-xs px-3 py-1.5 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors flex items-center gap-1.5"
-            @click="router.push('/idea')"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="15 18 9 12 15 6"/>
-            </svg>
-            返回
-          </button>
-          <h1 class="text-xl font-bold text-text-primary flex items-center gap-2">
-            <span class="text-2xl">📊</span> 评测回放
-          </h1>
-        </div>
-        <button
-          class="text-xs px-3 py-1.5 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors"
-          @click="showForm = !showForm"
-        >
-          + 新建基准
-        </button>
-      </div>
-    </div>
+  <WorkbenchPageShell icon="📊" title="评测回放">
+    <template #header-right>
+      <button
+        class="text-xs px-3 py-1.5 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-text-secondary hover:bg-bg-hover transition-colors"
+        @click="showForm = !showForm"
+      >
+        + 新建基准
+      </button>
+    </template>
 
     <!-- Content -->
     <div class="flex-1 overflow-y-auto p-4 sm:p-6">
@@ -154,5 +134,5 @@ const expandedId = ref<number | null>(null)
         </div>
       </div>
     </div>
-  </div>
+  </WorkbenchPageShell>
 </template>

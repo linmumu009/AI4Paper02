@@ -18,6 +18,10 @@ import FolderPickerDialog from '../FolderPickerDialog.vue'
 import ResearchSessionRow from './ResearchSessionRow.vue'
 import type { KbMenuItem } from '../../types/paper'
 
+const props = defineProps<{
+  activeSessionId: number | null
+}>()
+
 const emit = defineEmits<{
   openResearchSession: [sessionId: number]
   startNewResearch: []
@@ -591,6 +595,7 @@ defineExpose({ load, switchToSaved })
               :renaming-id="renamingSessionId"
               :renaming-text="renamingSessionText"
               :indent="true"
+              :active="activeSessionId === s.id"
               @open="emit('openResearchSession', s.id)"
               @toggle-check="toggleCheck(s.id)"
               @toggle-expand="toggleExpand(s.id)"
@@ -613,6 +618,7 @@ defineExpose({ load, switchToSaved })
           :renaming-id="renamingSessionId"
           :renaming-text="renamingSessionText"
           :indent="false"
+          :active="activeSessionId === s.id"
           @open="emit('openResearchSession', s.id)"
           @toggle-check="toggleCheck(s.id)"
           @toggle-expand="toggleExpand(s.id)"
@@ -635,6 +641,7 @@ defineExpose({ load, switchToSaved })
           :renaming-id="renamingSessionId"
           :renaming-text="renamingSessionText"
           :indent="false"
+          :active="activeSessionId === s.id"
           @open="emit('openResearchSession', s.id)"
           @toggle-check="toggleCheck(s.id)"
           @toggle-expand="toggleExpand(s.id)"

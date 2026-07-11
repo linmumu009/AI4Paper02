@@ -10,7 +10,7 @@
  *   trackPaperView('2602.05810', 45.2)  // paperId, durationSeconds
  */
 
-import { reportAnalyticsEvents } from '../api'
+import { IS_TAURI, reportAnalyticsEvents } from '../api'
 
 interface PendingEvent {
   event_type: string
@@ -49,23 +49,6 @@ async function _flush() {
   } catch {
     // Silently ignore – analytics should never break the app
   }
-}
-
-// Flush on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    if (_queue.length > 0) {
-      // Use sendBeacon for reliability during page unload
-      const payload = JSON.stringify({ events: _queue })
-      const url = '/api/analytics/events'
-      try {
-        navigator.sendBeacon(url, new Blob([payload], { type: 'application/json' }))
-      } catch {
-        // fallback: ignore
-      }
-      _queue = []
-    }
-  })
 }
 
 // ---------------------------------------------------------------------------
@@ -111,10 +94,12 @@ export function trackPaperViewDuration(paperId: string, durationSeconds: number)
   })
 }
 
-/** Track session duration (called periodically or on unload) */
-export function trackSessionDuration(durationSeconds: number) {
+/** Track a cumulative duration snapshot for one browser app session. */
+export function trackSessionDuration(durationSeconds: number, sessionId: string) {
   _enqueue({
     event_type: 'session_duration',
+    target_type: 'session',
+    target_id: sessionId,
     value: durationSeconds,
   })
 }
@@ -147,4 +132,35 @@ export function trackEvent(eventType: string, opts?: {
 /** Force flush all pending events immediately */
 export function flushAnalytics() {
   _flush()
+}
+
+/**
+ * Flush queued events when the page is being hidden. Browser builds use
+ * sendBeacon; Tauri must keep using its authenticated IPC transport.
+ */
+export function flushAnalyticsForPageHide() {
+  if (_queue.length === 0) return
+  if (IS_TAURI) {
+    void _flush()
+    return
+  }
+
+  if (_flushTimer) {
+    clearTimeout(_flushTimer)
+    _flushTimer = null
+  }
+  try {
+    const payload = JSON.stringify({ events: _queue })
+    const accepted = navigator.sendBeacon(
+      '/api/analytics/events',
+      new Blob([payload], { type: 'application/json' }),
+    )
+    if (accepted) {
+      _queue = []
+      return
+    }
+  } catch {
+    // Fall through to the ordinary transport.
+  }
+  void _flush()
 }

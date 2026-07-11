@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import SummarySection from './SummarySection.vue'
 import AssetsAccordion from './AssetsAccordion.vue'
-import type { PaperDetailResponse } from '../types/paper'
+import ResearchMemoryPanel from './ResearchMemoryPanel.vue'
+import type { PaperDetailResponse, PaperImage } from '../types/paper'
 import { isAuthenticated } from '../stores/auth'
 
-defineProps<{
+const props = defineProps<{
   detail: PaperDetailResponse
   effectiveSource?: 'recommendation' | 'user_upload'
 }>()
@@ -15,7 +16,10 @@ const emit = defineEmits<{
   openChat: []
 }>()
 
-const activeTab = ref<'summary' | 'assets'>('summary')
+const activeTab = ref<'summary' | 'images' | 'assets' | 'memory'>('summary')
+const selectedImage = ref<PaperImage | null>(null)
+const paperImages = computed(() => props.detail.images || [])
+const paperId = computed(() => props.detail.summary.paper_id || '')
 </script>
 
 <template>
@@ -108,6 +112,17 @@ const activeTab = ref<'summary' | 'assets'>('summary')
         论文摘要
       </button>
       <button
+        v-if="paperImages.length"
+        class="px-4 sm:px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors cursor-pointer bg-transparent border-l-0 border-r-0 border-t-0"
+        :class="activeTab === 'images'
+          ? 'border-tinder-pink text-tinder-pink'
+          : 'border-transparent text-text-muted hover:text-text-secondary'"
+        @click="activeTab = 'images'"
+      >
+        论文图表
+        <span class="ml-1 text-xs text-text-muted">{{ paperImages.length }}</span>
+      </button>
+      <button
         v-if="detail.paper_assets"
         class="px-4 sm:px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors cursor-pointer bg-transparent border-l-0 border-r-0 border-t-0"
         :class="activeTab === 'assets'
@@ -117,6 +132,16 @@ const activeTab = ref<'summary' | 'assets'>('summary')
       >
         结构化分析
       </button>
+      <button
+        v-if="isAuthenticated && paperId"
+        class="px-4 sm:px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors cursor-pointer bg-transparent border-l-0 border-r-0 border-t-0"
+        :class="activeTab === 'memory'
+          ? 'border-tinder-blue text-tinder-blue'
+          : 'border-transparent text-text-muted hover:text-text-secondary'"
+        @click="activeTab = 'memory'"
+      >
+        研究记忆
+      </button>
     </div>
 
     <div v-if="activeTab === 'summary'" class="bg-bg-card rounded-2xl border border-border p-4 sm:p-6">
@@ -124,10 +149,79 @@ const activeTab = ref<'summary' | 'assets'>('summary')
     </div>
 
     <div
+      v-if="activeTab === 'images' && paperImages.length"
+      class="bg-bg-card rounded-2xl border border-border p-4 sm:p-6"
+    >
+      <div class="flex items-start justify-between gap-3 mb-4">
+        <div>
+          <h2 class="text-base font-bold text-text-primary mb-1">论文图表</h2>
+          <p class="text-sm text-text-muted">来自后端 MinerU/select_image 产物，可用于快速浏览图表证据。</p>
+        </div>
+        <span class="shrink-0 text-xs px-2 py-1 rounded-full bg-bg-elevated border border-border text-text-muted">
+          {{ paperImages.length }} 张
+        </span>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          v-for="image in paperImages"
+          :key="image.filename"
+          type="button"
+          class="group overflow-hidden rounded-xl border border-border bg-bg-elevated p-0 text-left cursor-zoom-in transition-colors hover:border-tinder-blue/60"
+          @click="selectedImage = image"
+        >
+          <img
+            :src="image.url"
+            :alt="image.caption || image.filename"
+            loading="lazy"
+            class="w-full h-44 object-contain bg-bg-card transition-transform group-hover:scale-[1.02]"
+          />
+          <div class="px-3 py-2 border-t border-border">
+            <p class="text-xs text-text-muted font-mono truncate">{{ image.filename }}</p>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <div
       v-if="activeTab === 'assets' && detail.paper_assets"
       class="bg-bg-card rounded-2xl border border-border p-4 sm:p-6"
     >
       <AssetsAccordion :assets="detail.paper_assets" />
+    </div>
+
+    <div
+      v-if="activeTab === 'memory' && isAuthenticated && paperId"
+      class="bg-bg-card rounded-2xl border border-border overflow-hidden"
+      style="min-height: 320px"
+    >
+      <ResearchMemoryPanel :paper-id="paperId" />
+    </div>
+
+    <div
+      v-if="selectedImage"
+      class="fixed inset-0 z-[1000] bg-black/75 flex items-center justify-center p-4"
+      @click.self="selectedImage = null"
+    >
+      <div class="max-w-5xl max-h-[90vh] w-full rounded-2xl bg-bg-card border border-border overflow-hidden shadow-2xl">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-border">
+          <p class="text-sm text-text-secondary font-mono truncate">{{ selectedImage.filename }}</p>
+          <button
+            type="button"
+            class="shrink-0 px-3 py-1.5 rounded-full border border-border bg-bg-elevated text-sm text-text-secondary cursor-pointer hover:bg-bg-hover"
+            @click="selectedImage = null"
+          >
+            关闭
+          </button>
+        </div>
+        <div class="max-h-[calc(90vh-54px)] overflow-auto bg-bg-elevated">
+          <img
+            :src="selectedImage.url"
+            :alt="selectedImage.caption || selectedImage.filename"
+            class="w-full h-auto object-contain"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>

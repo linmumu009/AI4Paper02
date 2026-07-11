@@ -79,13 +79,41 @@
   --navbar-h: 3rem;                                   /* h-12 = 48px */
   --sidebar-w: clamp(220px, 22vw, 340px);             /* main KB sidebar */
   --drawer-w: clamp(320px, 32vw, 520px);              /* global chat drawer default */
-  --settings-sidebar-w: clamp(10rem, 18vw, 14rem);   /* profile / admin sidebar */
+  --settings-sidebar-w: clamp(220px, 22vw, 340px);   /* profile / admin sidebar — unified with main */
   --workbench-sidebar-w: clamp(3rem, 12vw, 11rem);   /* workbench tool sidebar */
+
+  /* Swipe card tokens — used by DailyDigest, PaperList, IdeaLabView */
+  --card-max-w: 460px;
+  --card-height-offset: 220px;   /* navbar + counter pill + action buttons */
+  --card-max-h: 680px;
+  --card-min-h: 360px;
 }
 
 @media (min-width: 640px) {
   :root {
     --navbar-h: 3.5rem;  /* sm:h-14 = 56px */
+  }
+}
+
+/* Navbar center section — absolutely positioned so the buttons are always centered
+   within the content area (sidebar-right region), regardless of left/right control widths */
+.navbar-center {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.navbar-center > * {
+  pointer-events: auto;
+}
+@media (min-width: 1024px) {
+  .navbar-center {
+    left: var(--sidebar-w);
   }
 }
 
@@ -381,6 +409,62 @@ body {
   background: rgba(253, 38, 122, 0.3);
 }
 
+/* ===== Shared atom: arXiv category badge ===== */
+/* Used in PaperCard.vue and PaperListRow.vue */
+.category-tag-atom {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: rgba(45, 184, 226, 0.08);
+  color: var(--color-tinder-blue);
+  border: 1px solid rgba(45, 184, 226, 0.2);
+  line-height: 1.4;
+}
+
+/* ===== Shared atom: tier pill ===== */
+/* Used in PaperListRow.vue; PaperCard uses its own heavier institution-badge */
+.tier-pill-atom {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+}
+
+.tier-pill-atom--t1 {
+  background: rgba(245, 197, 24, 0.18);
+  color: #f5c518;
+  border: 1px solid rgba(245, 197, 24, 0.35);
+}
+
+.tier-pill-atom--t2 {
+  background: rgba(45, 184, 226, 0.14);
+  color: var(--color-tinder-blue);
+  border: 1px solid rgba(45, 184, 226, 0.3);
+}
+
+.tier-pill-atom--t3 {
+  background: rgba(249, 115, 22, 0.12);
+  color: #f97316;
+  border: 1px solid rgba(249, 115, 22, 0.28);
+}
+
+.tier-pill-atom--t4 {
+  background: rgba(113, 113, 122, 0.1);
+  color: var(--color-text-muted);
+  border: 1px solid rgba(113, 113, 122, 0.25);
+}
+
 /* ===== Deep Research Panel animations ===== */
 
 /* Stepper: gentle pulsing ring around active step */
@@ -441,6 +525,42 @@ body {
 }
 .milestone-pulse {
   animation: milestonePulse 2s ease-in-out infinite;
+}
+
+/* ===== Workbench shared UI atoms ===== */
+
+/* Back button used inside embedded workbench tool views */
+.wb-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  padding: 0.375rem 0.75rem;
+  border-radius: 9999px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.wb-back-btn:hover {
+  color: var(--color-text-secondary);
+  background-color: var(--color-bg-hover);
+}
+
+/* Section heading in workbench detail panels (shared across IdeaLabView, IdeaDetailView, etc.) */
+.wb-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.625rem;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 /* ─── Accessibility: prefers-reduced-motion ──────────────────────────────── */

@@ -12,6 +12,55 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, 'src'),
       '@shared': path.resolve(__dirname, '../shared'),
+      'axios': path.resolve(__dirname, 'node_modules/axios'),
+    },
+  },
+  build: {
+    // KaTeX is a single prebuilt module (~522 kB minified, ~155 kB gzip).
+    // Keep the warning budget just above that isolated, cacheable vendor chunk.
+    chunkSizeWarningLimit: 550,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalized = id.replace(/\\/g, '/')
+          if (normalized.includes('/node_modules/zrender/')) {
+            return 'vendor-zrender'
+          }
+          if (normalized.includes('/node_modules/echarts/')) {
+            return 'vendor-echarts'
+          }
+          if (
+            normalized.includes('/node_modules/@tiptap/')
+            || normalized.includes('/node_modules/@prosemirror/')
+            || normalized.includes('/node_modules/prosemirror-')
+            || normalized.includes('/node_modules/lowlight/')
+          ) {
+            return 'vendor-editor'
+          }
+          if (normalized.includes('/node_modules/katex/')) {
+            return 'vendor-katex'
+          }
+          if (normalized.includes('/node_modules/markdown-it')) {
+            return 'vendor-markdown'
+          }
+          if (
+            normalized.includes('/node_modules/modern-screenshot/')
+            || normalized.includes('/node_modules/qrcode/')
+          ) {
+            return 'vendor-share'
+          }
+          if (
+            normalized.includes('/node_modules/vue/')
+            || normalized.includes('/node_modules/@vue/')
+            || normalized.includes('/node_modules/vue-router/')
+          ) {
+            return 'vendor-vue'
+          }
+          if (normalized.includes('/node_modules/axios/')) {
+            return 'vendor-network'
+          }
+        },
+      },
     },
   },
   server: {

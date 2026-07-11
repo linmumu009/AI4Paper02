@@ -53,12 +53,12 @@ const expiryClass = computed(() => {
     <span class="text-base shrink-0 mt-0.5 leading-none">{{ rewardIcon(reward.reward_code, reward.streak_day) }}</span>
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-1.5 flex-wrap">
-        <p class="text-xs font-medium text-text-primary truncate">{{ reward.reward_name }}</p>
-        <span class="text-[9px] font-bold px-1 py-0.5 rounded leading-none" :class="statusClass">
+        <p class="text-[13px] font-medium text-text-primary truncate">{{ reward.reward_name }}</p>
+        <span class="text-[10px] font-bold px-1.5 py-0.5 rounded leading-none" :class="statusClass">
           {{ rewardStatusLabel(reward.status) }}
         </span>
       </div>
-      <p class="text-[10px] text-text-muted mt-0.5">
+      <p class="text-[11px] text-text-muted mt-0.5">
         第 {{ reward.streak_day }} 天里程碑
         <span v-if="reward.expires_at && reward.status === 'active'" class="ml-1" :class="expiryClass">
           · {{ expiresText(reward.expires_at) }}

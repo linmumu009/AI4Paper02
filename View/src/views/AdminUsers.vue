@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch, nextTick } from 'vue'
+import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
 import {
   fetchAdminUsers,
   fetchAdminUserDetail,
@@ -28,16 +28,26 @@ import {
   deletePromptConfig,
   applyPromptConfig,
   batchApplyConfigs,
-  fetchAnnouncements,
-  createAnnouncement,
-  updateAnnouncement,
-  deleteAnnouncement,
-  fetchPipelineDataTracking,
   adminResetUserPassword,
   adminForceLogout,
   adminDisableUser,
   adminEnableUser,
   adminDeleteUser,
+  fetchAdminFeatureDefaults,
+  saveAdminFeatureDefault,
+  resetAdminFeatureDefault,
+  type AdminFeatureDefaultEntry,
+  fetchAdminCustomConfigs,
+  type CustomConfigAuditResponse,
+  type AuditUserRecord,
+  fetchPipelineStepConfig,
+  savePipelineStepConfig,
+  resetPipelineStepConfig,
+  fetchOpenRouterKeyPool,
+  saveOpenRouterKeyPool,
+  fetchOpenRouterFreeModels,
+  type OpenRouterKeyPoolStatus,
+  type OpenRouterFreeModel,
 } from '../api'
 import type {
   AuthUser,
@@ -49,39 +59,31 @@ import type {
   LlmConfig,
   PromptConfig,
   AdminRedeemKeyRecord,
-  Announcement,
-  AnnouncementTag,
   AdminUserDetailResponse,
   SubscriptionHistoryRecord,
-  PipelineDataTrackingRecord,
+  PipelineStepDefinition,
 } from '../types/paper'
 import { isSuperAdmin, currentUser } from '../stores/auth'
-import AdminAnalytics from '../components/AdminAnalytics.vue'
-import * as echarts from 'echarts/core'
-import { BarChart, LineChart, FunnelChart } from 'echarts/charts'
-import {
-  TitleComponent as EChartsTitleComponent,
-  TooltipComponent as EChartsTooltipComponent,
-  LegendComponent as EChartsLegendComponent,
-  GridComponent as EChartsGridComponent,
-} from 'echarts/components'
-import { CanvasRenderer as EChartsCanvasRenderer } from 'echarts/renderers'
+import { usePollingTask } from '../composables/usePollingTask'
 
-echarts.use([
-  BarChart, LineChart, FunnelChart,
-  EChartsTitleComponent, EChartsTooltipComponent, EChartsLegendComponent,
-  EChartsGridComponent, EChartsCanvasRenderer,
-])
+const AdminAnalytics = defineAsyncComponent(() => import('../components/AdminAnalytics.vue'))
+const PipelineConsole = defineAsyncComponent(() => import('../components/PipelineConsole.vue'))
+const AdminDataTrackingPanel = defineAsyncComponent(() => import('../components/admin/AdminDataTrackingPanel.vue'))
+const AdminPdfCleanupPanel = defineAsyncComponent(() => import('../components/admin/AdminPdfCleanupPanel.vue'))
+const AdminPreferenceAnalyticsPanel = defineAsyncComponent(() => import('../components/admin/AdminPreferenceAnalyticsPanel.vue'))
+const AdminAnnouncementsPanel = defineAsyncComponent(() => import('../components/admin/AdminAnnouncementsPanel.vue'))
 
 // ---------------------------------------------------------------------------
 // Sidebar menu state
 // ---------------------------------------------------------------------------
-const activeTab = ref<'users' | 'subscription-keys' | 'roles' | 'pipeline' | 'schedule' | 'data-tracking' | 'paper-recommend-config' | 'idea-generate-config' | 'llm-config' | 'prompt-config' | 'announcements' | 'analytics'>('users')
+const activeTab = ref<'users' | 'subscription-keys' | 'roles' | 'pipeline' | 'console' | 'schedule' | 'data-tracking' | 'step-config' | 'paper-recommend-config' | 'idea-generate-config' | 'feature-defaults-config' | 'llm-config' | 'prompt-config' | 'announcements' | 'analytics' | 'preference-analytics' | 'user-custom-configs' | 'pdf-cleanup'>('users')
 const showAdminSidebar = ref(false)
 
 const menuItems = computed(() => {
   const items: { key: typeof activeTab.value; icon: string; label: string; desc: string; group?: string }[] = [
     { key: 'analytics', icon: '📊', label: '数据统计', desc: '平台数据分析与用户洞察', group: '概览' },
+    { key: 'preference-analytics', icon: '🧭', label: '偏好推荐分析', desc: '用户偏好信号覆盖率与行为分布', group: '概览' },
+    // Note: Preference Loop Dashboard is a separate page at /admin/preference-loop
     { key: 'users', icon: '👥', label: '用户等级', desc: '管理用户访问等级', group: '用户' },
     { key: 'subscription-keys', icon: '🎟️', label: '会员兑换码', desc: '批量发放并管理兑换码', group: '用户' },
   ]
@@ -91,12 +93,17 @@ const menuItems = computed(() => {
   items.push(
     { key: 'announcements', icon: '📢', label: '公告管理', desc: '发布和管理平台公告通知', group: '运营' },
     { key: 'pipeline', icon: '🚀', label: '脚本执行', desc: '手动运行 Pipeline', group: '运维' },
+    { key: 'console', icon: '🖥️', label: '运行控制台', desc: '可观测 Run / Step / 产物 / 重跑', group: '运维' },
     { key: 'schedule', icon: '🕐', label: '定时调度', desc: '自动定时执行配置', group: '运维' },
     { key: 'data-tracking', icon: '📈', label: '数据追踪', desc: 'Pipeline 每步数据量变化追踪', group: '运维' },
+    { key: 'step-config', icon: '⚙️', label: '步骤控制', desc: '控制 Pipeline 中哪些步骤启用或禁用', group: '运维' },
+    { key: 'pdf-cleanup', icon: '🗑️', label: 'PDF 清理', desc: 'N天未收藏的推荐PDF缓存清理', group: '运维' },
     { key: 'paper-recommend-config', icon: '⭐', label: '论文推荐配置', desc: '论文推荐功能模型与提示词配置', group: '系统配置' },
     { key: 'idea-generate-config', icon: '💡', label: '灵感生成配置', desc: '灵感生成功能模型与提示词配置', group: '系统配置' },
+    { key: 'feature-defaults-config', icon: '🎛️', label: 'AI功能默认配置', desc: '问答/对比/深度研究等功能的默认参数', group: '系统配置' },
     { key: 'llm-config', icon: '🤖', label: '模型配置库', desc: '管理大模型配置', group: '配置库' },
     { key: 'prompt-config', icon: '📝', label: '提示词库', desc: '管理提示词配置', group: '配置库' },
+    { key: 'user-custom-configs', icon: '🔍', label: '用户配置审计', desc: '查看各用户独立模型/提示词配置情况', group: '配置库' },
   )
   return items
 })
@@ -115,143 +122,6 @@ const menuGroups = computed(() => {
   }
   return groups
 })
-
-// ---------------------------------------------------------------------------
-// Announcements Management (公告管理)
-// ---------------------------------------------------------------------------
-
-const adminAnnouncements = ref<Announcement[]>([])
-const adminAnnouncementsLoading = ref(false)
-const adminAnnouncementsError = ref('')
-const adminAnnouncementsTotal = ref(0)
-
-// Form state
-const showAnnouncementForm = ref(false)
-const editingAnnouncement = ref<Announcement | null>(null)
-const announcementForm = ref({
-  title: '',
-  content: '',
-  tag: 'general' as AnnouncementTag,
-  is_pinned: false,
-})
-const announcementFormSaving = ref(false)
-const announcementFormError = ref('')
-
-const announcementTagOptions: { label: string; value: AnnouncementTag }[] = [
-  { label: '一般', value: 'general' },
-  { label: '重要', value: 'important' },
-  { label: '更新', value: 'update' },
-  { label: '维护', value: 'maintenance' },
-]
-
-function announcementTagLabel(tag: string): string {
-  const map: Record<string, string> = { important: '重要', general: '一般', update: '更新', maintenance: '维护' }
-  return map[tag] || tag
-}
-
-function announcementTagClass(tag: string): string {
-  const map: Record<string, string> = {
-    important: 'bg-red-500/15 text-red-400 border-red-500/20',
-    general: 'bg-gray-500/15 text-text-muted border-gray-500/20',
-    update: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-    maintenance: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  }
-  return map[tag] || 'bg-gray-500/15 text-text-muted border-gray-500/20'
-}
-
-async function loadAdminAnnouncements() {
-  adminAnnouncementsLoading.value = true
-  adminAnnouncementsError.value = ''
-  try {
-    const res = await fetchAnnouncements({ limit: 100 })
-    adminAnnouncements.value = res.announcements
-    adminAnnouncementsTotal.value = res.total
-  } catch (e: any) {
-    adminAnnouncementsError.value = e?.response?.data?.detail || e?.message || '加载公告失败'
-  } finally {
-    adminAnnouncementsLoading.value = false
-  }
-}
-
-function openNewAnnouncementForm() {
-  editingAnnouncement.value = null
-  announcementForm.value = { title: '', content: '', tag: 'general', is_pinned: false }
-  announcementFormError.value = ''
-  showAnnouncementForm.value = true
-}
-
-function openEditAnnouncementForm(item: Announcement) {
-  editingAnnouncement.value = item
-  announcementForm.value = {
-    title: item.title,
-    content: item.content,
-    tag: item.tag,
-    is_pinned: item.is_pinned,
-  }
-  announcementFormError.value = ''
-  showAnnouncementForm.value = true
-}
-
-function closeAnnouncementForm() {
-  showAnnouncementForm.value = false
-  editingAnnouncement.value = null
-}
-
-async function saveAnnouncementForm() {
-  if (!announcementForm.value.title.trim()) {
-    announcementFormError.value = '标题不能为空'
-    return
-  }
-  if (!announcementForm.value.content.trim()) {
-    announcementFormError.value = '内容不能为空'
-    return
-  }
-  announcementFormSaving.value = true
-  announcementFormError.value = ''
-  try {
-    if (editingAnnouncement.value) {
-      await updateAnnouncement(editingAnnouncement.value.id, {
-        title: announcementForm.value.title,
-        content: announcementForm.value.content,
-        tag: announcementForm.value.tag,
-        is_pinned: announcementForm.value.is_pinned,
-      })
-    } else {
-      await createAnnouncement({
-        title: announcementForm.value.title,
-        content: announcementForm.value.content,
-        tag: announcementForm.value.tag,
-        is_pinned: announcementForm.value.is_pinned,
-      })
-    }
-    closeAnnouncementForm()
-    await loadAdminAnnouncements()
-  } catch (e: any) {
-    announcementFormError.value = e?.response?.data?.detail || e?.message || '保存失败'
-  } finally {
-    announcementFormSaving.value = false
-  }
-}
-
-async function deleteAnnouncementItem(item: Announcement) {
-  if (!confirm(`确定要删除公告「${item.title}」吗？`)) return
-  try {
-    await deleteAnnouncement(item.id)
-    await loadAdminAnnouncements()
-  } catch (e: any) {
-    adminAnnouncementsError.value = e?.response?.data?.detail || e?.message || '删除失败'
-  }
-}
-
-function formatAdminAnnouncementDate(ts: string): string {
-  try {
-    const d = new Date(ts)
-    if (Number.isNaN(d.getTime())) return ts
-    return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-  } catch {
-    return ts
-  }
-}
 
 // ---------------------------------------------------------------------------
 // User Management
@@ -445,7 +315,6 @@ async function handleDisableRedeemKey(key: AdminRedeemKeyRecord) {
 const pipelineStatus = ref<PipelineRunStatus | null>(null)
 const pipelineLoading = ref(false)
 const pipelineError = ref('')
-const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
 // Track the current run_id so the UI always shows the right run after a refresh
 const trackedRunId = ref<string | null>(null)
 
@@ -555,6 +424,10 @@ async function handleRunPipeline() {
         force: runForce.value,
         multi_user: true,
         max_concurrent_user_pipelines: runMaxConcurrentUsers.value,
+        days: runDays.value ?? null,
+        categories: runCategories.value.trim() || null,
+        extra_query: runQuery.value.trim() || null,
+        max_papers: runMaxPapers.value ?? null,
       })
     } else {
       await runPipeline({
@@ -566,7 +439,7 @@ async function handleRunPipeline() {
         days: runDays.value || null,
         categories: runCategories.value.trim() || null,
         extra_query: runQuery.value.trim() || null,
-        max_papers: runMaxPapers.value || null,
+        max_papers: runMaxPapers.value ?? null,
       })
     }
     startPolling()
@@ -610,25 +483,13 @@ async function handleSaveSchedule() {
   }
 }
 
-function startPolling() {
-  if (pollTimer.value) return
-  pollTimer.value = setInterval(async () => {
-    await loadPipelineStatus()
-    if (logsContainer.value) {
-      logsContainer.value.scrollTop = logsContainer.value.scrollHeight
-    }
-    if (!pipelineStatus.value?.running) {
-      stopPolling()
-    }
-  }, 2000)
-}
-
-function stopPolling() {
-  if (pollTimer.value) {
-    clearInterval(pollTimer.value)
-    pollTimer.value = null
+const { start: startPolling } = usePollingTask(async () => {
+  await loadPipelineStatus()
+  if (logsContainer.value) {
+    logsContainer.value.scrollTop = logsContainer.value.scrollHeight
   }
-}
+  return pipelineStatus.value?.running === true
+}, { intervalMs: 2000 })
 
 const formattedStartedAt = computed(() => {
   if (!pipelineStatus.value?.started_at) return '-'
@@ -1119,6 +980,82 @@ async function handleSaveMineruToken() {
   }
 }
 
+// arXiv 检索分类
+const ARXIV_COMMON_CATEGORIES = [
+  { code: 'cs.CL', label: '计算语言学' },
+  { code: 'cs.LG', label: '机器学习' },
+  { code: 'cs.AI', label: '人工智能' },
+  { code: 'stat.ML', label: '统计机器学习' },
+  { code: 'cs.CV', label: '计算机视觉' },
+  { code: 'cs.IR', label: '信息检索' },
+  { code: 'cs.RO', label: '机器人学' },
+  { code: 'cs.NE', label: '神经/进化计算' },
+  { code: 'cs.SE', label: '软件工程' },
+  { code: 'cs.CR', label: '密码学与安全' },
+  { code: 'cs.DC', label: '分布式计算' },
+  { code: 'cs.DS', label: '数据结构与算法' },
+  { code: 'cs.GT', label: '博弈论' },
+  { code: 'eess.SP', label: '信号处理' },
+  { code: 'math.OC', label: '优化与控制' },
+  { code: 'q-bio.BM', label: '生物分子' },
+  { code: 'physics.comp-ph', label: '计算物理' },
+  { code: 'q-fin.ST', label: '统计金融' },
+]
+const adminSearchCategories = ref<string[]>([])
+const adminCategoryCustomInput = ref('')
+const savingAdminCategories = ref(false)
+
+function initAdminSearchCategories() {
+  const raw = configValues.value['SEARCH_CATEGORIES']
+  if (Array.isArray(raw)) {
+    adminSearchCategories.value = [...raw]
+  } else if (typeof raw === 'string' && raw) {
+    adminSearchCategories.value = raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+  } else {
+    adminSearchCategories.value = ['cs.CL', 'cs.LG', 'cs.AI', 'stat.ML']
+  }
+}
+
+function toggleAdminCategory(code: string) {
+  const idx = adminSearchCategories.value.indexOf(code)
+  if (idx >= 0) {
+    if (adminSearchCategories.value.length > 1) {
+      adminSearchCategories.value.splice(idx, 1)
+    }
+  } else {
+    adminSearchCategories.value.push(code)
+  }
+}
+
+function addAdminCustomCategory() {
+  const code = adminCategoryCustomInput.value.trim()
+  if (code && !adminSearchCategories.value.includes(code)) {
+    adminSearchCategories.value.push(code)
+  }
+  adminCategoryCustomInput.value = ''
+}
+
+function removeAdminCategory(code: string) {
+  if (adminSearchCategories.value.length > 1) {
+    adminSearchCategories.value = adminSearchCategories.value.filter(c => c !== code)
+  }
+}
+
+async function handleSaveAdminCategories() {
+  savingAdminCategories.value = true
+  try {
+    await updateSystemConfig({ SEARCH_CATEGORIES: adminSearchCategories.value })
+    await loadSystemConfig()
+    initAdminSearchCategories()
+    sysConfigSuccessMsg.value = '检索分类已保存'
+    setTimeout(() => { sysConfigSuccessMsg.value = '' }, 2500)
+  } catch (e: any) {
+    window.alert(e?.response?.data?.detail || '保存失败')
+  } finally {
+    savingAdminCategories.value = false
+  }
+}
+
 async function handleApplyLlmConfig(prefix: string) {
   const configId = selectedLlmConfigIds.value[prefix]
   if (!configId) return
@@ -1168,6 +1105,205 @@ async function handleSaveWordLimits() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Feature Defaults Config (AI 功能默认配置)
+// ---------------------------------------------------------------------------
+
+interface FeatureDefaultsMeta {
+  feature: string
+  label: string
+  icon: string
+  desc: string
+  editableFields: string[]
+  promptFields: { key: string; label: string }[]
+  specialFields?: { key: string; label: string; type: 'select' | 'number'; options?: { value: any; label: string }[] }[]
+}
+
+const FEATURE_DEFAULTS_META: FeatureDefaultsMeta[] = [
+  {
+    feature: 'paper_chat',
+    label: 'AI 问答',
+    icon: '💬',
+    desc: '论文单篇问答功能的默认参数',
+    editableFields: ['temperature', 'max_tokens', 'input_hard_limit', 'input_safety_margin'],
+    promptFields: [{ key: 'system_prompt', label: '系统提示词' }],
+    specialFields: [
+      { key: 'data_source', label: '数据来源', type: 'select', options: [{ value: 'summary', label: 'summary（AI摘要）' }, { value: 'fulltext', label: 'fulltext（全文）' }] },
+      { key: 'context_strategy', label: '上下文策略', type: 'select', options: [{ value: 'recent_k', label: 'recent_k（最近K轮）' }, { value: 'summary', label: 'summary（摘要压缩）' }, { value: 'full', label: 'full（全部）' }] },
+      { key: 'context_k', label: '上下文轮数 (K)', type: 'number' },
+    ],
+  },
+  {
+    feature: 'compare',
+    label: '对比分析',
+    icon: '🔬',
+    desc: '多篇论文横向对比分析功能的默认参数',
+    editableFields: ['temperature', 'max_tokens', 'input_hard_limit', 'input_safety_margin'],
+    promptFields: [{ key: 'system_prompt', label: '系统提示词' }],
+    specialFields: [
+      { key: 'data_source', label: '数据来源', type: 'select', options: [{ value: 'summary', label: 'summary（AI摘要）' }, { value: 'fulltext', label: 'fulltext（全文）' }] },
+    ],
+  },
+  {
+    feature: 'my_papers',
+    label: '我的论文解析',
+    icon: '📚',
+    desc: '用户上传/导入论文解析、摘要生成与摘要精简的默认参数',
+    editableFields: [
+      'temperature',
+      'max_tokens',
+      'input_hard_limit',
+      'input_safety_margin',
+      'section_limit_intro',
+      'section_limit_method',
+      'section_limit_findings',
+      'section_limit_opinion',
+      'headline_limit',
+    ],
+    promptFields: [
+      { key: 'system_prompt', label: '摘要生成提示词' },
+      { key: 'summary_limit_prompt_intro', label: '文章简介精简提示词' },
+      { key: 'summary_limit_prompt_method', label: '重点思路精简提示词' },
+      { key: 'summary_limit_prompt_findings', label: '分析总结精简提示词' },
+      { key: 'summary_limit_prompt_opinion', label: '个人观点精简提示词' },
+    ],
+  },
+  {
+    feature: 'inspiration',
+    label: '灵感涌现',
+    icon: '✨',
+    desc: '灵感涌现对比分析功能的默认参数',
+    editableFields: ['temperature', 'max_tokens', 'input_hard_limit', 'input_safety_margin'],
+    promptFields: [{ key: 'system_prompt', label: '系统提示词' }],
+  },
+  {
+    feature: 'deep_research',
+    label: '深度研究',
+    icon: '🔭',
+    desc: '多轮深度研究功能的默认参数与各轮次提示词',
+    editableFields: ['temperature', 'max_tokens', 'input_hard_limit', 'input_safety_margin'],
+    promptFields: [
+      { key: 'round1_system_prompt', label: 'Round 1 提示词（相关性排序）' },
+      { key: 'round2_system_prompt', label: 'Round 2 提示词（摘要分析）' },
+      { key: 'round3_system_prompt', label: 'Round 3 提示词（全文深读）' },
+    ],
+  },
+]
+
+const featureDefaultsData = ref<AdminFeatureDefaultEntry[]>([])
+const featureDefaultsLoading = ref(false)
+const featureDefaultsError = ref('')
+const featureDefaultsSaving = ref<string | null>(null) // feature being saved
+const featureDefaultsResetting = ref<string | null>(null) // feature being reset
+const featureDefaultsSuccessMsg = ref('')
+
+// Local editable copies: { [feature]: { [key]: value } }
+const featureDefaultsEdits = ref<Record<string, Record<string, any>>>({})
+// Snapshot of last-saved values for dirty detection
+const featureDefaultsSnapshot = ref<Record<string, Record<string, any>>>({})
+// Textarea expand state: { [feature+key]: boolean }
+const featurePromptExpanded = ref<Record<string, boolean>>({})
+
+function _featurePromptKey(feature: string, key: string) {
+  return `${feature}__${key}`
+}
+
+function isFeatureDefaultsDirty(feature: string): boolean {
+  const edits = featureDefaultsEdits.value[feature] || {}
+  const snapshot = featureDefaultsSnapshot.value[feature] || {}
+  return JSON.stringify(edits) !== JSON.stringify(snapshot)
+}
+
+const featureDefaultsDirtyCount = computed(() =>
+  FEATURE_DEFAULTS_META.filter(m => isFeatureDefaultsDirty(m.feature)).length
+)
+
+async function loadFeatureDefaults() {
+  featureDefaultsLoading.value = true
+  featureDefaultsError.value = ''
+  try {
+    const res = await fetchAdminFeatureDefaults()
+    featureDefaultsData.value = res.features
+    // Initialize local edits from effective_defaults + admin_overrides (for extra fields like admin_llm_config_id)
+    for (const entry of res.features) {
+      const init = {
+        ...entry.effective_defaults,
+        admin_llm_config_id: entry.admin_overrides?.admin_llm_config_id ?? null,
+      }
+      featureDefaultsEdits.value[entry.feature] = init
+      featureDefaultsSnapshot.value[entry.feature] = { ...init }
+    }
+  } catch (e: any) {
+    featureDefaultsError.value = e?.response?.data?.detail || e?.message || '加载失败'
+  } finally {
+    featureDefaultsLoading.value = false
+  }
+}
+
+async function handleSaveFeatureDefaults(feature: string) {
+  featureDefaultsSaving.value = feature
+  featureDefaultsSuccessMsg.value = ''
+  try {
+    const meta = FEATURE_DEFAULTS_META.find(m => m.feature === feature)
+    if (!meta) return
+    const edits = featureDefaultsEdits.value[feature] || {}
+    // Build overrides: only fields that differ from hardcoded defaults
+    const entry = featureDefaultsData.value.find(e => e.feature === feature)
+    const hardcoded = entry?.hardcoded_defaults || {}
+    const overrides: Record<string, any> = {}
+    const allKeys = [
+      'admin_llm_config_id',
+      ...meta.editableFields,
+      ...meta.promptFields.map(p => p.key),
+      ...(meta.specialFields || []).map(s => s.key),
+    ]
+    for (const key of allKeys) {
+      if (key in edits) {
+        overrides[key] = edits[key]
+      }
+    }
+    const res = await saveAdminFeatureDefault(feature, overrides)
+    // Update local snapshot and data (admin_llm_config_id lives in overrides, not effective_defaults)
+    const newState = {
+      ...res.effective_defaults,
+      admin_llm_config_id: overrides.admin_llm_config_id ?? null,
+    }
+    featureDefaultsSnapshot.value[feature] = { ...newState }
+    featureDefaultsEdits.value[feature] = { ...newState }
+    const idx = featureDefaultsData.value.findIndex(e => e.feature === feature)
+    if (idx !== -1) {
+      featureDefaultsData.value[idx] = {
+        ...featureDefaultsData.value[idx],
+        effective_defaults: res.effective_defaults,
+        admin_overrides: overrides,
+        has_admin_overrides: true,
+      }
+    }
+    featureDefaultsSuccessMsg.value = '已保存'
+    setTimeout(() => { featureDefaultsSuccessMsg.value = '' }, 3000)
+  } catch (e: any) {
+    alert('保存失败：' + (e?.response?.data?.detail || e?.message || '未知错误'))
+  } finally {
+    featureDefaultsSaving.value = null
+  }
+}
+
+async function handleResetFeatureDefaults(feature: string) {
+  if (!confirm(`确定要将「${FEATURE_DEFAULTS_META.find(m => m.feature === feature)?.label || feature}」的默认配置恢复为内置默认值吗？`)) return
+  featureDefaultsResetting.value = feature
+  try {
+    await resetAdminFeatureDefault(feature)
+    // Reload to get fresh hardcoded values
+    await loadFeatureDefaults()
+    featureDefaultsSuccessMsg.value = '已恢复默认'
+    setTimeout(() => { featureDefaultsSuccessMsg.value = '' }, 3000)
+  } catch (e: any) {
+    alert('重置失败：' + (e?.response?.data?.detail || e?.message || '未知错误'))
+  } finally {
+    featureDefaultsResetting.value = null
+  }
+}
+
 // Watch activeTab to load config when switching to config tabs
 watch(activeTab, async (newTab) => {
   if (newTab === 'subscription-keys' && redeemKeys.value.length === 0) {
@@ -1183,10 +1319,19 @@ watch(activeTab, async (newTab) => {
     snapshotSelections()
     initWordLimits()
     initMineruToken()
-  } else if (newTab === 'llm-config' && llmConfigs.value.length === 0) {
-    loadLlmConfigs()
+    initAdminSearchCategories()
+  } else if (newTab === 'feature-defaults-config') {
+    const promises: Promise<void>[] = []
+    if (featureDefaultsData.value.length === 0) promises.push(loadFeatureDefaults())
+    if (llmConfigs.value.length === 0) promises.push(loadLlmConfigs())
+    if (promises.length > 0) await Promise.all(promises)
+  } else if (newTab === 'llm-config') {
+    if (llmConfigs.value.length === 0) loadLlmConfigs()
+    if (!keyPoolStatus.value) loadKeyPool()
   } else if (newTab === 'prompt-config' && promptConfigs.value.length === 0) {
     loadPromptConfigs()
+  } else if (newTab === 'user-custom-configs' && !customConfigsData.value) {
+    loadCustomConfigs()
   }
 })
 
@@ -1247,6 +1392,8 @@ function startEditLlmConfig(config?: LlmConfig) {
       concurrency: undefined,
       input_hard_limit: undefined,
       input_safety_margin: undefined,
+      enable_thinking: false,
+      use_openrouter_free_pool: false,
       endpoint: undefined,
       completion_window: undefined,
       out_root: undefined,
@@ -1256,8 +1403,13 @@ function startEditLlmConfig(config?: LlmConfig) {
 }
 
 async function saveLlmConfig() {
-  if (!llmConfigForm.value.name || !llmConfigForm.value.base_url || !llmConfigForm.value.api_key || !llmConfigForm.value.model) {
-    window.alert('请填写必填字段：名称、base_url、api_key、model')
+  const usePool = !!llmConfigForm.value.use_openrouter_free_pool
+  if (!llmConfigForm.value.name || !llmConfigForm.value.model) {
+    window.alert('请填写必填字段：名称、model')
+    return
+  }
+  if (!usePool && (!llmConfigForm.value.base_url || !llmConfigForm.value.api_key)) {
+    window.alert('未启用 OpenRouter Key 池时，请填写 base_url 和 api_key')
     return
   }
   llmConfigSaving.value = true
@@ -1299,6 +1451,72 @@ async function applyLlmConfigHandler(id: number, usagePrefix: string) {
   } finally {
     llmConfigApplying.value = null
   }
+}
+
+// ---------------------------------------------------------------------------
+// OpenRouter Key Pool Management
+// ---------------------------------------------------------------------------
+const keyPoolStatus = ref<OpenRouterKeyPoolStatus | null>(null)
+const keyPoolLoading = ref(false)
+const keyPoolSaving = ref(false)
+const keyPoolError = ref('')
+const keyPoolKeysText = ref('')
+const keyPoolDailyLimit = ref(50)
+const keyPoolExpanded = ref(false)
+
+const freeModels = ref<OpenRouterFreeModel[]>([])
+const freeModelsLoading = ref(false)
+const freeModelsExpanded = ref(false)
+
+async function loadKeyPool() {
+  keyPoolLoading.value = true
+  keyPoolError.value = ''
+  try {
+    const res = await fetchOpenRouterKeyPool()
+    keyPoolStatus.value = res
+    keyPoolDailyLimit.value = res.daily_limit
+  } catch (e: any) {
+    keyPoolError.value = e?.response?.data?.detail || '加载 Key 池状态失败'
+  } finally {
+    keyPoolLoading.value = false
+  }
+}
+
+async function saveKeyPool() {
+  keyPoolSaving.value = true
+  keyPoolError.value = ''
+  try {
+    const res = await saveOpenRouterKeyPool(keyPoolKeysText.value, keyPoolDailyLimit.value)
+    keyPoolStatus.value = res
+    keyPoolKeysText.value = ''
+    window.alert(`已保存 ${res.total_keys} 个 Key，每日限额 ${res.daily_limit} 次`)
+  } catch (e: any) {
+    keyPoolError.value = e?.response?.data?.detail || '保存 Key 池失败'
+    window.alert(keyPoolError.value)
+  } finally {
+    keyPoolSaving.value = false
+  }
+}
+
+async function loadFreeModels() {
+  freeModelsLoading.value = true
+  try {
+    const res = await fetchOpenRouterFreeModels()
+    freeModels.value = res.models
+    freeModelsExpanded.value = true
+  } catch (e: any) {
+    window.alert(e?.response?.data?.detail || '获取免费模型列表失败')
+  } finally {
+    freeModelsLoading.value = false
+  }
+}
+
+function pickFreeModel(model: OpenRouterFreeModel) {
+  llmConfigForm.value.model = model.id
+  if (!llmConfigForm.value.base_url) {
+    llmConfigForm.value.base_url = 'https://openrouter.ai/api/v1'
+  }
+  freeModelsExpanded.value = false
 }
 
 // ---------------------------------------------------------------------------
@@ -1398,6 +1616,47 @@ async function applyPromptConfigHandler(id: number, variableName: string) {
   } finally {
     promptConfigApplying.value = null
   }
+}
+
+// ---------------------------------------------------------------------------
+// User Custom Config Audit
+// ---------------------------------------------------------------------------
+const customConfigsData = ref<CustomConfigAuditResponse | null>(null)
+const customConfigsLoading = ref(false)
+const customConfigsError = ref('')
+const customConfigsExpandedUsers = ref<Set<number>>(new Set())
+
+async function loadCustomConfigs() {
+  customConfigsLoading.value = true
+  customConfigsError.value = ''
+  try {
+    customConfigsData.value = await fetchAdminCustomConfigs()
+  } catch (e: any) {
+    customConfigsError.value = e?.response?.data?.detail || e?.message || '加载失败'
+  } finally {
+    customConfigsLoading.value = false
+  }
+}
+
+function toggleCustomConfigUser(uid: number) {
+  const s = new Set(customConfigsExpandedUsers.value)
+  if (s.has(uid)) s.delete(uid)
+  else s.add(uid)
+  customConfigsExpandedUsers.value = s
+}
+
+function featureLabel(f: string): string {
+  const map: Record<string, string> = {
+    compare: '对比分析',
+    inspiration: '灵感涌现',
+    paper_chat: '论文问答',
+    deep_research: '深度研究',
+    translate: '翻译',
+    idea_generate: '灵感生成',
+    paper_recommend: '论文推荐',
+    auto_classify: '自动分类',
+  }
+  return map[f] || f
 }
 
 // ---------------------------------------------------------------------------
@@ -1555,107 +1814,131 @@ async function handleAdminDelete() {
 }
 
 // ---------------------------------------------------------------------------
-// Data Tracking (Pipeline 数据追踪)
+// Step Config
 // ---------------------------------------------------------------------------
 
-const dtLoading = ref(false)
-const dtError = ref('')
-const dtUserId = ref(0)
-const dtDays = ref(30)
-const dtRecords = ref<PipelineDataTrackingRecord[]>([])
-const dtSelectedDate = ref<string | null>(null)
-const dtTrendChartEl = ref<HTMLElement | null>(null)
-const dtFunnelChartEl = ref<HTMLElement | null>(null)
-let dtTrendChart: echarts.ECharts | null = null
-let dtFunnelChart: echarts.ECharts | null = null
+const stepDefs = ref<PipelineStepDefinition[]>([])
+const stepConfig = ref<Record<string, boolean>>({})
+const stepConfigLoading = ref(false)
+const stepConfigSaving = ref(false)
+const stepConfigError = ref('')
+const stepConfigSuccess = ref('')
 
-const DT_STEPS: { key: keyof PipelineDataTrackingRecord; label: string }[] = [
-  { key: 'arxiv_search',    label: 'arXiv 检索' },
-  { key: 'dedup',           label: '去重' },
-  { key: 'theme_scored',    label: '主题评分' },
-  { key: 'theme_passed',    label: '主题过滤' },
-  { key: 'institution_info',label: '机构信息' },
-  { key: 'final_selected',  label: '最终选中' },
-  { key: 'summary_raw',     label: '摘要生成' },
-  { key: 'summary_limit',   label: '摘要精简' },
-  { key: 'paper_assets',    label: '资源提取' },
-]
+const defMap = computed(() => Object.fromEntries(stepDefs.value.map(d => [d.key, d])))
 
-async function loadDataTracking() {
-  dtLoading.value = true
-  dtError.value = ''
-  try {
-    const res = await fetchPipelineDataTracking({ user_id: dtUserId.value, days: dtDays.value })
-    dtRecords.value = res.records
-    await nextTick()
-    renderDtTrendChart()
-  } catch (e: any) {
-    dtError.value = e?.response?.data?.detail || e?.message || '加载失败'
-  } finally {
-    dtLoading.value = false
+const stepsByGroup = computed(() => {
+  const groups = new Map<string, PipelineStepDefinition[]>()
+  for (const def of stepDefs.value) {
+    if (!groups.has(def.group)) groups.set(def.group, [])
+    groups.get(def.group)!.push(def)
   }
-}
-
-function renderDtTrendChart() {
-  if (!dtTrendChartEl.value) return
-  if (!dtTrendChart) {
-    dtTrendChart = echarts.init(dtTrendChartEl.value)
-  }
-  const records = [...dtRecords.value].reverse()
-  const dates = records.map(r => r.date)
-  const series = DT_STEPS.map(s => ({
-    name: s.label,
-    type: 'line' as const,
-    smooth: true,
-    connectNulls: false,
-    data: records.map(r => r[s.key] ?? null),
-  }))
-  dtTrendChart.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { data: DT_STEPS.map(s => s.label), type: 'scroll', bottom: 0 },
-    grid: { left: '3%', right: '4%', bottom: '15%', containLabel: true },
-    xAxis: { type: 'category', data: dates, axisLabel: { rotate: 30, fontSize: 11 } },
-    yAxis: { type: 'value', name: '论文数量' },
-    series,
-  }, true)
-}
-
-function renderDtFunnelChart(record: PipelineDataTrackingRecord) {
-  if (!dtFunnelChartEl.value) return
-  if (!dtFunnelChart) {
-    dtFunnelChart = echarts.init(dtFunnelChartEl.value)
-  }
-  const data = DT_STEPS
-    .filter(s => record[s.key] !== null && record[s.key] !== undefined)
-    .map(s => ({ name: s.label, value: record[s.key] as number }))
-  dtFunnelChart.setOption({
-    tooltip: { trigger: 'item', formatter: '{b}: {c}' },
-    series: [{
-      type: 'funnel',
-      left: '5%',
-      right: '5%',
-      top: '5%',
-      bottom: '5%',
-      sort: 'none',
-      gap: 4,
-      label: { show: true, position: 'inside', formatter: '{b}\n{c}' },
-      labelLine: { show: false },
-      data,
-    }],
-  }, true)
-}
-
-function dtSelectDate(date: string) {
-  dtSelectedDate.value = date
-  nextTick(() => {
-    const record = dtRecords.value.find(r => r.date === date)
-    if (record) renderDtFunnelChart(record)
-  })
-}
-
-watch([dtUserId, dtDays], () => {
-  if (activeTab.value === 'data-tracking') loadDataTracking()
+  return [...groups.entries()]
 })
+
+function enabledCountInGroup(steps: PipelineStepDefinition[]) {
+  return steps.filter(s => stepConfig.value[s.key] !== false).length
+}
+
+function costClass(level: string) {
+  if (level === 'high') return 'bg-red-500/15 text-red-400'
+  if (level === 'medium') return 'bg-amber-500/15 text-amber-400'
+  return 'bg-green-500/15 text-green-400'
+}
+
+function costLabel(level: string) {
+  if (level === 'high') return '高消耗'
+  if (level === 'medium') return '中消耗'
+  return '低消耗'
+}
+
+function disableCascade(key: string) {
+  stepConfig.value = { ...stepConfig.value, [key]: false }
+  for (const def of stepDefs.value) {
+    if (def.requires.includes(key) && def.can_disable && stepConfig.value[def.key] !== false) {
+      disableCascade(def.key)
+    }
+  }
+}
+
+function enableCascade(key: string) {
+  stepConfig.value = { ...stepConfig.value, [key]: true }
+  const def = defMap.value[key]
+  if (!def) return
+  for (const req of def.requires) {
+    if (stepConfig.value[req] === false) {
+      enableCascade(req)
+    }
+  }
+}
+
+function toggleStep(key: string) {
+  if (stepConfig.value[key] === false) {
+    enableCascade(key)
+  } else {
+    disableCascade(key)
+  }
+  stepConfigSuccess.value = ''
+  stepConfigError.value = ''
+}
+
+async function loadStepConfig() {
+  if (stepConfigLoading.value) return
+  stepConfigLoading.value = true
+  stepConfigError.value = ''
+  try {
+    const res = await fetchPipelineStepConfig()
+    stepDefs.value = res.definitions
+    stepConfig.value = res.config
+  } catch (e: any) {
+    stepConfigError.value = e?.response?.data?.detail || e?.message || '加载失败'
+  } finally {
+    stepConfigLoading.value = false
+  }
+}
+
+async function saveStepConfig() {
+  stepConfigSaving.value = true
+  stepConfigError.value = ''
+  stepConfigSuccess.value = ''
+  try {
+    await savePipelineStepConfig(stepConfig.value)
+    stepConfigSuccess.value = '配置已保存，下次 Pipeline 运行时生效'
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail
+    if (detail?.errors) {
+      stepConfigError.value = detail.errors.join('；')
+    } else {
+      stepConfigError.value = detail || e?.message || '保存失败'
+    }
+  } finally {
+    stepConfigSaving.value = false
+  }
+}
+
+async function doResetStepConfig() {
+  if (!confirm('确认将步骤配置恢复为默认值？')) return
+  stepConfigError.value = ''
+  stepConfigSuccess.value = ''
+  try {
+    await resetPipelineStepConfig()
+    await loadStepConfig()
+    stepConfigSuccess.value = '已恢复默认配置'
+  } catch (e: any) {
+    stepConfigError.value = e?.response?.data?.detail || e?.message || '重置失败'
+  }
+}
+
+function applyTokenSavingConfig() {
+  const ideaSteps = ['idea_ingest', 'idea_combine', 'idea_review', 'idea_compound']
+  stepConfig.value = { ...stepConfig.value }
+  for (const key of ideaSteps) {
+    if (key in stepConfig.value) {
+      stepConfig.value[key] = false
+    }
+  }
+  stepConfigSuccess.value = ''
+  stepConfigError.value = ''
+}
 
 onMounted(async () => {
   loadUsers()
@@ -1668,13 +1951,9 @@ onMounted(async () => {
 
 // load announcements when tab switches
 watch(activeTab, (tab) => {
-  if (tab === 'announcements') loadAdminAnnouncements()
-  if (tab === 'data-tracking') loadDataTracking()
+  if (tab === 'step-config' && stepDefs.value.length === 0) loadStepConfig()
 })
 
-onUnmounted(() => {
-  stopPolling()
-})
 </script>
 
 <template>
@@ -1785,165 +2064,14 @@ onUnmounted(() => {
       </div>
 
       <!-- ============================================================= -->
+      <!-- Page: Preference Analytics (偏好推荐分析)                   -->
+      <!-- ============================================================= -->
+      <AdminPreferenceAnalyticsPanel v-if="activeTab === 'preference-analytics'" />
+
+      <!-- ============================================================= -->
       <!-- Page: Announcement Management (公告管理)                     -->
       <!-- ============================================================= -->
-      <div v-if="activeTab === 'announcements'" class="flex-1 flex flex-col p-3 sm:p-6 overflow-hidden">
-        <div class="flex items-center justify-between mb-4 shrink-0">
-          <div>
-            <h1 class="text-lg font-bold text-text-primary">📢 公告管理</h1>
-            <p class="text-xs text-text-muted mt-0.5">发布和管理平台公告通知</p>
-          </div>
-          <button
-            class="px-4 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer hover:opacity-90 transition-all shrink-0"
-            style="background: linear-gradient(135deg, #fd267a, #ff6036);"
-            @click="openNewAnnouncementForm"
-          >+ 新建公告</button>
-        </div>
-
-        <!-- Error banner -->
-        <div v-if="adminAnnouncementsError" class="mb-3 rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-sm text-red-400 shrink-0">
-          {{ adminAnnouncementsError }}
-        </div>
-
-        <!-- Loading -->
-        <div v-if="adminAnnouncementsLoading" class="flex items-center justify-center py-12">
-          <svg class="w-6 h-6 animate-spin text-text-muted" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 00-8 8h4z"/>
-          </svg>
-        </div>
-
-        <!-- Empty -->
-        <div v-else-if="adminAnnouncements.length === 0" class="text-center py-12 text-sm text-text-muted">暂无公告</div>
-
-        <!-- Announcement list -->
-        <div v-else class="flex-1 overflow-y-auto">
-          <div class="space-y-3">
-            <div
-              v-for="item in adminAnnouncements"
-              :key="item.id"
-              class="rounded-xl border bg-bg-card p-4 flex items-start gap-4"
-              :class="item.tag === 'important' ? 'border-red-500/25' : 'border-border'"
-            >
-              <!-- Pin icon -->
-              <div v-if="item.is_pinned" class="shrink-0 mt-0.5">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-[#fd267a]" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M16 3a1 1 0 0 1 .707 1.707L13 8.414V15a1 1 0 0 1-.553.894l-4 2A1 1 0 0 1 7 17v-5.586l-3.707-3.707A1 1 0 0 1 4 7h12z"/>
-                </svg>
-              </div>
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 flex-wrap mb-1">
-                  <span class="text-sm font-semibold text-text-primary">{{ item.title }}</span>
-                  <span
-                    class="text-[10px] px-1.5 py-0.5 rounded-full border font-medium shrink-0"
-                    :class="announcementTagClass(item.tag)"
-                  >{{ announcementTagLabel(item.tag) }}</span>
-                </div>
-                <p class="text-xs text-text-muted line-clamp-2 mb-1.5">{{ item.content }}</p>
-                <p class="text-[10px] text-text-muted">{{ formatAdminAnnouncementDate(item.created_at) }}</p>
-              </div>
-              <div class="flex gap-2 shrink-0">
-                <button
-                  class="px-3 py-1.5 rounded-lg text-xs border border-border text-text-secondary hover:bg-bg-hover hover:text-text-primary cursor-pointer transition-colors"
-                  @click="openEditAnnouncementForm(item)"
-                >编辑</button>
-                <button
-                  class="px-3 py-1.5 rounded-lg text-xs border border-red-500/20 text-red-400 hover:bg-red-500/10 cursor-pointer transition-colors"
-                  @click="deleteAnnouncementItem(item)"
-                >删除</button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Create/Edit modal -->
-        <Teleport to="body">
-          <div v-if="showAnnouncementForm" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div class="absolute inset-0 bg-black/60" @click="closeAnnouncementForm"></div>
-            <div class="relative w-full max-w-lg bg-bg-card rounded-2xl border border-border shadow-2xl overflow-hidden">
-              <!-- Modal header -->
-              <div class="px-6 py-5 border-b border-border flex items-center justify-between">
-                <h2 class="text-base font-semibold text-text-primary">{{ editingAnnouncement ? '编辑公告' : '新建公告' }}</h2>
-                <button class="text-text-muted hover:text-text-primary transition-colors cursor-pointer" @click="closeAnnouncementForm">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
-              <!-- Modal body -->
-              <div class="px-6 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
-                <!-- Title -->
-                <div>
-                  <label class="block text-xs font-medium text-text-secondary mb-1.5">标题 <span class="text-red-400">*</span></label>
-                  <input
-                    v-model="announcementForm.title"
-                    type="text"
-                    maxlength="100"
-                    placeholder="公告标题"
-                    class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#fd267a]/60 transition-colors"
-                  />
-                </div>
-                <!-- Content -->
-                <div>
-                  <label class="block text-xs font-medium text-text-secondary mb-1.5">内容 <span class="text-red-400">*</span></label>
-                  <textarea
-                    v-model="announcementForm.content"
-                    rows="6"
-                    maxlength="5000"
-                    placeholder="公告详细内容..."
-                    class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#fd267a]/60 transition-colors resize-y"
-                  ></textarea>
-                </div>
-                <!-- Tag and Pinned row -->
-                <div class="flex gap-4">
-                  <!-- Tag -->
-                  <div class="flex-1">
-                    <label class="block text-xs font-medium text-text-secondary mb-1.5">标签</label>
-                    <select
-                      v-model="announcementForm.tag"
-                      class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-sm text-text-primary focus:outline-none focus:border-[#fd267a]/60 transition-colors cursor-pointer"
-                    >
-                      <option v-for="opt in announcementTagOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-                    </select>
-                  </div>
-                  <!-- Pinned -->
-                  <div class="flex-1">
-                    <label class="block text-xs font-medium text-text-secondary mb-1.5">置顶</label>
-                    <div
-                      class="flex items-center gap-2 px-3 py-2.5 bg-bg-elevated border border-border rounded-lg cursor-pointer select-none"
-                      @click="announcementForm.is_pinned = !announcementForm.is_pinned"
-                    >
-                      <div
-                        class="w-9 h-5 rounded-full transition-colors relative"
-                        :class="announcementForm.is_pinned ? 'bg-[#fd267a]' : 'bg-border'"
-                      >
-                        <div
-                          class="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-                          :class="announcementForm.is_pinned ? 'translate-x-4' : 'translate-x-0.5'"
-                        ></div>
-                      </div>
-                      <span class="text-sm text-text-secondary">{{ announcementForm.is_pinned ? '已置顶' : '不置顶' }}</span>
-                    </div>
-                  </div>
-                </div>
-                <!-- Error -->
-                <p v-if="announcementFormError" class="text-xs text-red-400">{{ announcementFormError }}</p>
-              </div>
-              <!-- Modal footer -->
-              <div class="px-6 py-4 border-t border-border flex items-center justify-end gap-3">
-                <button
-                  class="px-4 py-2 rounded-lg text-sm border border-border text-text-secondary hover:bg-bg-hover cursor-pointer transition-colors"
-                  @click="closeAnnouncementForm"
-                >取消</button>
-                <button
-                  class="px-5 py-2 rounded-lg text-sm font-semibold text-white cursor-pointer hover:opacity-90 transition-all disabled:opacity-50"
-                  style="background: linear-gradient(135deg, #fd267a, #ff6036);"
-                  :disabled="announcementFormSaving"
-                  @click="saveAnnouncementForm"
-                >{{ announcementFormSaving ? '保存中...' : '保存' }}</button>
-              </div>
-            </div>
-          </div>
-        </Teleport>
-      </div>
+      <AdminAnnouncementsPanel v-if="activeTab === 'announcements'" />
 
       <!-- ============================================================= -->
       <!-- Page: User Tier Management -->
@@ -2398,7 +2526,7 @@ onUnmounted(() => {
               <div>
                 <label class="block text-xs text-text-muted mb-1">
                   最大论文数
-                  <span class="ml-1 text-[10px] text-text-muted/60">--max-papers，默认 500</span>
+                  <span class="ml-1 text-[10px] text-text-muted/60">--max-papers，默认 500（多用户 shared 阶段同样生效）</span>
                 </label>
                 <input
                   v-model.number="runMaxPapers"
@@ -2527,6 +2655,17 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ============================================================= -->
+      <!-- Page: Pipeline Console (Observability) -->
+      <!-- ============================================================= -->
+      <div v-if="activeTab === 'console'" class="flex-1 flex flex-col p-3 sm:p-6 overflow-hidden gap-3">
+        <div class="shrink-0">
+          <h1 class="text-lg font-bold text-text-primary">🖥️ 运行控制台</h1>
+          <p class="text-xs text-text-muted mt-0.5">可观测每次 Pipeline 运行的 Step 状态、产物、事件流，以及单步重跑</p>
+        </div>
+        <PipelineConsole class="flex-1 min-h-0" />
       </div>
 
       <!-- ============================================================= -->
@@ -2770,122 +2909,126 @@ onUnmounted(() => {
       <!-- ============================================================= -->
       <!-- Page: 数据追踪 (Pipeline Data Tracking)                       -->
       <!-- ============================================================= -->
-      <div v-if="activeTab === 'data-tracking'" class="flex-1 flex flex-col p-3 sm:p-6 gap-4 overflow-auto">
-        <!-- Header -->
-        <div class="shrink-0">
-          <h1 class="text-lg font-bold text-text-primary">📈 数据追踪</h1>
-          <p class="text-xs text-text-muted mt-0.5">查看每天 Pipeline 各步骤的论文数量变化</p>
-        </div>
+      <AdminDataTrackingPanel v-if="activeTab === 'data-tracking'" />
 
-        <!-- Filters -->
-        <div class="flex flex-wrap items-center gap-3 shrink-0">
-          <div class="flex items-center gap-2">
-            <label class="text-xs text-text-secondary whitespace-nowrap">用户 ID</label>
-            <input
-              v-model.number="dtUserId"
-              type="number"
-              min="0"
-              class="w-20 px-2 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            />
+      <!-- ============================================================= -->
+      <!-- Page: 步骤控制 (Pipeline Step Config)                        -->
+      <!-- ============================================================= -->
+      <div v-if="activeTab === 'step-config'" class="flex-1 overflow-auto p-3 sm:p-6 pb-24">
+        <div class="max-w-3xl mx-auto space-y-5">
+
+          <!-- Header -->
+          <div class="flex flex-wrap items-start justify-between gap-3 shrink-0">
+            <div>
+              <h1 class="text-lg font-bold text-text-primary">⚙️ 步骤控制</h1>
+              <p class="text-xs text-text-muted mt-0.5">控制每日定时 Pipeline 中哪些步骤参与执行</p>
+            </div>
+            <div class="flex gap-2 flex-wrap">
+              <button
+                class="px-3 py-1.5 rounded-lg border border-amber-500/40 text-xs text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                @click="applyTokenSavingConfig"
+              >省 Token 模式</button>
+              <button
+                class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary bg-bg-elevated hover:bg-bg-hover cursor-pointer transition-colors"
+                @click="doResetStepConfig"
+              >恢复默认</button>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <label class="text-xs text-text-secondary whitespace-nowrap">天数</label>
-            <select
-              v-model.number="dtDays"
-              class="px-2 py-1.5 text-sm rounded-lg border border-border bg-bg-secondary text-text-primary focus:outline-none focus:ring-1 focus:ring-primary"
+
+          <!-- Info banner -->
+          <div class="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+            此配置影响定时调度和手动触发的正常 Pipeline 运行。使用「重跑单步」功能时会忽略此配置。
+            灰色关闭的步骤属于核心步骤，不可禁用。
+          </div>
+
+          <!-- Loading -->
+          <div v-if="stepConfigLoading" class="flex items-center justify-center py-16 gap-2 text-text-muted">
+            <span class="inline-block w-5 h-5 border-2 border-text-muted border-t-transparent rounded-full animate-spin"></span>
+            加载中...
+          </div>
+
+          <template v-else>
+            <!-- Error -->
+            <div v-if="stepConfigError" class="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              {{ stepConfigError }}
+            </div>
+
+            <!-- Step groups -->
+            <div
+              v-for="[groupName, groupSteps] in stepsByGroup"
+              :key="groupName"
+              class="rounded-xl border border-border bg-bg-card overflow-hidden"
             >
-              <option :value="7">最近 7 天</option>
-              <option :value="14">最近 14 天</option>
-              <option :value="30">最近 30 天</option>
-              <option :value="60">最近 60 天</option>
-              <option :value="90">最近 90 天</option>
-            </select>
-          </div>
-          <button
-            @click="loadDataTracking"
-            :disabled="dtLoading"
-            class="px-3 py-1.5 text-sm rounded-lg bg-primary text-white disabled:opacity-50 hover:opacity-90 transition-opacity"
-          >
-            {{ dtLoading ? '加载中…' : '刷新' }}
-          </button>
-        </div>
+              <!-- Group header -->
+              <div class="px-4 py-2.5 border-b border-border bg-bg-elevated flex items-center justify-between">
+                <span class="text-sm font-semibold text-text-primary">{{ groupName }}</span>
+                <span class="text-xs text-text-muted">{{ enabledCountInGroup(groupSteps) }} / {{ groupSteps.length }} 启用</span>
+              </div>
 
-        <!-- Error -->
-        <div v-if="dtError" class="text-red-400 text-sm shrink-0">{{ dtError }}</div>
-
-        <!-- Loading skeleton -->
-        <div v-if="dtLoading && !dtRecords.length" class="text-text-muted text-sm">加载中…</div>
-
-        <!-- Empty -->
-        <div v-else-if="!dtLoading && !dtRecords.length && !dtError" class="text-text-muted text-sm">
-          暂无数据。请先运行 Pipeline 后再查看。
-        </div>
-
-        <template v-else-if="dtRecords.length">
-          <!-- Trend Chart -->
-          <div class="shrink-0 bg-bg-secondary rounded-xl border border-border p-4">
-            <h2 class="text-sm font-semibold text-text-primary mb-3">各步骤论文数量趋势</h2>
-            <div ref="dtTrendChartEl" style="height: 300px; width: 100%;"></div>
-          </div>
-
-          <!-- Table -->
-          <div class="shrink-0 bg-bg-secondary rounded-xl border border-border overflow-auto">
-            <table class="w-full text-xs min-w-[700px]">
-              <thead>
-                <tr class="border-b border-border">
-                  <th class="py-2 px-3 text-left text-text-secondary font-medium whitespace-nowrap">日期</th>
-                  <th
-                    v-for="step in DT_STEPS"
-                    :key="step.key"
-                    class="py-2 px-2 text-center text-text-secondary font-medium whitespace-nowrap"
-                  >{{ step.label }}</th>
-                  <th class="py-2 px-2 text-center text-text-secondary font-medium whitespace-nowrap">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="record in dtRecords"
-                  :key="record.date"
-                  class="border-b border-border/50 hover:bg-bg-primary/40 transition-colors"
-                  :class="dtSelectedDate === record.date ? 'bg-primary/5' : ''"
-                >
-                  <td class="py-2 px-3 font-mono text-text-primary whitespace-nowrap">{{ record.date }}</td>
-                  <td
-                    v-for="step in DT_STEPS"
-                    :key="step.key"
-                    class="py-2 px-2 text-center whitespace-nowrap"
+              <!-- Steps -->
+              <div
+                v-for="step in groupSteps"
+                :key="step.key"
+                class="px-4 py-3 border-b border-border last:border-b-0 flex items-start gap-3"
+              >
+                <!-- Toggle / Always-on indicator -->
+                <div class="pt-0.5 shrink-0">
+                  <button
+                    v-if="step.can_disable"
+                    class="relative inline-flex w-9 h-5 rounded-full transition-colors cursor-pointer focus:outline-none"
+                    :class="stepConfig[step.key] !== false ? 'bg-blue-600' : 'bg-gray-600'"
+                    @click="toggleStep(step.key)"
+                    :title="stepConfig[step.key] !== false ? '点击禁用' : '点击启用'"
                   >
                     <span
-                      v-if="record[step.key] !== null && record[step.key] !== undefined"
-                      class="font-mono text-text-primary"
-                    >{{ record[step.key] }}</span>
-                    <span v-else class="text-text-muted">—</span>
-                  </td>
-                  <td class="py-2 px-2 text-center">
-                    <button
-                      @click="dtSelectDate(record.date)"
-                      class="px-2 py-0.5 text-[11px] rounded bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                    >漏斗图</button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                      class="absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform"
+                      :class="stepConfig[step.key] !== false ? 'translate-x-4' : 'translate-x-0'"
+                    ></span>
+                  </button>
+                  <span v-else class="text-[10px] text-text-muted border border-border rounded px-1 py-0.5 whitespace-nowrap">必须</span>
+                </div>
 
-          <!-- Funnel Chart (single date) -->
-          <div v-if="dtSelectedDate" class="shrink-0 bg-bg-secondary rounded-xl border border-border p-4">
-            <div class="flex items-center justify-between mb-3">
-              <h2 class="text-sm font-semibold text-text-primary">
-                {{ dtSelectedDate }} 数据漏斗
-              </h2>
-              <button
-                @click="dtSelectedDate = null"
-                class="text-text-muted hover:text-text-primary text-lg leading-none"
-              >×</button>
+                <!-- Step info -->
+                <div class="flex-1 min-w-0">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span
+                      class="text-sm font-medium"
+                      :class="stepConfig[step.key] !== false ? 'text-text-primary' : 'text-text-muted line-through'"
+                    >{{ step.label }}</span>
+                    <span
+                      class="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                      :class="costClass(step.cost_level)"
+                    >{{ costLabel(step.cost_level) }}</span>
+                  </div>
+                  <p class="text-xs text-text-muted mt-0.5">{{ step.description }}</p>
+                  <!-- Dependencies -->
+                  <div v-if="step.requires.length > 0" class="flex flex-wrap gap-1 mt-1.5">
+                    <span
+                      v-for="req in step.requires"
+                      :key="req"
+                      class="text-[10px] px-1.5 py-0.5 rounded-md border"
+                      :class="stepConfig[req] === false
+                        ? 'border-red-500/50 text-red-400 bg-red-500/10'
+                        : 'border-border text-text-muted bg-bg-elevated'"
+                    >依赖: {{ defMap[req]?.label || req }}</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div ref="dtFunnelChartEl" style="height: 360px; width: 100%;"></div>
-          </div>
-        </template>
+
+            <!-- Save -->
+            <div class="flex items-center justify-between gap-3">
+              <p v-if="stepConfigSuccess" class="text-xs text-green-400">{{ stepConfigSuccess }}</p>
+              <div v-else></div>
+              <button
+                class="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium cursor-pointer transition-colors"
+                :disabled="stepConfigSaving"
+                @click="saveStepConfig"
+              >{{ stepConfigSaving ? '保存中...' : '保存配置' }}</button>
+            </div>
+          </template>
+
+        </div>
       </div>
 
       <!-- ============================================================= -->
@@ -2906,7 +3049,7 @@ onUnmounted(() => {
             </span>
             <button
               class="px-3 py-1.5 rounded-full border border-border text-xs text-text-secondary bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
-              @click="async () => { await Promise.all([loadSystemConfig(), loadLlmConfigs(), loadPromptConfigs()]); detectLlmSelections(); detectPromptSelections(); snapshotSelections(); initWordLimits(); initMineruToken() }"
+              @click="async () => { await Promise.all([loadSystemConfig(), loadLlmConfigs(), loadPromptConfigs()]); detectLlmSelections(); detectPromptSelections(); snapshotSelections(); initWordLimits(); initMineruToken(); initAdminSearchCategories() }"
             >
               🔄 刷新
             </button>
@@ -2992,6 +3135,53 @@ onUnmounted(() => {
                 <button class="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary transition-colors text-xs select-none" @click="mineruTokenVisible = !mineruTokenVisible">{{ mineruTokenVisible ? '🙈' : '👁' }}</button>
               </div>
               <button :disabled="savingMineruToken" class="shrink-0 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors disabled:opacity-50" @click="handleSaveMineruToken">{{ savingMineruToken ? '保存中…' : '💾 保存' }}</button>
+            </div>
+          </div>
+
+          <!-- arXiv 检索分类配置 -->
+          <div class="rounded-xl bg-bg-card border border-border overflow-hidden">
+            <div class="px-5 py-3.5 border-b border-border bg-bg-elevated/40 flex items-center gap-3">
+              <span class="text-base leading-none">🔍</span>
+              <div class="flex-1 min-w-0">
+                <h2 class="text-sm font-semibold text-text-primary">arXiv 检索分类</h2>
+                <p class="text-[11px] text-text-muted">系统默认从哪些 arXiv 分类中拉取论文；用户未自定义时沿用此设置</p>
+              </div>
+            </div>
+            <div class="px-5 py-4 space-y-3">
+              <!-- 快捷标签 -->
+              <div class="flex flex-wrap gap-1.5">
+                <button
+                  v-for="cat in ARXIV_COMMON_CATEGORIES"
+                  :key="cat.code"
+                  class="px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                  :class="adminSearchCategories.includes(cat.code)
+                    ? 'bg-blue-600 border-blue-500 text-white'
+                    : 'bg-transparent border-border text-text-secondary hover:border-blue-500/50 hover:text-text-primary'"
+                  @click="toggleAdminCategory(cat.code)"
+                >{{ cat.code }} <span class="opacity-70">{{ cat.label }}</span></button>
+              </div>
+              <!-- 当前选中（含自定义）-->
+              <div v-if="adminSearchCategories.length" class="flex flex-wrap gap-1.5 pt-1">
+                <span
+                  v-for="code in adminSearchCategories"
+                  :key="code"
+                  class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs bg-blue-600/20 border border-blue-500/40 text-blue-300"
+                >
+                  {{ code }}
+                  <button class="hover:text-red-400 transition-colors leading-none" @click="removeAdminCategory(code)">×</button>
+                </span>
+              </div>
+              <!-- 自定义输入 -->
+              <div class="flex items-center gap-2">
+                <input
+                  v-model="adminCategoryCustomInput"
+                  placeholder="自定义分类代码，如 cs.NE"
+                  class="flex-1 px-3 py-1.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors"
+                  @keydown.enter.prevent="addAdminCustomCategory"
+                />
+                <button class="shrink-0 px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-xs text-text-secondary hover:border-blue-500/50 hover:text-text-primary transition-colors" @click="addAdminCustomCategory">+ 添加</button>
+                <button :disabled="savingAdminCategories" class="shrink-0 px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors disabled:opacity-50" @click="handleSaveAdminCategories">{{ savingAdminCategories ? '保存中…' : '💾 保存' }}</button>
+              </div>
             </div>
           </div>
 
@@ -3315,6 +3505,274 @@ onUnmounted(() => {
       </div>
 
       <!-- ============================================================= -->
+      <!-- Page: AI 功能默认配置                                        -->
+      <!-- ============================================================= -->
+      <div v-if="activeTab === 'feature-defaults-config'" class="flex-1 overflow-auto p-3 sm:p-6 pb-24">
+        <div class="max-w-3xl mx-auto space-y-5">
+
+          <!-- Header -->
+          <div class="flex items-center justify-between shrink-0">
+            <div>
+              <h1 class="text-lg font-bold text-text-primary">🎛️ AI 功能默认配置</h1>
+              <p class="text-xs text-text-muted mt-0.5">管理问答、对比分析、深度研究等功能的全局默认参数，无需改代码</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span v-if="featureDefaultsSuccessMsg" class="text-xs text-green-400 flex items-center gap-1.5">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5" /></svg>
+                {{ featureDefaultsSuccessMsg }}
+              </span>
+              <button
+                class="px-3 py-1.5 rounded-full border border-border text-xs text-text-secondary bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
+                @click="loadFeatureDefaults"
+              >🔄 刷新</button>
+            </div>
+          </div>
+
+          <!-- Loading / Error -->
+          <div v-if="featureDefaultsLoading" class="flex items-center justify-center py-16 text-text-muted">
+            <span class="inline-block w-5 h-5 border-2 border-text-muted border-t-transparent rounded-full animate-spin mr-2"></span>
+            加载中...
+          </div>
+          <div v-else-if="featureDefaultsError" class="text-red-400 text-sm py-4">{{ featureDefaultsError }}</div>
+
+          <template v-else>
+            <!-- 说明横幅 -->
+            <div class="rounded-xl bg-blue-500/5 border border-blue-500/20 px-5 py-3.5 flex items-start gap-3">
+              <span class="text-base shrink-0 mt-0.5">ℹ️</span>
+              <p class="text-xs text-blue-200/80 leading-relaxed">
+                这里配置的是<strong class="text-blue-300">全局默认值</strong>——当用户未自行设置时生效。用户个人设置优先级更高，不受此处影响。
+                每个功能卡片右上角可「恢复内置默认」，修改后点击底部「保存」生效。
+              </p>
+            </div>
+
+            <!-- Feature Cards -->
+            <div
+              v-for="meta in FEATURE_DEFAULTS_META"
+              :key="meta.feature"
+              class="rounded-xl bg-bg-card border overflow-hidden transition-colors"
+              :class="isFeatureDefaultsDirty(meta.feature) ? 'border-amber-500/40' : 'border-border'"
+            >
+              <!-- Card Header -->
+              <div class="px-5 py-3.5 border-b border-border bg-bg-elevated/40 flex items-center gap-3">
+                <span class="text-base leading-none">{{ meta.icon }}</span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h2 class="text-sm font-semibold text-text-primary">{{ meta.label }}</h2>
+                    <span
+                      v-if="featureDefaultsData.find(e => e.feature === meta.feature)?.has_admin_overrides"
+                      class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                    >已自定义</span>
+                    <span
+                      v-if="isFeatureDefaultsDirty(meta.feature)"
+                      class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30 animate-pulse"
+                    >待保存</span>
+                  </div>
+                  <p class="text-[11px] text-text-muted">{{ meta.desc }}</p>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button
+                    v-if="featureDefaultsData.find(e => e.feature === meta.feature)?.has_admin_overrides"
+                    :disabled="featureDefaultsResetting === meta.feature"
+                    class="px-3 py-1.5 rounded-lg border border-border text-xs text-text-secondary hover:border-red-500/50 hover:text-red-400 transition-colors disabled:opacity-50"
+                    @click="handleResetFeatureDefaults(meta.feature)"
+                  >{{ featureDefaultsResetting === meta.feature ? '重置中…' : '↺ 恢复内置默认' }}</button>
+                  <button
+                    :disabled="featureDefaultsSaving === meta.feature || !isFeatureDefaultsDirty(meta.feature)"
+                    class="px-4 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    :class="isFeatureDefaultsDirty(meta.feature) ? 'bg-blue-600 hover:bg-blue-500 text-white' : 'bg-bg-elevated text-text-muted border border-border'"
+                    @click="handleSaveFeatureDefaults(meta.feature)"
+                  >{{ featureDefaultsSaving === meta.feature ? '保存中…' : '💾 保存' }}</button>
+                </div>
+              </div>
+
+              <!-- Fields -->
+              <div class="p-5 space-y-4" v-if="featureDefaultsEdits[meta.feature]">
+
+                <!-- LLM Config Selection -->
+                <div>
+                  <h3 class="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <span>🤖</span> 默认调用模型
+                  </h3>
+                  <div class="flex items-center gap-3">
+                    <!-- dirty indicator -->
+                    <span
+                      class="w-1.5 h-1.5 rounded-full shrink-0 transition-colors"
+                      :class="featureDefaultsEdits[meta.feature]['admin_llm_config_id'] !== featureDefaultsSnapshot[meta.feature]?.['admin_llm_config_id'] ? 'bg-amber-400' : 'bg-transparent'"
+                    ></span>
+                    <div class="flex-1 min-w-0">
+                      <div v-if="featureDefaultsEdits[meta.feature]['admin_llm_config_id']" class="flex items-center gap-1.5 text-xs mb-1.5">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-400 shrink-0"></span>
+                        <span class="font-medium text-text-secondary">
+                          {{ llmConfigs.find(c => c.id === featureDefaultsEdits[meta.feature]['admin_llm_config_id'])?.name || '—' }}
+                        </span>
+                        <span class="text-text-muted truncate">
+                          · {{ llmConfigs.find(c => c.id === featureDefaultsEdits[meta.feature]['admin_llm_config_id'])?.model || '' }}
+                        </span>
+                      </div>
+                      <div v-else class="text-[11px] text-text-muted italic mb-1.5">
+                        未指定（将使用系统全局兜底模型）
+                      </div>
+                    </div>
+                    <select
+                      v-model="featureDefaultsEdits[meta.feature]['admin_llm_config_id']"
+                      class="w-44 px-2.5 py-1.5 rounded-lg bg-bg-elevated border text-text-primary text-xs focus:outline-none focus:ring-1 cursor-pointer transition-colors"
+                      :class="featureDefaultsEdits[meta.feature]['admin_llm_config_id'] !== featureDefaultsSnapshot[meta.feature]?.['admin_llm_config_id'] ? 'border-amber-500/60 focus:ring-amber-500/40' : 'border-border focus:ring-blue-500/50'"
+                    >
+                      <option :value="null">— 不指定（全局兜底）—</option>
+                      <option :value="undefined">— 不指定（全局兜底）—</option>
+                      <option v-for="cfg in llmConfigs" :key="cfg.id" :value="cfg.id">{{ cfg.name }}</option>
+                    </select>
+                    <button
+                      v-if="featureDefaultsEdits[meta.feature]['admin_llm_config_id']"
+                      class="shrink-0 px-2.5 py-1.5 rounded-lg border border-border text-[11px] text-text-muted hover:text-red-400 hover:border-red-500/50 transition-colors"
+                      @click="featureDefaultsEdits[meta.feature]['admin_llm_config_id'] = null"
+                    >✕ 清除</button>
+                  </div>
+                  <p class="text-[10px] text-text-muted mt-1.5 ml-4">
+                    当用户未配置自己的模型时，优先使用此处指定的模型；未指定则 fallback 到系统全局配置
+                  </p>
+                </div>
+
+                <!-- Numeric params row -->
+                <div>
+                  <h3 class="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <span>⚙️</span> 模型参数
+                  </h3>
+                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div v-for="field in meta.editableFields" :key="field">
+                      <label class="block text-[11px] font-medium text-text-secondary mb-1">
+                        {{ { temperature: '温度 (temperature)', max_tokens: '最大 Tokens', input_hard_limit: '输入硬上限', input_safety_margin: '安全边距' }[field] || field }}
+                      </label>
+                      <input
+                        v-model.number="featureDefaultsEdits[meta.feature][field]"
+                        type="number"
+                        :step="field === 'temperature' ? 0.05 : 128"
+                        :min="field === 'temperature' ? 0 : 0"
+                        :max="field === 'temperature' ? 2 : undefined"
+                        class="w-full px-3 py-2 bg-bg-elevated border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors"
+                        :class="featureDefaultsEdits[meta.feature][field] !== featureDefaultsSnapshot[meta.feature]?.[field] ? 'border-amber-500/60' : 'border-border'"
+                      />
+                      <p class="text-[10px] text-text-muted mt-0.5">
+                        默认: {{ featureDefaultsData.find(e => e.feature === meta.feature)?.hardcoded_defaults?.[field] }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Special fields (selects / extra numbers) -->
+                <div v-if="meta.specialFields && meta.specialFields.length">
+                  <h3 class="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <span>🔧</span> 功能特有设置
+                  </h3>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div v-for="sf in meta.specialFields" :key="sf.key">
+                      <label class="block text-[11px] font-medium text-text-secondary mb-1">{{ sf.label }}</label>
+                      <select
+                        v-if="sf.type === 'select'"
+                        v-model="featureDefaultsEdits[meta.feature][sf.key]"
+                        class="w-full px-3 py-2 bg-bg-elevated border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors cursor-pointer"
+                        :class="featureDefaultsEdits[meta.feature][sf.key] !== featureDefaultsSnapshot[meta.feature]?.[sf.key] ? 'border-amber-500/60' : 'border-border'"
+                      >
+                        <option v-for="opt in sf.options" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+                      </select>
+                      <input
+                        v-else-if="sf.type === 'number'"
+                        v-model.number="featureDefaultsEdits[meta.feature][sf.key]"
+                        type="number"
+                        min="1"
+                        class="w-full px-3 py-2 bg-bg-elevated border rounded-lg text-sm text-text-primary focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors"
+                        :class="featureDefaultsEdits[meta.feature][sf.key] !== featureDefaultsSnapshot[meta.feature]?.[sf.key] ? 'border-amber-500/60' : 'border-border'"
+                      />
+                      <p class="text-[10px] text-text-muted mt-0.5">
+                        默认: {{ featureDefaultsData.find(e => e.feature === meta.feature)?.hardcoded_defaults?.[sf.key] }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Prompt fields -->
+                <div v-if="meta.promptFields.length">
+                  <h3 class="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
+                    <span>📝</span> 系统提示词
+                  </h3>
+                  <div class="space-y-3">
+                    <div v-for="pf in meta.promptFields" :key="pf.key" class="rounded-lg border overflow-hidden transition-colors"
+                      :class="featureDefaultsEdits[meta.feature][pf.key] !== featureDefaultsSnapshot[meta.feature]?.[pf.key] ? 'border-amber-500/40' : 'border-border'"
+                    >
+                      <!-- Prompt header -->
+                      <button
+                        class="w-full flex items-center justify-between px-4 py-2.5 bg-bg-elevated/50 hover:bg-bg-elevated transition-colors text-left"
+                        @click="featurePromptExpanded[_featurePromptKey(meta.feature, pf.key)] = !featurePromptExpanded[_featurePromptKey(meta.feature, pf.key)]"
+                      >
+                        <span class="text-xs font-medium text-text-secondary">{{ pf.label }}</span>
+                        <div class="flex items-center gap-2">
+                          <span
+                            v-if="featureDefaultsEdits[meta.feature][pf.key] !== featureDefaultsSnapshot[meta.feature]?.[pf.key]"
+                            class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                          ></span>
+                          <span class="text-text-muted text-xs">{{ featurePromptExpanded[_featurePromptKey(meta.feature, pf.key)] ? '▲ 收起' : '▼ 展开' }}</span>
+                        </div>
+                      </button>
+                      <!-- Prompt textarea -->
+                      <div v-show="featurePromptExpanded[_featurePromptKey(meta.feature, pf.key)]" class="px-4 pb-4 pt-2">
+                        <textarea
+                          v-model="featureDefaultsEdits[meta.feature][pf.key]"
+                          rows="10"
+                          class="w-full px-3 py-2.5 bg-bg-elevated border border-border rounded-lg text-xs text-text-primary font-mono focus:outline-none focus:ring-1 focus:ring-blue-500/50 transition-colors resize-y"
+                          placeholder="留空则使用内置默认提示词"
+                        ></textarea>
+                        <div class="flex items-center justify-between mt-2">
+                          <p class="text-[10px] text-text-muted">{{ (featureDefaultsEdits[meta.feature][pf.key] || '').length }} 字符</p>
+                          <button
+                            class="text-[10px] text-text-muted hover:text-text-secondary transition-colors"
+                            @click="featureDefaultsEdits[meta.feature][pf.key] = featureDefaultsData.find(e => e.feature === meta.feature)?.hardcoded_defaults?.[pf.key] || ''"
+                          >↺ 恢复该字段默认</button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </template>
+
+        </div><!-- /max-w-3xl -->
+
+        <!-- 底部 Sticky 保存栏 -->
+        <div class="fixed bottom-0 left-0 lg:left-[var(--settings-sidebar-w)] right-0 z-20 pointer-events-none">
+          <div class="max-w-3xl mx-auto px-3 sm:px-6 pb-4 pointer-events-auto">
+            <transition name="slide-up">
+              <div
+                v-if="!featureDefaultsLoading && !featureDefaultsError"
+                class="flex items-center justify-between gap-4 px-5 py-3.5 rounded-2xl border shadow-lg backdrop-blur-md transition-all"
+                :class="featureDefaultsDirtyCount > 0 ? 'bg-bg-card/95 border-amber-500/40 shadow-amber-500/10' : 'bg-bg-card/80 border-border/60 shadow-black/20'"
+              >
+                <div class="flex items-center gap-2.5 text-sm">
+                  <span v-if="featureDefaultsDirtyCount > 0" class="flex items-center gap-1.5 text-amber-400 font-medium">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+                    {{ featureDefaultsDirtyCount }} 个功能有未保存的修改
+                  </span>
+                  <span v-else class="text-text-muted text-xs">所有功能默认配置已保存</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button
+                    v-for="meta in FEATURE_DEFAULTS_META.filter(m => isFeatureDefaultsDirty(m.feature))"
+                    :key="meta.feature"
+                    :disabled="featureDefaultsSaving === meta.feature"
+                    class="shrink-0 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/30 transition-all disabled:opacity-60"
+                    @click="handleSaveFeatureDefaults(meta.feature)"
+                  >
+                    {{ featureDefaultsSaving === meta.feature ? '保存中…' : `保存 ${meta.label}` }}
+                  </button>
+                </div>
+              </div>
+            </transition>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================= -->
       <!-- Page: LLM Config Management -->
       <!-- ============================================================= -->
       <div v-if="activeTab === 'llm-config'" class="flex-1 flex flex-col p-3 sm:p-6 gap-4 overflow-auto">
@@ -3339,6 +3797,68 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- OpenRouter Key Pool Card -->
+        <div class="rounded-xl bg-bg-card border border-border shrink-0">
+          <button
+            class="w-full flex items-center justify-between px-4 py-3 text-left"
+            @click="keyPoolExpanded = !keyPoolExpanded; if (keyPoolExpanded && !keyPoolStatus) loadKeyPool()"
+          >
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-semibold text-text-primary">🔑 OpenRouter 免费 Key 池</span>
+              <span v-if="keyPoolStatus" class="px-2 py-0.5 rounded-full text-[10px]" :class="keyPoolStatus.available_keys > 0 ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'">
+                {{ keyPoolStatus.available_keys }}/{{ keyPoolStatus.total_keys }} 可用
+              </span>
+              <span v-else-if="keyPoolLoading" class="text-xs text-text-muted">加载中...</span>
+            </div>
+            <span class="text-text-muted text-xs">{{ keyPoolExpanded ? '▲ 收起' : '▼ 展开管理' }}</span>
+          </button>
+          <div v-if="keyPoolExpanded" class="px-4 pb-4 border-t border-border">
+            <div v-if="keyPoolLoading" class="py-4 text-center text-text-muted text-sm">加载中...</div>
+            <template v-else>
+              <div v-if="keyPoolStatus && keyPoolStatus.total_keys > 0" class="mt-3 mb-3">
+                <div class="text-xs text-text-muted mb-2">当前 {{ keyPoolStatus.total_keys }} 个 Key，每日限额 {{ keyPoolStatus.daily_limit }} 次 / Key</div>
+                <div class="flex flex-wrap gap-2">
+                  <div v-for="k in keyPoolStatus.keys" :key="k.id" class="flex items-center gap-1.5 px-2 py-1 rounded bg-bg-elevated border border-border text-xs font-mono">
+                    <span class="text-text-secondary">{{ k.masked_key }}</span>
+                    <span :class="k.remaining_today > 0 ? 'text-green-400' : 'text-red-400'">
+                      {{ k.remaining_today }}/{{ keyPoolStatus.daily_limit }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div v-else-if="keyPoolStatus" class="mt-3 mb-2 text-xs text-text-muted">暂无 Key，请在下方填入</div>
+              <div class="mt-3 grid grid-cols-2 gap-3">
+                <div class="col-span-2">
+                  <label class="block text-xs text-text-muted mb-1">新 Keys（每行一个，保存后全量替换）</label>
+                  <textarea
+                    v-model="keyPoolKeysText"
+                    rows="4"
+                    placeholder="sk-or-v1-xxx&#10;sk-or-v1-yyy"
+                    class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-xs font-mono resize-y"
+                  ></textarea>
+                </div>
+                <div>
+                  <label class="block text-xs text-text-muted mb-1">每日每 Key 调用上限</label>
+                  <input v-model.number="keyPoolDailyLimit" type="number" min="1" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
+                </div>
+              </div>
+              <div class="flex items-center gap-2 mt-3">
+                <button
+                  :disabled="keyPoolSaving"
+                  class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium disabled:opacity-50"
+                  @click="saveKeyPool"
+                >
+                  {{ keyPoolSaving ? '保存中...' : '💾 保存 Key 池' }}
+                </button>
+                <button class="px-3 py-1.5 rounded-lg border border-border text-text-secondary text-xs hover:bg-bg-hover" @click="loadKeyPool">
+                  🔄 刷新状态
+                </button>
+              </div>
+              <p v-if="keyPoolError" class="mt-2 text-xs text-red-400">{{ keyPoolError }}</p>
+            </template>
+          </div>
+        </div>
+
         <div v-if="llmConfigLoading" class="flex-1 flex items-center justify-center text-text-muted">
           <div class="flex items-center gap-2">
             <span class="inline-block w-4 h-4 border-2 border-text-muted border-t-transparent rounded-full animate-spin"></span>
@@ -3360,16 +3880,47 @@ onUnmounted(() => {
               <input v-model="llmConfigForm.remark" type="text" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
             </div>
             <div>
-              <label class="block text-xs text-text-muted mb-1">Base URL *</label>
+              <label class="block text-xs text-text-muted mb-1">
+                Base URL
+                <span v-if="!llmConfigForm.use_openrouter_free_pool"> *</span>
+                <span v-else class="text-green-400 ml-1">（池模式自动填充）</span>
+              </label>
               <input v-model="llmConfigForm.base_url" type="text" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm font-mono" />
             </div>
             <div>
-              <label class="block text-xs text-text-muted mb-1">API Key *</label>
+              <label class="block text-xs text-text-muted mb-1">
+                API Key
+                <span v-if="!llmConfigForm.use_openrouter_free_pool"> *</span>
+                <span v-else class="text-green-400 ml-1">（使用 Key 池，可留空）</span>
+              </label>
               <input v-model="llmConfigForm.api_key" type="password" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm font-mono" />
             </div>
-            <div>
-              <label class="block text-xs text-text-muted mb-1">Model *</label>
+            <div class="col-span-2">
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-xs text-text-muted">Model *</label>
+                <button
+                  type="button"
+                  :disabled="freeModelsLoading"
+                  class="px-2 py-0.5 rounded text-[11px] border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50"
+                  @click="loadFreeModels"
+                >
+                  {{ freeModelsLoading ? '获取中...' : '📋 获取免费模型列表' }}
+                </button>
+              </div>
               <input v-model="llmConfigForm.model" type="text" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
+              <div v-if="freeModelsExpanded && freeModels.length > 0" class="mt-1 max-h-52 overflow-y-auto rounded-lg bg-bg-elevated border border-border divide-y divide-border/50">
+                <button
+                  v-for="m in freeModels"
+                  :key="m.id"
+                  type="button"
+                  class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-bg-hover transition-colors"
+                  @click="pickFreeModel(m)"
+                >
+                  <span class="text-xs text-text-primary truncate">{{ m.name || m.id }}</span>
+                  <span class="text-[10px] text-text-muted font-mono ml-2 shrink-0">{{ m.context_length ? m.context_length.toLocaleString() + ' ctx' : '' }}</span>
+                </button>
+              </div>
+              <button v-if="freeModelsExpanded" type="button" class="mt-1 text-[11px] text-text-muted hover:text-text-secondary" @click="freeModelsExpanded = false">收起列表</button>
             </div>
             <div>
               <label class="block text-xs text-text-muted mb-1">Max Tokens</label>
@@ -3390,6 +3941,38 @@ onUnmounted(() => {
             <div>
               <label class="block text-xs text-text-muted mb-1">Input Safety Margin</label>
               <input v-model.number="llmConfigForm.input_safety_margin" type="number" class="w-full px-3 py-2 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
+            </div>
+            <div class="flex items-center justify-between rounded-lg bg-bg-elevated border border-border px-3 py-2">
+              <div>
+                <label class="block text-xs text-text-muted">思考模式</label>
+                <p class="text-[11px] text-text-muted/70 mt-0.5">是否生效取决于模型/服务商支持</p>
+              </div>
+              <button
+                type="button"
+                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors"
+                :class="llmConfigForm.enable_thinking ? 'bg-blue-600' : 'bg-bg-hover border border-border'"
+                @click="llmConfigForm.enable_thinking = !llmConfigForm.enable_thinking"
+              >
+                <span
+                  class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                  :class="llmConfigForm.enable_thinking ? 'translate-x-6' : 'translate-x-1'"
+                ></span>
+              </button>
+            </div>
+            <!-- OpenRouter Free Key Pool toggle -->
+            <div class="flex items-center justify-between py-2 px-3 rounded-lg bg-bg-elevated border border-border">
+              <div>
+                <p class="text-sm font-medium text-text-primary">使用 OpenRouter 免费 Key 池</p>
+                <p class="text-xs text-text-muted mt-0.5">启用后运行时自动轮换，API Key 可留空</p>
+              </div>
+              <button type="button"
+                class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors ml-3 shrink-0"
+                :class="llmConfigForm.use_openrouter_free_pool ? 'bg-green-600' : 'bg-bg-hover border border-border'"
+                @click="llmConfigForm.use_openrouter_free_pool = !llmConfigForm.use_openrouter_free_pool"
+              >
+                <span class="inline-block h-4 w-4 rounded-full bg-white shadow transition-transform"
+                  :class="llmConfigForm.use_openrouter_free_pool ? 'translate-x-6' : 'translate-x-1'" />
+              </button>
             </div>
             <div>
               <label class="block text-xs text-text-muted mb-1">Endpoint</label>
@@ -3440,7 +4023,13 @@ onUnmounted(() => {
             <tbody>
               <tr v-for="config in llmConfigs" :key="config.id" class="border-b border-border/50 hover:bg-bg-hover/30 transition-colors">
                 <td class="px-4 py-3 text-text-muted font-mono text-xs">{{ config.id }}</td>
-                <td class="px-4 py-3 text-text-primary font-medium">{{ config.name }}</td>
+                <td class="px-4 py-3 text-text-primary font-medium">
+                  <div class="flex items-center gap-2">
+                    <span>{{ config.name }}</span>
+                    <span v-if="config.enable_thinking" class="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 text-[10px] font-medium">思考</span>
+                    <span v-if="config.use_openrouter_free_pool" class="px-1.5 py-0.5 rounded bg-green-500/15 text-green-400 text-[10px] font-medium">Key池</span>
+                  </div>
+                </td>
                 <td class="px-4 py-3 text-text-secondary text-xs font-mono truncate max-w-[200px]">{{ config.base_url }}</td>
                 <td class="px-4 py-3 text-text-secondary text-xs">{{ config.model }}</td>
                 <td class="px-4 py-3">
@@ -3594,6 +4183,229 @@ onUnmounted(() => {
           </table>
         </div>
       </div>
+
+      <!-- ============================================================= -->
+      <!-- Page: User Custom Config Audit (用户配置审计)                 -->
+      <!-- ============================================================= -->
+      <div v-if="activeTab === 'user-custom-configs'" class="flex-1 flex flex-col p-3 sm:p-6 gap-4 overflow-auto">
+        <!-- Header -->
+        <div class="shrink-0 flex items-center justify-between">
+          <div>
+            <h1 class="text-lg font-bold text-text-primary">🔍 用户配置审计</h1>
+            <p class="text-xs text-text-muted mt-0.5">查看哪些用户配置了独立的模型预设或提示词预设，以及后台实际执行了几套用户个性化配置</p>
+          </div>
+          <button
+            class="px-3 py-1.5 rounded-full border border-border text-xs text-text-secondary bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
+            @click="loadCustomConfigs"
+          >🔄 刷新</button>
+        </div>
+
+        <!-- Loading / Error -->
+        <div v-if="customConfigsLoading" class="flex items-center justify-center py-16 text-text-muted">
+          <span class="inline-block w-5 h-5 border-2 border-text-muted border-t-transparent rounded-full animate-spin mr-2"></span>加载中...
+        </div>
+        <div v-else-if="customConfigsError" class="text-red-400 text-sm bg-red-900/20 rounded-lg p-4">{{ customConfigsError }}</div>
+
+        <template v-else-if="customConfigsData">
+          <!-- Summary cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 shrink-0">
+            <div class="rounded-xl bg-bg-elevated border border-border p-4 flex flex-col gap-1">
+              <span class="text-2xl font-bold text-tinder-blue">{{ customConfigsData.summary.total_users_with_custom_config }}</span>
+              <span class="text-xs text-text-muted">已自定义配置的用户</span>
+            </div>
+            <div class="rounded-xl bg-bg-elevated border border-border p-4 flex flex-col gap-1">
+              <span class="text-2xl font-bold text-green-400">{{ customConfigsData.summary.total_active_llm_preset_refs }}</span>
+              <span class="text-xs text-text-muted">LLM 预设引用数（活跃）</span>
+            </div>
+            <div class="rounded-xl bg-bg-elevated border border-border p-4 flex flex-col gap-1">
+              <span class="text-2xl font-bold text-violet-400">{{ customConfigsData.summary.total_active_prompt_preset_refs }}</span>
+              <span class="text-xs text-text-muted">提示词预设引用数（活跃）</span>
+            </div>
+            <div class="rounded-xl bg-bg-elevated border border-border p-4 flex flex-col gap-1">
+              <span class="text-2xl font-bold text-amber-400">{{ customConfigsData.summary.total_unused_llm_presets }}</span>
+              <span class="text-xs text-text-muted">未引用 LLM 预设</span>
+            </div>
+            <div class="rounded-xl bg-bg-elevated border border-border p-4 flex flex-col gap-1">
+              <span class="text-2xl font-bold text-amber-400">{{ customConfigsData.summary.total_unused_prompt_presets }}</span>
+              <span class="text-xs text-text-muted">未引用提示词预设</span>
+            </div>
+          </div>
+
+          <!-- Empty state -->
+          <div v-if="customConfigsData.users.length === 0" class="flex-1 flex items-center justify-center text-text-muted text-sm">
+            暂无用户配置了独立参数
+          </div>
+
+          <!-- User list -->
+          <div v-else class="rounded-xl bg-bg-card border border-border overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 z-10">
+                <tr class="bg-bg-sidebar border-b border-border">
+                  <th class="text-left px-4 py-3 font-medium text-text-muted w-8"></th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">用户</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">等级</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">涉及功能</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">LLM 引用</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">Prompt 引用</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">创建预设</th>
+                  <th class="text-left px-4 py-3 font-medium text-text-muted">最后更新</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="u in customConfigsData.users" :key="u.user_id">
+                  <!-- Row -->
+                  <tr
+                    class="border-b border-border/50 hover:bg-bg-hover/30 transition-colors cursor-pointer"
+                    @click="toggleCustomConfigUser(u.user_id)"
+                  >
+                    <td class="px-4 py-3 text-text-muted text-xs">
+                      {{ customConfigsExpandedUsers.has(u.user_id) ? '▲' : '▼' }}
+                    </td>
+                    <td class="px-4 py-3">
+                      <div class="font-medium text-text-primary">{{ u.username }}</div>
+                      <div class="text-[11px] text-text-muted font-mono">uid {{ u.user_id }}</div>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span class="px-2 py-0.5 rounded-full text-[11px] font-medium"
+                        :class="u.tier === 'pro_plus' ? 'bg-amber-500/20 text-amber-400' : u.tier === 'pro' ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-500/20 text-text-muted'"
+                      >{{ u.tier === 'pro_plus' ? 'Pro+' : u.tier === 'pro' ? 'Pro' : 'Free' }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-text-secondary">{{ u.feature_count }} 个</td>
+                    <td class="px-4 py-3">
+                      <span :class="u.llm_preset_ref_count > 0 ? 'text-green-400' : 'text-text-muted'">{{ u.llm_preset_ref_count }}</span>
+                      <span class="text-text-muted text-xs ml-1">活跃 / {{ u.total_llm_presets }} 创建</span>
+                    </td>
+                    <td class="px-4 py-3">
+                      <span :class="u.prompt_preset_ref_count > 0 ? 'text-violet-400' : 'text-text-muted'">{{ u.prompt_preset_ref_count }}</span>
+                      <span class="text-text-muted text-xs ml-1">活跃 / {{ u.total_prompt_presets }} 创建</span>
+                    </td>
+                    <td class="px-4 py-3 text-text-muted text-xs">
+                      <span v-if="u.unused_llm_presets.length || u.unused_prompt_presets.length" class="text-amber-400">
+                        {{ u.unused_llm_presets.length + u.unused_prompt_presets.length }} 个未引用
+                      </span>
+                      <span v-else class="text-text-muted">—</span>
+                    </td>
+                    <td class="px-4 py-3 text-text-muted text-xs">
+                      {{ u.last_updated ? new Date(u.last_updated).toLocaleDateString('zh-CN') : '—' }}
+                    </td>
+                  </tr>
+
+                  <!-- Expanded detail -->
+                  <tr v-if="customConfigsExpandedUsers.has(u.user_id)" class="border-b border-border/50 bg-bg-elevated/30">
+                    <td colspan="8" class="px-6 py-4">
+                      <div class="space-y-4">
+
+                        <!-- Feature configs -->
+                        <div v-if="u.feature_configs.length">
+                          <h3 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">功能配置详情</h3>
+                          <div class="space-y-2">
+                            <div
+                              v-for="fc in u.feature_configs"
+                              :key="fc.feature"
+                              class="rounded-lg border border-border bg-bg-card p-3"
+                            >
+                              <div class="flex items-center gap-2 mb-2">
+                                <span class="text-xs font-semibold text-text-primary">{{ featureLabel(fc.feature) }}</span>
+                                <span class="text-[10px] text-text-muted font-mono">{{ fc.feature }}</span>
+                                <span v-if="fc.has_direct_llm_config" class="px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-400 text-[10px]">含直连 LLM</span>
+                                <span class="ml-auto text-[10px] text-text-muted">{{ new Date(fc.updated_at).toLocaleString('zh-CN') }}</span>
+                              </div>
+
+                              <!-- LLM preset refs -->
+                              <div v-if="Object.keys(fc.llm_preset_refs).length" class="mb-2">
+                                <p class="text-[10px] text-text-muted mb-1">🤖 引用的 LLM 预设</p>
+                                <div class="flex flex-wrap gap-2">
+                                  <div
+                                    v-for="(ref, field) in fc.llm_preset_refs"
+                                    :key="field"
+                                    class="rounded bg-green-500/10 border border-green-500/20 px-2 py-1 text-[11px]"
+                                  >
+                                    <span class="text-green-400 font-medium">{{ ref.preset_name }}</span>
+                                    <span class="text-text-muted ml-1">· {{ ref.model || '—' }}</span>
+                                    <span v-if="ref.temperature != null" class="text-text-muted ml-1">T={{ ref.temperature }}</span>
+                                    <span v-if="ref.max_tokens != null" class="text-text-muted ml-1">max={{ ref.max_tokens }}</span>
+                                    <span v-if="ref.enable_thinking" class="text-blue-400 ml-1">思考</span>
+                                    <span class="text-text-muted/60 block text-[10px] font-mono">{{ field }}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <!-- Prompt preset refs -->
+                              <div v-if="Object.keys(fc.prompt_preset_refs).length" class="mb-2">
+                                <p class="text-[10px] text-text-muted mb-1">📝 引用的提示词预设</p>
+                                <div class="flex flex-wrap gap-2">
+                                  <div
+                                    v-for="(ref, field) in fc.prompt_preset_refs"
+                                    :key="field"
+                                    class="rounded bg-violet-500/10 border border-violet-500/20 px-2 py-1 text-[11px] max-w-xs"
+                                  >
+                                    <span class="text-violet-400 font-medium">{{ ref.preset_name }}</span>
+                                    <span class="text-text-muted/60 block text-[10px] font-mono">{{ field }}</span>
+                                    <span class="text-text-muted block text-[10px] truncate">{{ ref.content_preview }}</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <!-- Direct params -->
+                              <div v-if="Object.keys(fc.direct_params).length">
+                                <p class="text-[10px] text-text-muted mb-1">⚙️ 直接设置的参数</p>
+                                <div class="flex flex-wrap gap-1.5">
+                                  <span
+                                    v-for="(val, key) in fc.direct_params"
+                                    :key="key"
+                                    class="rounded bg-bg-elevated border border-border px-2 py-0.5 text-[11px] text-text-secondary font-mono"
+                                  >
+                                    {{ key }}: {{ Array.isArray(val) ? val.join(', ') : val }}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <!-- Unused presets -->
+                        <div v-if="u.unused_llm_presets.length || u.unused_prompt_presets.length">
+                          <h3 class="text-xs font-semibold text-amber-400/80 uppercase tracking-wider mb-2">未引用的预设（已创建但无功能引用）</h3>
+                          <div class="flex flex-wrap gap-2">
+                            <div
+                              v-for="p in u.unused_llm_presets"
+                              :key="'llm-' + p.id"
+                              class="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[11px]"
+                            >
+                              <span class="text-amber-400">🤖 {{ p.name }}</span>
+                              <span class="text-text-muted ml-1">{{ p.model }}</span>
+                            </div>
+                            <div
+                              v-for="p in u.unused_prompt_presets"
+                              :key="'prompt-' + p.id"
+                              class="rounded bg-amber-500/10 border border-amber-500/20 px-2 py-1 text-[11px] max-w-[200px]"
+                            >
+                              <span class="text-amber-400">📝 {{ p.name }}</span>
+                              <span class="text-text-muted block text-[10px] truncate">{{ p.content_preview }}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <!-- Not loaded yet -->
+        <div v-else class="flex-1 flex items-center justify-center text-text-muted text-sm">
+          点击刷新加载数据
+        </div>
+      </div>
+
+      <!-- ============================================================= -->
+      <!-- Page: PDF 清理                                                -->
+      <!-- ============================================================= -->
+      <AdminPdfCleanupPanel v-if="activeTab === 'pdf-cleanup'" />
+
     </div>
   </div>
 

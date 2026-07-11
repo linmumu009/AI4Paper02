@@ -1,17 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import IdeaLabView from './IdeaLabView.vue'
 import AtomBrowser from './AtomBrowser.vue'
 import ExemplarView from './ExemplarView.vue'
+import MemoryClustersView from './MemoryClustersView.vue'
+import EvalReplayView from './EvalReplayView.vue'
+import IdeaDetailPanel from '../components/idea/IdeaDetailPanel.vue'
 
-type Tool = 'idea' | 'atoms' | 'exemplars'
+const route = useRoute()
+const router = useRouter()
+
+type Tool = 'idea' | 'atoms' | 'exemplars' | 'clusters' | 'eval'
 
 const activeTool = ref<Tool>('idea')
 
+// candidate_id from query: when present, show IdeaDetailView overlay instead of normal tool
+const activeCandidateId = computed(() => {
+  const v = route.query.candidate_id
+  return v ? Number(v) : null
+})
+
+// Sync active tool from route query (e.g. ?tab=atoms)
+function syncTabFromRoute() {
+  const tab = route.query.tab as string
+  if (tab === 'atoms' || tab === 'exemplars' || tab === 'clusters' || tab === 'idea' || tab === 'eval') {
+    activeTool.value = tab
+  }
+}
+onMounted(syncTabFromRoute)
+watch(() => route.query.tab, syncTabFromRoute)
+
+// initialPaperId for AtomBrowser when navigated from ResearchMemoryPanel
+const initialAtomPaperId = computed(() => (route.query.paper_id as string) || '')
+
 const tools: { key: Tool; icon: string; label: string }[] = [
   { key: 'idea', icon: '🧪', label: '灵感工作台' },
-  { key: 'atoms', icon: '🔬', label: '原子库' },
+  { key: 'atoms', icon: '🔬', label: '研究原子库' },
+  { key: 'clusters', icon: '🗺️', label: '研究图谱' },
   { key: 'exemplars', icon: '⭐', label: '范例库' },
+  { key: 'eval', icon: '📊', label: '评估基准' },
 ]
 </script>
 
@@ -44,9 +72,24 @@ const tools: { key: Tool; icon: string; label: string }[] = [
 
     <!-- Tool content -->
     <div class="flex-1 min-w-0 overflow-hidden">
-      <IdeaLabView v-if="activeTool === 'idea'" />
-      <AtomBrowser v-else-if="activeTool === 'atoms'" :embedded="true" />
-      <ExemplarView v-else-if="activeTool === 'exemplars'" :embedded="true" />
+      <!-- candidate_id query: show detail panel with proper streaming plan generation -->
+      <IdeaDetailPanel
+        v-if="activeCandidateId"
+        :candidate-id="activeCandidateId"
+        @close="router.replace('/workbench')"
+        @open-paper="(pid) => router.push(`/papers/${pid}`)"
+      />
+      <template v-else>
+        <IdeaLabView v-if="activeTool === 'idea'" />
+        <AtomBrowser
+          v-else-if="activeTool === 'atoms'"
+          :embedded="true"
+          :initial-paper-id="initialAtomPaperId"
+        />
+        <MemoryClustersView v-else-if="activeTool === 'clusters'" :embedded="true" />
+        <ExemplarView v-else-if="activeTool === 'exemplars'" :embedded="true" />
+        <EvalReplayView v-else-if="activeTool === 'eval'" />
+      </template>
     </div>
   </div>
 </template>

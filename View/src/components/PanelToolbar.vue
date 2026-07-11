@@ -63,11 +63,11 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
 
 <template>
   <div
-    class="shrink-0 flex flex-wrap items-center gap-2 px-2 sm:px-4 py-2 border-b border-border bg-bg-card/80 backdrop-blur-sm"
+    class="shrink-0 flex flex-wrap items-center gap-1.5 px-2 sm:px-3 py-1 border-b border-border bg-bg-card/90 backdrop-blur-sm"
   >
     <span class="text-xs text-text-muted hidden sm:inline">左栏</span>
     <select
-      class="text-xs sm:text-sm bg-bg-elevated border border-border rounded-lg px-2 py-1.5 text-text-primary max-w-[42vw] sm:max-w-none"
+      class="text-xs bg-bg-elevated border border-border rounded-md px-2 py-1 text-text-primary max-w-[42vw] sm:max-w-none"
       :value="leftPanel"
       @change="onLeftChange"
     >
@@ -82,7 +82,7 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
 
     <button
       type="button"
-      class="text-xs px-2.5 py-1.5 rounded-lg border border-border bg-bg-elevated text-text-secondary hover:bg-bg-hover cursor-pointer transition-colors"
+      class="text-xs px-2 py-1 rounded-md border border-border bg-bg-elevated text-text-secondary hover:bg-bg-hover cursor-pointer transition-colors"
       title="交换左右栏"
       :disabled="mode !== 'split'"
       :class="mode !== 'split' ? 'opacity-40 cursor-not-allowed' : ''"
@@ -94,7 +94,7 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
     <template v-if="mode === 'split'">
       <span class="text-xs text-text-muted hidden sm:inline">右栏</span>
       <select
-        class="text-xs sm:text-sm bg-bg-elevated border border-border rounded-lg px-2 py-1.5 text-text-primary max-w-[42vw] sm:max-w-none"
+        class="text-xs bg-bg-elevated border border-border rounded-md px-2 py-1 text-text-primary max-w-[42vw] sm:max-w-none"
         :value="rightPanel"
         @change="onRightChange"
       >
@@ -110,7 +110,7 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
 
     <button
       type="button"
-      class="ml-auto text-xs px-3 py-1.5 rounded-full font-medium border cursor-pointer transition-colors"
+      class="ml-auto text-xs px-2.5 py-1 rounded-full font-medium border cursor-pointer transition-colors"
       :class="mode === 'split'
         ? 'border-tinder-pink/50 text-tinder-pink bg-tinder-pink/10'
         : 'border-border text-text-secondary bg-bg-elevated hover:bg-bg-hover'"
@@ -125,7 +125,7 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
         v-if="downloadParams"
         type="button"
         :disabled="downloading"
-        class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full font-medium border border-border bg-bg-elevated hover:bg-bg-hover cursor-pointer transition-colors"
+        class="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium border border-border bg-bg-elevated hover:bg-bg-hover cursor-pointer transition-colors"
         :class="downloading ? 'opacity-50 cursor-not-allowed text-text-muted' : 'text-text-secondary'"
         :title="downloading ? '正在生成，请稍候…' : '下载此文件'"
         @click.stop="!downloading && (showFormatMenu = !showFormatMenu)"
@@ -147,7 +147,7 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
         :href="downloadUrl"
         download
         target="_blank"
-        class="flex items-center gap-1 text-xs px-3 py-1.5 rounded-full font-medium border border-border bg-bg-elevated hover:bg-bg-hover text-text-secondary cursor-pointer transition-colors no-underline"
+        class="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium border border-border bg-bg-elevated hover:bg-bg-hover text-text-secondary cursor-pointer transition-colors no-underline"
         title="下载此文件"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -170,13 +170,15 @@ async function triggerDownload(fmt: 'md' | 'docx' | 'pdf') {
           {{ opt.label }}
         </button>
       </div>
-      <div v-if="showFormatMenu" class="fixed inset-0 z-10" @click="showFormatMenu = false" />
+      <Teleport to="body">
+        <div v-if="showFormatMenu" class="fixed inset-0 z-[29]" @click="showFormatMenu = false" />
+      </Teleport>
     </div>
 
     <button
       v-if="showClose"
       type="button"
-      class="text-xs px-3 py-1.5 rounded-full font-medium border border-border text-text-muted bg-bg-elevated hover:bg-bg-hover cursor-pointer transition-colors"
+      class="text-xs px-2.5 py-1 rounded-full font-medium border border-border text-text-muted bg-bg-elevated hover:bg-bg-hover cursor-pointer transition-colors"
       @click="emit('close')"
     >
       关闭

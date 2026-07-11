@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import MarkdownIt from 'markdown-it'
 import {
   fetchIdeaCandidate,
   fetchIdeaAtom,
@@ -9,14 +10,19 @@ import {
   createIdeaFeedback,
   createIdeaPlan,
   createIdeaExemplar,
+  fetchGeneratePlanStream,
 } from '../api'
 import type { IdeaCandidate, IdeaAtom, IdeaPlan } from '../types/paper'
+
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 import { ensureAuthInitialized, isAuthenticated } from '../stores/auth'
+
+const props = withDefaults(defineProps<{ candidateId?: number }>(), { candidateId: undefined })
 
 const route = useRoute()
 const router = useRouter()
 
-const candidateId = computed(() => Number(route.params.id))
+const candidateId = computed(() => props.candidateId ?? Number(route.params.id))
 
 const candidate = ref<IdeaCandidate | null>(null)
 const atoms = ref<IdeaAtom[]>([])
@@ -108,26 +114,49 @@ async function submitReview() {
   }
 }
 
-// Create plan
+// Create plan (SSE streaming + save)
 const creatingPlan = ref(false)
+const planStreamText = ref('')
+let planAbortController: AbortController | null = null
+
 async function handleCreatePlan() {
   creatingPlan.value = true
+  planStreamText.value = ''
+  activeTab.value = 'plan'
+  planAbortController = new AbortController()
   try {
-    const res = await createIdeaPlan(candidateId.value, {
-      milestones: [],
-      metrics: '',
-      datasets: '',
-      ablation: '',
-      cost: '',
-      timeline: '',
-      full_plan: '',
-    } as any)
+    const response = await fetchGeneratePlanStream(candidateId.value, undefined, planAbortController.signal)
+    if (!response.ok) {
+      const txt = await response.text()
+      throw new Error(`生成失败 (${response.status}): ${txt}`)
+    }
+    const reader = response.body?.getReader()
+    if (!reader) throw new Error('无法读取响应流')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    outer: while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6).trim()
+        if (payload === '[DONE]') { reader.cancel(); break outer }
+        try { planStreamText.value += JSON.parse(payload) as string }
+        catch { planStreamText.value += payload }
+      }
+    }
+    const res = await createIdeaPlan(candidateId.value, { full_plan: planStreamText.value } as any)
     plan.value = res.plan
-    activeTab.value = 'plan'
+    planStreamText.value = ''
   } catch (e: any) {
-    error.value = e?.response?.data?.detail || '创建计划失败'
+    if ((e as any).name === 'AbortError') return
+    error.value = e?.message || e?.response?.data?.detail || '创建计划失败'
   } finally {
     creatingPlan.value = false
+    planAbortController = null
   }
 }
 
@@ -217,7 +246,7 @@ const atomTypeIcon: Record<string, string> = {
       <!-- Scrollable content -->
       <div class="flex-1 overflow-y-auto p-4 sm:p-6">
         <!-- ===== Overview tab ===== -->
-        <div v-if="activeTab === 'overview'" class="max-w-3xl space-y-6">
+        <div v-if="activeTab === 'overview'" class="max-w-3xl mx-auto space-y-6">
           <!-- Score radar -->
           <div v-if="candidate.scores" class="grid grid-cols-3 gap-3">
             <div v-for="(label, key) in { novelty: '新颖度', feasibility: '可行性', impact: '影响力' }" :key="key"
@@ -275,25 +304,28 @@ const atomTypeIcon: Record<string, string> = {
               ⭐ 标记为范例
             </button>
             <button
-              v-if="!plan"
+              v-if="!plan && !creatingPlan"
               class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/10 transition-colors"
-              :disabled="creatingPlan"
               @click="handleCreatePlan"
+            >📐 生成实验计划</button>
+            <button
+              v-else-if="creatingPlan"
+              class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-not-allowed opacity-60 flex items-center gap-1.5"
+              disabled
             >
-              📐 生成实验计划
+              <div class="w-3 h-3 rounded-full border-2 border-transparent border-t-[#fd267a] animate-spin" />
+              生成中...
             </button>
             <button
               v-else
               class="text-xs px-4 py-2 rounded-full border border-border bg-transparent text-text-muted cursor-pointer hover:text-blue-400 hover:border-blue-500/30 hover:bg-blue-500/10 transition-colors"
               @click="activeTab = 'plan'"
-            >
-              📐 查看计划
-            </button>
+            >📐 查看计划</button>
           </div>
         </div>
 
         <!-- ===== Evidence tab ===== -->
-        <div v-else-if="activeTab === 'evidence'" class="max-w-3xl space-y-4">
+        <div v-else-if="activeTab === 'evidence'" class="max-w-3xl mx-auto space-y-4">
           <h3 class="text-sm font-semibold text-text-primary mb-3">组合来源（{{ atoms.length }} 个原子）</h3>
           <div v-if="atoms.length === 0" class="text-sm text-text-muted bg-bg-card border border-border rounded-lg p-4">
             暂无关联的灵感原子。
@@ -330,7 +362,7 @@ const atomTypeIcon: Record<string, string> = {
         </div>
 
         <!-- ===== Review tab ===== -->
-        <div v-else-if="activeTab === 'review'" class="max-w-3xl space-y-6">
+        <div v-else-if="activeTab === 'review'" class="max-w-3xl mx-auto space-y-6">
           <h3 class="text-sm font-semibold text-text-primary">评审灵感</h3>
 
           <!-- Score inputs -->
@@ -390,52 +422,64 @@ const atomTypeIcon: Record<string, string> = {
         </div>
 
         <!-- ===== Plan tab ===== -->
-        <div v-else-if="activeTab === 'plan'" class="max-w-3xl space-y-4">
-          <div v-if="!plan" class="text-center py-12">
+        <div v-else-if="activeTab === 'plan'" class="max-w-3xl mx-auto space-y-4">
+          <!-- 流式生成中 -->
+          <div v-if="creatingPlan" class="bg-bg-card border border-border rounded-lg p-4 space-y-3">
+            <div class="flex items-center gap-2 text-xs text-text-muted">
+              <div class="w-3.5 h-3.5 rounded-full border-2 border-transparent border-t-[#fd267a] animate-spin shrink-0" />
+              <span>正在用 AI 生成实验计划...</span>
+            </div>
+            <div
+              v-if="planStreamText"
+              class="prose-idea text-sm leading-relaxed"
+              v-html="md.render(planStreamText)"
+            />
+          </div>
+          <!-- 空计划（尚未生成 / 历史空记录） -->
+          <div v-else-if="!plan || (!plan.full_plan && !plan.milestones?.length && !plan.datasets && !plan.metrics && !plan.timeline && !plan.cost)" class="text-center py-12">
             <p class="text-sm text-text-muted mb-4">尚未生成实验计划</p>
             <button
               class="px-5 py-2 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
-              :disabled="creatingPlan"
               @click="handleCreatePlan"
             >
               📐 生成实验计划
             </button>
           </div>
+          <!-- 已有内容的计划 -->
           <template v-else>
             <div v-if="plan.full_plan" class="bg-bg-card border border-border rounded-lg p-4">
-              <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">完整计划</h4>
-              <p class="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{{ plan.full_plan }}</p>
+              <div class="prose-idea text-sm leading-relaxed" v-html="md.render(plan.full_plan)" />
             </div>
             <div v-if="plan.milestones?.length" class="bg-bg-card border border-border rounded-lg p-4">
               <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">里程碑</h4>
               <div v-for="(m, i) in plan.milestones" :key="i" class="flex items-center gap-2 py-1">
-                <span class="text-xs">{{ m.status === 'completed' ? '✅' : m.status === 'in_progress' ? '🔄' : '⏳' }}</span>
-                <span class="text-sm text-text-secondary">{{ m.name }}</span>
+                <span class="text-xs">{{ (m as any).status === 'completed' ? '✅' : (m as any).status === 'in_progress' ? '🔄' : '⏳' }}</span>
+                <span class="text-sm text-text-secondary">{{ (m as any).name }}</span>
               </div>
             </div>
             <div class="grid grid-cols-2 gap-4">
               <div v-if="plan.datasets" class="bg-bg-card border border-border rounded-lg p-4">
                 <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">数据集</h4>
-                <p class="text-sm text-text-secondary whitespace-pre-wrap">{{ plan.datasets }}</p>
+                <div class="prose-idea text-sm" v-html="md.render(plan.datasets)" />
               </div>
               <div v-if="plan.metrics" class="bg-bg-card border border-border rounded-lg p-4">
                 <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">指标</h4>
-                <p class="text-sm text-text-secondary whitespace-pre-wrap">{{ plan.metrics }}</p>
+                <div class="prose-idea text-sm" v-html="md.render(plan.metrics)" />
               </div>
               <div v-if="plan.timeline" class="bg-bg-card border border-border rounded-lg p-4">
                 <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">时间线</h4>
-                <p class="text-sm text-text-secondary whitespace-pre-wrap">{{ plan.timeline }}</p>
+                <div class="prose-idea text-sm" v-html="md.render(plan.timeline)" />
               </div>
               <div v-if="plan.cost" class="bg-bg-card border border-border rounded-lg p-4">
                 <h4 class="text-xs font-semibold text-text-muted uppercase tracking-wider mb-2">成本</h4>
-                <p class="text-sm text-text-secondary whitespace-pre-wrap">{{ plan.cost }}</p>
+                <div class="prose-idea text-sm" v-html="md.render(plan.cost)" />
               </div>
             </div>
           </template>
         </div>
 
         <!-- ===== History tab ===== -->
-        <div v-else-if="activeTab === 'history'" class="max-w-3xl space-y-4">
+        <div v-else-if="activeTab === 'history'" class="max-w-3xl mx-auto space-y-4">
           <h3 class="text-sm font-semibold text-text-primary">修订历史</h3>
           <div v-if="!candidate.revision_history?.length" class="text-sm text-text-muted bg-bg-card border border-border rounded-lg p-4">
             暂无修订记录。
@@ -456,4 +500,42 @@ const atomTypeIcon: Record<string, string> = {
 <style scoped>
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+.prose-idea :deep(h1) {
+  font-size: 1.15rem; font-weight: 700; color: var(--color-text-primary);
+  margin-top: 1.25rem; margin-bottom: 0.5rem;
+  padding-bottom: 0.35rem; border-bottom: 1px solid var(--color-border);
+}
+.prose-idea :deep(h2) {
+  font-size: 1rem; font-weight: 700; color: var(--color-text-primary);
+  margin-top: 1.25rem; margin-bottom: 0.4rem;
+}
+.prose-idea :deep(h3) {
+  font-size: 0.875rem; font-weight: 600; color: var(--color-text-secondary);
+  margin-top: 1rem; margin-bottom: 0.35rem;
+}
+.prose-idea :deep(p) {
+  color: var(--color-text-secondary); margin-bottom: 0.75rem; line-height: 1.7;
+}
+.prose-idea :deep(ul), .prose-idea :deep(ol) {
+  padding-left: 1.25rem; margin-bottom: 0.75rem; color: var(--color-text-secondary);
+}
+.prose-idea :deep(li) { margin-bottom: 0.3rem; line-height: 1.65; }
+.prose-idea :deep(code) {
+  font-size: 0.8em; background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border); border-radius: 4px;
+  padding: 0.1em 0.35em; color: var(--color-text-primary);
+}
+.prose-idea :deep(pre) {
+  background: var(--color-bg-elevated); border: 1px solid var(--color-border);
+  border-radius: 8px; padding: 1rem; overflow-x: auto; margin-bottom: 0.75rem;
+}
+.prose-idea :deep(pre code) { background: none; border: none; padding: 0; }
+.prose-idea :deep(blockquote) {
+  border-left: 3px solid var(--color-border-light);
+  padding-left: 0.75rem; margin: 0.5rem 0;
+  color: var(--color-text-muted); font-style: italic;
+}
+.prose-idea :deep(strong) { color: var(--color-text-primary); font-weight: 600; }
+.prose-idea :deep(hr) { border-color: var(--color-border); margin: 1rem 0; }
 </style>
