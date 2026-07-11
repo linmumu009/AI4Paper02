@@ -59,6 +59,8 @@ git diff --check
 
 仅当本轮修改了目标客户端的 `package.json`、锁文件，或服务器依赖尚未安装时，才添加 `-InstallNpm`。普通源码修改不要重复执行 `npm install`。
 
+当前生产服务器只有约 1.8 GiB 内存且没有 Swap，Vite/Rollup 可能在服务器构建时被 OOM 终止。因此当前服务器默认使用本地已验证的 `dist` 发布模式 `-UseLocalDist`。该模式不会把 `dist` 加入 Git 或永久改动文件清单，而是临时打包、上传并原子替换服务器产物。
+
 ## 5. 一条命令上传并发布
 
 网页端且需要安装依赖：
@@ -73,11 +75,29 @@ git diff --check
 .\deploy_changed_files.ps1 -Target View
 ```
 
+当前低内存服务器推荐的网页发布方式：
+
+```powershell
+cd View
+npm run build
+cd ..
+.\deploy_changed_files.ps1 -Target View -UseLocalDist
+```
+
 移动端对应使用：
 
 ```powershell
 .\deploy_changed_files.ps1 -Target Mobile -InstallNpm
 .\deploy_changed_files.ps1 -Target Mobile
+```
+
+移动端低内存发布对应使用：
+
+```powershell
+cd mobile_new
+npm run build
+cd ..
+.\deploy_changed_files.ps1 -Target Mobile -UseLocalDist
 ```
 
 两个客户端都需要构建：
@@ -110,6 +130,8 @@ git diff --check
 6. 执行 `systemctl restart arxiv-api`；
 7. 先执行 `nginx -t`，通过后再执行 `systemctl reload nginx`；
 8. 确认 `arxiv-api` 和 `nginx` 都处于 active 状态。
+
+使用 `-UseLocalDist` 时，第 1-5 步替换为：检查本地 `dist/index.html`、临时打包、上传到服务器 `.deploy` 目录、解压校验，并通过备份目录原子替换现有 `dist`。替换失败会恢复旧产物。
 
 成功标志为：
 
