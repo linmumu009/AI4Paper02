@@ -301,7 +301,7 @@ onBeforeUnmount(() => {
                  C285,162 299,170 306,188 C317,214 314,244 302,268 Z"
               fill="url(#nav-ig)" opacity="0.65"/>
       </svg>
-      <span class="text-lg sm:text-xl gradient-text font-bold tracking-tight">AI4Papers</span>
+      <span class="navbar-logo-label text-lg sm:text-xl gradient-text font-bold tracking-tight">AI4Papers</span>
     </router-link>
 
     <!-- CENTER: 发现 / 灵感 / 研究工具，通过 .navbar-center 居中对齐内容区 -->
@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
           :to="item.to"
           :title="item.label"
           :aria-current="isNavActive(item.to) ? 'page' : undefined"
-          class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl no-underline transition-all duration-200 group"
+          class="navbar-primary-item relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl no-underline transition-all duration-200 group"
           :class="isNavActive(item.to)
             ? 'text-tinder-pink'
             : 'text-text-muted hover:text-text-secondary'"
@@ -322,7 +322,7 @@ onBeforeUnmount(() => {
             class="w-[18px] h-[18px] sm:w-5 sm:h-5 flex items-center justify-center transition-all duration-200"
             v-html="item.svg"
           />
-          <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">{{ item.label }}</span>
+          <span class="navbar-primary-label text-[10px] font-medium leading-none tracking-wide hidden sm:block">{{ item.label }}</span>
           <!-- Active indicator dot -->
           <span
             v-if="isNavActive(item.to)"
@@ -335,7 +335,7 @@ onBeforeUnmount(() => {
           <button
             ref="toolsButtonRef"
             type="button"
-            class="relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 cursor-pointer bg-transparent border-none"
+            class="navbar-primary-item relative flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl transition-all duration-200 cursor-pointer bg-transparent border-none"
             :class="showToolsMenu ? 'text-tinder-pink' : 'text-text-muted hover:text-text-secondary'"
             title="研究工具"
             aria-haspopup="menu"
@@ -347,7 +347,7 @@ onBeforeUnmount(() => {
             <svg xmlns="http://www.w3.org/2000/svg" class="w-[18px] h-[18px] sm:w-5 sm:h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
             </svg>
-            <span class="text-[10px] font-medium leading-none tracking-wide hidden sm:block">研究工具</span>
+            <span class="navbar-primary-label text-[10px] font-medium leading-none tracking-wide hidden sm:block">研究工具</span>
             <span v-if="showToolsMenu" class="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-tinder-pink" />
           </button>
 
@@ -400,7 +400,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- RIGHT: 页面控件 + 实用按钮 -->
-    <div class="flex items-center gap-1 shrink-0 ml-auto">
+    <div class="navbar-right flex items-center gap-1 shrink-0 ml-auto">
 
       <!-- Page-specific controls (filled via Teleport by DailyDigest when in card/list mode) -->
       <div id="navbar-page-controls" class="flex items-center" />
@@ -449,7 +449,7 @@ onBeforeUnmount(() => {
         v-if="isAuthenticated && engagement.status.value"
         to="/profile?tab=achievements"
         title="研究激励进度"
-        class="sm:hidden relative w-8 h-8 flex items-center justify-center rounded-full no-underline transition-all duration-200 hover:bg-bg-hover"
+        class="navbar-engagement-compact relative w-8 h-8 items-center justify-center rounded-full no-underline transition-all duration-200 hover:bg-bg-hover"
         :class="engAllDoneVal ? 'text-tinder-gold' : 'text-text-muted'"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
       </router-link>
 
       <!-- 激励进度条（桌面，已登录） -->
-      <div v-if="isAuthenticated && engagement.status.value" class="hidden sm:block">
+      <div v-if="isAuthenticated && engagement.status.value" class="navbar-engagement-full">
         <EngagementProgressBar
           :task-items="engTaskItems"
           :streak="engagement.status.value?.streak"

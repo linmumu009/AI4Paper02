@@ -95,25 +95,79 @@
   }
 }
 
-/* Navbar center section — absolutely positioned so the buttons are always centered
-   within the content area (sidebar-right region), regardless of left/right control widths */
+/* Navbar layout: keep the center tools in normal flow on compact desktop widths so
+   they can never collide with the page controls. Wide screens retain content-area
+   centering, where there is enough room for both groups. */
 .navbar-center {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
+  position: static;
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  flex: 0 0 auto;
+  margin-left: auto;
+  margin-right: 0.75rem;
   pointer-events: none;
 }
 .navbar-center > * {
   pointer-events: auto;
 }
-@media (min-width: 1024px) {
+
+.navbar-right {
+  margin-left: 0;
+}
+
+.navbar-engagement-compact {
+  display: flex;
+}
+
+.navbar-engagement-full {
+  display: none;
+}
+
+@media (min-width: 1920px) {
   .navbar-center {
+    position: absolute;
     left: var(--sidebar-w);
+    right: 0;
+    top: 0;
+    bottom: 0;
+    height: auto;
+    margin: 0;
+  }
+
+  .navbar-right {
+    margin-left: auto;
+  }
+
+  .navbar-engagement-compact {
+    display: none;
+  }
+
+  .navbar-engagement-full {
+    display: block;
+  }
+}
+
+@media (max-width: 1399px) {
+  .navbar-primary-item {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+@media (max-width: 1199px) {
+  .navbar-logo-label,
+  .navbar-primary-label {
+    display: none !important;
+  }
+
+  .navbar-center {
+    margin-right: 0.25rem;
+  }
+
+  .navbar-right {
+    gap: 0.125rem;
   }
 }
 
