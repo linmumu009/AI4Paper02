@@ -1,13 +1,13 @@
 # upload_changed_files.ps1
-# 读取 changed_files_abs_paths.txt（本地绝对路径清单）
-# 只建立一次 SFTP 连接：创建目录 + 上传。
-# 默认使用仓库外的专用 Ed25519 私钥，不允许密码或键盘交互回退。
+# Read absolute local paths from changed_files_abs_paths.txt.
+# Use one SFTP connection to create directories and upload files.
+# Use a repository-external Ed25519 key and never fall back to password auth.
 
 [CmdletBinding()]
 param(
   [string]$Remote        = "root@8.137.23.146",
   [int]   $Port          = 22,
-  [string]$ListFile      = (Join-Path $PSScriptRoot "changed_files_abs_paths.txt"),
+  [string]$ListFile      = "",
   [string]$LocalRoot     = "D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\",
   [string]$RemoteRoot    = "/projects/ArxivPaper4/",
   [string]$IdentityFile  = (Join-Path $env:USERPROFILE ".ssh\ai4papers_sync_ed25519"),
@@ -15,6 +15,11 @@ param(
   [switch]$InstallPublicKey,
   [switch]$DryRun
 )
+
+$ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
+if ([string]::IsNullOrWhiteSpace($ListFile)) {
+  $ListFile = Join-Path $ScriptDirectory "changed_files_abs_paths.txt"
+}
 
 function Normalize-LocalRoot([string]$p) {
   $full = [System.IO.Path]::GetFullPath($p)
@@ -27,12 +32,12 @@ function Normalize-RemoteRoot([string]$p) {
   return $r
 }
 function SftpQuote([string]$p) {
-  # sftp 批处理里用双引号包本地路径；内部双引号转义
+  # Quote local paths for the SFTP batch file and escape embedded quotes.
   $p = $p -replace '"','\"'
   return '"' + $p + '"'
 }
 function Get-RemoteDirChain([string]$dir) {
-  # 生成 /a/b/c 的所有父目录：/a, /a/b, /a/b/c
+  # Expand /a/b/c into /a, /a/b, and /a/b/c.
   $dir = ($dir -replace '\\','/').TrimEnd('/')
   if ($dir -eq "") { return @() }
   $parts = $dir.TrimStart('/').Split('/', [System.StringSplitOptions]::RemoveEmptyEntries)
@@ -52,10 +57,10 @@ $KnownHostsFile = [System.IO.Path]::GetFullPath($KnownHostsFile)
 
 if (-not (Test-Path -LiteralPath $ListFile)) { throw "List file not found: $ListFile" }
 if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
-  throw "SSH private key not found: $IdentityFile`nCreate it with: ssh-keygen -t ed25519 -f `"$IdentityFile`" -N `"`""
+  throw "SSH private key not found: $IdentityFile. Create the Ed25519 key before running this script."
 }
 
-# 私钥绝不能位于项目目录中，否则可能被 Git 或本脚本上传到服务器。
+# Never allow a private key under the project root.
 if ($IdentityFile.StartsWith($LocalRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
   throw "Refusing to use a private key stored under LocalRoot: $IdentityFile"
 }
@@ -122,7 +127,7 @@ if (-not $items -or $items.Count -eq 0) {
   exit 0
 }
 
-# 任务列表：Src / Dst
+# Build the source/destination task list.
 $tasks = @()
 foreach ($src in $items) {
   if (-not (Test-Path -LiteralPath $src)) { Write-Warning "Missing (skip): $src"; continue }
@@ -145,26 +150,26 @@ foreach ($src in $items) {
 
 if ($tasks.Count -eq 0) { Write-Warning "No valid tasks to upload."; exit 0 }
 
-# 需要创建的远端目录集合（用 HashSet 去重）
+# Collect and deduplicate remote directories.
 $remoteDirSet = New-Object 'System.Collections.Generic.HashSet[string]'
 
 foreach ($t in $tasks) {
-  # 文件：创建父目录；目录：创建目标目录本身 + 父目录链
+  # Files need their parent; directories need their own full path chain.
   $targetDir = if ($t.IsDir) { $t.Dst.TrimEnd('/') } else { ($t.Dst -replace '/[^/]+$','') }
   foreach ($d in (Get-RemoteDirChain $targetDir)) { [void]$remoteDirSet.Add($d) }
 }
 
-# 重要：不要用 .ToArray()（避免你遇到的报错）
+# Enumerate directly because HashSet.ToArray() is unavailable in some hosts.
 $dirs = $remoteDirSet | Sort-Object Length
 
-# 生成 sftp 批处理文件（必须 ASCII，别用默认 UTF-16）
+# Generate an ASCII SFTP batch file, not PowerShell 5.1's default UTF-16.
 $batchFile = Join-Path $env:TEMP ("sftp_batch_{0}.txt" -f ([DateTime]::Now.ToString("yyyyMMdd_HHmmss")))
 $lines = New-Object System.Collections.Generic.List[string]
 
-# mkdir 没有 -p，所以把目录链都列出来；前缀 '-' 表示失败也继续（已存在会报错但忽略）
+# SFTP mkdir has no -p. Prefix with '-' so existing directories do not abort.
 foreach ($d in $dirs) { $lines.Add("-mkdir $d") }
 
-# 上传：文件用 put；目录用 put -r 到父目录（保证最终落点是同名目录）
+# Upload files with put and directories recursively to their parent.
 foreach ($t in $tasks) {
   if ($t.IsDir) {
     $parent = ($t.Dst.TrimEnd('/') -replace '/[^/]+$','')
