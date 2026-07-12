@@ -79,8 +79,18 @@ const originalTitle = computed(() => {
   const value = summary.value?.['📖标题']
   return value && value !== title.value ? value : ''
 })
+function textItems(value: unknown): string[] {
+  if (Array.isArray(value)) return value.flatMap(textItems)
+  if (typeof value === 'string') {
+    const item = value.trim()
+    return item ? [item] : []
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return [String(value)]
+  return []
+}
+
 const authorsLine = computed(() => {
-  const authors = summary.value?.authors ?? []
+  const authors = textItems(summary.value?.authors)
   if (!authors.length) return '作者信息暂缺'
   const visible = authors.slice(0, 4).map(author => author.replace(/\s*\(.*?\)\s*/g, '').trim())
   return authors.length > 4 ? `${visible.join(', ')} et al.` : visible.join(', ')
@@ -93,14 +103,12 @@ const score = computed(() => {
 const researchQuestion = computed(() => summary.value?.['🛎️文章简介']?.['🔸研究问题'] || '')
 const mainContribution = computed(() => summary.value?.['🛎️文章简介']?.['🔸主要贡献'] || '')
 const recommendation = computed(() => summary.value?.why_recommended || summary.value?.['推荐理由'] || mainContribution.value)
-const keyThoughts = computed(() => summary.value?.['📝重点思路']?.filter(Boolean).slice(0, 5) ?? [])
-const analysisSummary = computed(() => summary.value?.['🔎分析总结']?.filter(Boolean).slice(0, 3) ?? [])
+const keyThoughts = computed(() => textItems(summary.value?.['📝重点思路']).slice(0, 5))
+const analysisSummary = computed(() => textItems(summary.value?.['🔎分析总结']).slice(0, 3))
 const assetBlocks = computed(() => detail.value?.paper_assets?.blocks)
 
-function uniqueItems(...groups: Array<string | string[] | null | undefined>): string[] {
-  return [...new Set(groups.flatMap(group => Array.isArray(group) ? group : group ? [group] : []))]
-    .map(item => item.trim())
-    .filter(Boolean)
+function uniqueItems(...groups: unknown[]): string[] {
+  return [...new Set(groups.flatMap(textItems))]
 }
 
 const objectiveItems = computed(() => uniqueItems(
@@ -156,6 +164,8 @@ const readingSections = computed(() => [
 ].filter(section => section.visible))
 
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
+const relatedAuthors = (paper: PaperSummary) => textItems(paper.authors).slice(0, 2).join(', ')
+const relatedCategories = (paper: PaperSummary) => textItems(paper.categories).slice(0, 2).join(' · ')
 const resolvedReturnLabel = computed(() => props.returnLabel || (props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式'))
 const isKnowledgeDecision = computed(() => props.decisionMode === 'knowledge')
 const isMyPapersDecision = computed(() => props.decisionMode === 'mypapers')
@@ -417,8 +427,8 @@ function scrollToSection(sectionId: string) {
             @click="selectRelatedPaper(related.paper_id)"
           >
             <strong>{{ relatedTitle(related) }}</strong>
-            <span>{{ related.authors?.slice(0, 2).join(', ') || related.institution || related.paper_id }}</span>
-            <small>{{ related.categories?.slice(0, 2).join(' · ') || '相关研究' }}</small>
+            <span>{{ relatedAuthors(related) || related.institution || related.paper_id }}</span>
+            <small>{{ relatedCategories(related) || '相关研究' }}</small>
           </button>
           <p v-if="relatedPapers.length === 0" class="immersive-reader__context-copy">当前筛选结果中暂无相关论文。</p>
         </section>

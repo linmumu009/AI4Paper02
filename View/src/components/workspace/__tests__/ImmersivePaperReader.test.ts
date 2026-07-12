@@ -101,6 +101,38 @@ describe('ImmersivePaperReader', () => {
     expect(wrapper.text()).toContain('长时程记忆增强智能体')
   })
 
+  it('normalizes numeric evidence fields and legacy scalar lists without crashing', async () => {
+    const irregularDetail = {
+      ...detail,
+      summary: {
+        ...paper,
+        authors: 'Xinyan Chen, Ziyu Guo',
+        '📝重点思路': '构建 OpenCoF-17K 数据集。',
+        '🔎分析总结': '推理令牌进一步提升视频推理能力。',
+      },
+      paper_assets: {
+        ...detail.paper_assets,
+        blocks: {
+          ...detail.paper_assets?.blocks,
+          data: {
+            text: '', bullets: [], datasets_or_materials: ['OpenCoF-17K'], data_scale: 17312,
+          },
+        },
+      },
+    } as unknown as PaperDetailResponse
+    vi.mocked(fetchPaperDetail).mockResolvedValueOnce(irregularDetail)
+
+    const wrapper = mount(ImmersivePaperReader, {
+      props: { paper: { ...paper, paper_id: '2607.08763' }, relatedPapers: [], position: 2, total: 4 },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Xinyan Chen, Ziyu Guo')
+    expect(wrapper.text()).toContain('OpenCoF-17K')
+    expect(wrapper.text()).toContain('17312')
+    expect(wrapper.text()).toContain('推理令牌进一步提升视频推理能力。')
+  })
+
   it('emits navigation and research decisions from the focused workspace', async () => {
     const wrapper = mount(ImmersivePaperReader, {
       props: {
