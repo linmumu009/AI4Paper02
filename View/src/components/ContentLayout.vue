@@ -353,7 +353,7 @@ function leftMaxWidthClass(panelId: string) {
     return 'max-w-3xl mx-auto h-full min-h-0 flex flex-col'
   }
   if (panelId === PANEL_IDS.COMPARE || panelId === PANEL_IDS.COMPARE_RESULT) {
-    return 'max-w-3xl mx-auto h-full min-h-0 flex flex-col'
+    return 'w-full h-full min-h-0 flex flex-col'
   }
   return 'h-full min-h-0 flex flex-col'
 }

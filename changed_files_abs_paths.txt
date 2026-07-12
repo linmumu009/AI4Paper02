@@ -181,3 +181,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\pap
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\plus.svg
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\KnowledgeWorkspace.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\__tests__\KnowledgeWorkspace.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ComparePanel.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ComparePanel.test.ts

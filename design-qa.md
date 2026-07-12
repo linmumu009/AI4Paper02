@@ -230,4 +230,49 @@ No actionable P0, P1, or P2 issues remain after the final iteration.
 - Phase 7: migrate the comparison workspace into the same research-shell language.
 - Phase 8: migrate the deep-research workspace, then run cross-page regression, source synchronization, and deployment verification.
 
+phase 6 result: passed
+
+# Phase 7 — Comparison workspace
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-f9e74772-821e-4c9d-8d2e-9d86e8bc4535.png`
+- Isolated implementation route: `http://127.0.0.1:4174/test-results/compare-workspace-preview.html`
+- Browser-rendered desktop screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\compare-workspace-desktop.png`
+- Browser-rendered mobile screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\compare-workspace-mobile.png`
+- Full-view comparison evidence: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\compare-workspace-qa-board.png`
+- Viewports: 1440 × 900 and 390 × 844.
+- State: light-theme comparison preparation state with three realistic source papers and one saved comparison as reference context. The source is the approved shared research-workspace language rather than a comparison-specific mock, so content/state differences are intentional.
+
+## Phase 7 findings
+
+No actionable P0, P1, or P2 differences remain.
+
+- Information architecture: the previous centered single-panel prompt is now a task-specific three-column workspace: paper sources and historical context on the left, the generated report in the center, and status plus the six-step analysis structure on the right.
+- Fonts and typography: the implementation retains the approved Inter/PingFang/Microsoft YaHei stack, compact 8–11 px workspace metadata, a 20 px page title, and a 20–22 px report hierarchy. Long Chinese and English source titles clamp without colliding with IDs or column edges.
+- Spacing and layout rhythm: 230/auto/250 px desktop tracks, 1 px dividers, 7–12 px card gaps, restrained 8–10 px radii, and a quiet centered preparation state reproduce the selected dense research-tool rhythm. At 1199 px the outline is removed; at 767 px sources become a two-column strip above the report.
+- Colors and visual tokens: pink is reserved for active/progress/primary action, blue identifies source scope, green indicates completion, and all surfaces/borders use the existing AI4Papers tokens. No parallel color system or gradient was introduced.
+- Image quality and asset fidelity: the workspace has no photographic content. All visible comparison, archive, document, status, and close imagery uses the project's official Tailwind Labs Heroicons assets; no emoji, inline SVG, custom SVG, placeholder, or CSS-drawn icon replaces a visible asset.
+- Copy and content: source range, report status, analysis dimensions, quota, historical-report context, and structured-output guidance describe the real comparison workflow. HTTP failures are converted to concise user-facing explanations instead of exposing raw response bodies.
+- Formula support: active and saved comparison reports both use the tested shared Markdown + KaTeX renderer with dollar, bracket, and LaTeX-environment delimiters. Display formulas scroll within the report instead of widening the viewport.
+- Responsive behavior: at 390 × 844, `scrollWidth = innerWidth = 390`; the close action, all three sources, historical context, primary CTA, and report explanation remain visible without a disordered toolbar or horizontal overflow.
+- Accessibility: the workspace, source rail, and outline are labelled regions; close and generation controls are semantic buttons; phase copy is visible text; source titles remain available in the DOM even when visually clamped.
+- Focused-region comparison: no separate crop was required because the source defines shared shell density and hierarchy, not comparison-specific typography or component geometry. The original 1440 × 900 implementation screenshot was inspected at full resolution for source cards, CTA, status, and outline details, while the side-by-side board establishes the overall visual-language comparison.
+
+## Phase 7 comparison history
+
+- Initial implementation review: no P0/P1/P2 visual mismatch was found. The three-track shell, thin dividers, quiet surfaces, restrained pink accent, and compact research-tool typography align with the source language. The intentionally larger empty center is the pre-generation state and will be occupied by the streamed report.
+- Responsive review: the first 390 px capture showed the expected stacked source/report structure with no horizontal overflow, clipped toolbar, or unreachable primary action; no responsive correction was required.
+
+## Phase 7 primary interactions tested
+
+- Verified the preparation state contains all real source paper titles, source scope, historical comparison count, six analysis dimensions, quota summary, and generation CTA.
+- Clicked the unique `开始生成对比报告` action in the browser fixture. The unauthenticated API response transitioned to the designed error state and displayed `请先登录` instead of raw transport text.
+- Verified close-event wiring with a component test.
+- Verified zero browser console errors at both desktop and mobile viewports.
+- Targeted comparison and formula suite passed: 2 files, 5 tests. Final View suite passed: 14 files, 41 tests; TypeScript check passed; production build passed (1221 modules).
+
+## Remaining redesign work
+
+- Phase 8: migrate the deep-research workspace into the same research-shell language.
+- Final phase: run cross-page regression, finalize the changed-file manifest, then synchronize/deploy only when production upload is explicitly requested.
+
 final result: passed

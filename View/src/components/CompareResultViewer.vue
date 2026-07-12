@@ -1,9 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import MarkdownIt from 'markdown-it'
 import { fetchCompareResult } from '../api'
 import type { KbCompareResult } from '../types/paper'
 import AddToProjectDialog from './project/AddToProjectDialog.vue'
+import { renderChatMarkdown } from '../utils/chatMarkdown'
+import 'katex/dist/katex.min.css'
+import archiveIcon from '../assets/heroicons/archive-box.svg'
+import closeIcon from '../assets/heroicons/x-mark.svg'
+import documentIcon from '../assets/heroicons/document-text.svg'
+import folderIcon from '../assets/heroicons/folder.svg'
 
 const props = defineProps<{
   resultId: number
@@ -14,8 +19,6 @@ const emit = defineEmits<{
   close: []
 }>()
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-
 const loading = ref(true)
 const error = ref('')
 const result = ref<KbCompareResult | null>(null)
@@ -23,7 +26,7 @@ const showProjectDialog = ref(false)
 
 const renderedHtml = computed(() => {
   if (!result.value) return ''
-  return md.render(result.value.markdown)
+  return renderChatMarkdown(result.value.markdown)
 })
 
 const copied = ref(false)
@@ -58,37 +61,33 @@ watch(() => props.resultId, loadResult)
 </script>
 
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
+  <div class="compare-result-viewer h-full flex flex-col overflow-hidden">
     <!-- Header -->
     <div class="shrink-0 px-5 py-3 border-b border-border bg-bg-card">
       <div class="flex items-center justify-between mb-2">
         <div class="flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-[#8b5cf6]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="18" y1="20" x2="18" y2="10" /><line x1="12" y1="20" x2="12" y2="4" /><line x1="6" y1="20" x2="6" y2="14" />
-          </svg>
+          <img :src="archiveIcon" alt="" class="w-5 h-5">
           <h2 class="text-base font-bold text-text-primary truncate">{{ result?.title || '对比结果' }}</h2>
         </div>
         <div class="flex items-center gap-2">
           <button
             v-if="result"
-            class="px-3 py-1 rounded-full text-xs font-medium border border-border bg-transparent text-tinder-green cursor-pointer hover:bg-bg-hover transition-colors"
+            class="px-3 py-1 rounded-full text-xs font-medium border border-border bg-transparent text-tinder-green cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-1"
             @click="showProjectDialog = true"
-          >🗂️ 加入课题</button>
+          ><img :src="folderIcon" alt="" class="w-3 h-3">加入课题</button>
           <button
             v-if="result"
             class="px-3 py-1 rounded-full text-xs font-medium border border-border bg-transparent cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-1"
             :class="copied ? 'text-tinder-green border-tinder-green/30' : 'text-text-muted'"
             @click="copyToClipboard"
           >
-            <svg v-if="!copied" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-            </svg>
+            <img v-if="!copied" :src="documentIcon" alt="" class="w-3 h-3">
             {{ copied ? '已复制' : '复制' }}
           </button>
           <button
-            class="px-3 py-1 rounded-full text-xs text-text-muted border border-border bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
+            class="px-3 py-1 rounded-full text-xs text-text-muted border border-border bg-transparent cursor-pointer hover:bg-bg-hover transition-colors flex items-center gap-1"
             @click="emit('close')"
-          >关闭</button>
+          ><img :src="closeIcon" alt="" class="w-3 h-3">关闭</button>
         </div>
       </div>
       <!-- Paper tags -->
@@ -98,7 +97,7 @@ watch(() => props.resultId, loadResult)
           :key="pid"
           class="text-[11px] px-2 py-0.5 rounded-full bg-bg-elevated border border-border text-text-secondary"
         >
-          📄 {{ getPaperTitle(pid) }}
+          <img :src="documentIcon" alt="" class="inline-block w-3 h-3 mr-1">{{ getPaperTitle(pid) }}
         </span>
       </div>
     </div>
@@ -107,16 +106,13 @@ watch(() => props.resultId, loadResult)
     <div class="flex-1 overflow-y-auto px-5 py-4 scrollbar-thin">
       <!-- Loading -->
       <div v-if="loading" class="flex flex-col items-center justify-center h-full gap-4">
-        <svg class="animate-spin h-8 w-8 text-[#8b5cf6]" viewBox="0 0 24 24" fill="none">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-        </svg>
+        <img :src="archiveIcon" alt="" class="animate-spin h-8 w-8">
         <span class="text-sm text-text-muted">加载对比结果...</span>
       </div>
 
       <!-- Error -->
       <div v-else-if="error" class="flex flex-col items-center justify-center h-full gap-4">
-        <div class="text-4xl">⚠️</div>
+        <img :src="closeIcon" alt="" class="h-8 w-8">
         <h3 class="text-sm font-semibold text-tinder-pink">加载失败</h3>
         <p class="text-xs text-text-muted">{{ error }}</p>
         <button
@@ -227,5 +223,14 @@ watch(() => props.resultId, loadResult)
   border: none;
   border-top: 1px solid var(--color-border);
   margin: 1.25rem 0;
+}
+.compare-markdown :deep(.katex-display) {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.4rem 0;
+}
+:global(.dark) .compare-result-viewer img {
+  filter: invert(1);
 }
 </style>
