@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   archiveResearchProject,
   createResearchProject,
@@ -11,6 +11,7 @@ import {
 import type { ResearchProjectSummary } from '../types/paper'
 
 const router = useRouter()
+const route = useRoute()
 const projects = ref<ResearchProjectSummary[]>([])
 const loading = ref(true)
 const error = ref('')
@@ -75,7 +76,10 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('zh-CN')
 }
 
-onMounted(load)
+onMounted(() => {
+  if (route.query.create === '1') showCreate.value = true
+  void load()
+})
 </script>
 
 <template>

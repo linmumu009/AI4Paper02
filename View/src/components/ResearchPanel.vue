@@ -35,8 +35,10 @@ const props = withDefaults(
     initialSessionId?: number | null
     /** Optional project that should own newly-created research sessions */
     projectId?: number | null
+    /** Optional question prefilled by a project workspace */
+    initialQuestion?: string
   }>(),
-  { scope: 'kb', initialSessionId: null, projectId: null },
+  { scope: 'kb', initialSessionId: null, projectId: null, initialQuestion: '' },
 )
 
 const emit = defineEmits<{
@@ -106,6 +108,10 @@ function makeRound(title: string): RoundState {
 const question = ref('')
 const topN = ref(5)
 const isRunning = ref(false)
+
+watch(() => props.initialQuestion, (value) => {
+  if (value.trim() && !isRunning.value && !question.value.trim()) question.value = value.trim()
+}, { immediate: true })
 const isAborted = ref(false)
 const runningSessionId = ref<number | null>(null)
 const rounds = ref<RoundState[]>([

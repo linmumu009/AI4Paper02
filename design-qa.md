@@ -143,4 +143,47 @@ No actionable P0, P1, or P2 issues remain after two design-QA iterations.
 - Phase 5: migrate project space, knowledge base, comparison, and deep research pages into the shared workspace shell while preserving each page's task-specific tools.
 - Final phase: run cross-page regression, production build, source synchronization, and deployment verification.
 
+phase 4 result: passed
+
+# Phase 5 — Research project workspace
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-d5c28b7a-fc7b-4193-8e7e-8592b3698652.png`
+- Isolated implementation route: `http://127.0.0.1:4174/test-results/project-workspace-preview.html`
+- Responsive browser-rendered screenshots:
+  - `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\project-workspace-1024.png`
+  - `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\project-workspace-720.png`
+  - `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\project-workspace-390.png`
+- Reference viewport: 1487 × 1058. Responsive viewports: 1024 × 768, 720 × 900, and 390 × 844.
+- State: isolated authenticated-project fixture for visual review; production implementation loads the current user's actual project, assets, research sessions, latest digest, and paper details through existing APIs.
+
+## Phase 5 findings
+
+No actionable P0, P1, or P2 issues remain after the mobile-drawer correction.
+
+- Information architecture: the selected design is implemented as a task-specific project workspace with project navigation, progress, workbench tabs, core question, evidence matrix, synthesis, candidate-paper inbox, and a persistent research composer.
+- Real data: progress is derived from the project's papers, comparisons, notes, and research sessions. Evidence rows use real structured method, results, evidence-chain, and limitation fields. Candidate papers are ranked from the latest digest against project terms and exclude papers already in the project.
+- Workflow continuity: edit/archive, add/remove/open asset, open research session, create/switch project, add a candidate paper, project-scoped comparison, and project-owned deep research all call existing application actions and APIs.
+- Deep-research handoff: a question entered in the project composer is passed through the route and prefilled in the existing ResearchPanel. It is never auto-submitted, so navigation does not consume quota unexpectedly.
+- Responsive behavior: desktop keeps three columns; below 1200 px the candidate inbox becomes a drawer; below 768 px the project rail is removed, evidence rows stack, actions reflow, and the composer remains reachable. At 390 px, `scrollWidth` equals `clientWidth` (390 px).
+- Accessibility: interactive controls use semantic buttons; icon-only controls have accessible names; the candidate drawer has a unique close button and a separately labelled backdrop; no emoji or custom-drawn icon substitutes are used.
+- Asset fidelity: all visible project, asset, research, comparison, add, close, and archive icons use official Tailwind Labs Heroicons already stored in the project.
+
+## Phase 5 comparison history
+
+- Iteration 1 finding (P1): the responsive candidate-paper drawer opened correctly but covered its trigger and had no explicit close control. Fix: added an accessible close button and click-to-close backdrop, then verified the drawer returns off-screen after close.
+- Final responsive review: the 1024 px layout keeps project navigation and the complete workbench while moving candidates into a drawer. The 720 px and 390 px layouts preserve the research question, evidence, synthesis, and composer without horizontal overflow.
+
+## Phase 5 interactions tested
+
+- Verified real project question, structured evidence, candidate recommendations, and research synthesis render from component props.
+- Verified candidate-paper add, tab selection, and prompted deep-research events with Vitest.
+- Opened and closed the mobile candidate drawer using its semantic controls.
+- Verified `innerWidth = scrollWidth = 390` and zero browser console errors/warnings after the final mobile correction.
+- Targeted project suite passed: 2 files, 3 tests. Final full View suite passed: 12 files, 37 tests; TypeScript check passed; production build passed (1218 modules).
+
+## Remaining redesign work
+
+- Phase 6: migrate the knowledge-base surface into the shared workspace language.
+- Later phases: migrate comparison and deep-research surfaces, then run cross-page regression, source synchronization, and deployment verification.
+
 final result: passed

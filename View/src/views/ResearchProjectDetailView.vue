@@ -2,70 +2,67 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  addResearchProjectAsset,
-  archiveResearchProject,
-  fetchResearchProject,
-  removeResearchProjectAsset,
-  updateResearchProject,
+  addResearchProjectAsset, archiveResearchProject, fetchDates, fetchDigest,
+  fetchPaperDetail, fetchResearchProject, fetchResearchProjects,
+  removeResearchProjectAsset, updateResearchProject,
 } from '../api'
-import type { ResearchProject, ResearchProjectAsset } from '../types/paper'
+import type { PaperDetailResponse, PaperSummary, ResearchProject, ResearchProjectAsset, ResearchProjectSummary } from '../types/paper'
 import PaperPickerDialog from '../components/PaperPickerDialog.vue'
-
-type FilterType = 'all' | 'paper' | 'research_session' | 'compare_result' | 'idea' | 'note'
+import ResearchProjectWorkspace, { type ProjectWorkspaceTab } from '../components/project/ResearchProjectWorkspace.vue'
+import { rankProjectCandidates } from '../composables/useProjectWorkspace'
 
 const route = useRoute()
 const router = useRouter()
 const project = ref<ResearchProject | null>(null)
+const projects = ref<ResearchProjectSummary[]>([])
+const paperDetails = ref<Record<string, PaperDetailResponse>>({})
+const candidates = ref<PaperSummary[]>([])
+const candidatesLoading = ref(false)
 const loading = ref(true)
 const error = ref('')
-const activeFilter = ref<FilterType>('all')
 const showEdit = ref(false)
 const showPaperPicker = ref(false)
 const saving = ref(false)
+const activeTab = ref<ProjectWorkspaceTab>('workspace')
 const editForm = ref({ name: '', objective: '', description: '' })
-
 const projectId = computed(() => Number(route.params.id))
 
-const filterOptions: { key: FilterType; label: string }[] = [
-  { key: 'all', label: '全部' },
-  { key: 'paper', label: '论文' },
-  { key: 'research_session', label: '深度研究' },
-  { key: 'compare_result', label: '对比报告' },
-  { key: 'idea', label: '灵感' },
-  { key: 'note', label: '笔记' },
-]
+async function loadEvidenceDetails(current: ResearchProject) {
+  const ids = current.paper_ids.slice(0, 12)
+  const settled = await Promise.allSettled(ids.map(id => fetchPaperDetail(id)))
+  const next: Record<string, PaperDetailResponse> = {}
+  settled.forEach((result, index) => {
+    if (result.status === 'fulfilled') next[ids[index]] = result.value
+  })
+  if (project.value?.id === current.id) paperDetails.value = next
+}
 
-const displayItems = computed(() => {
-  if (!project.value) return []
-  const assets = project.value.assets.map(asset => ({ ...asset, kind: asset.asset_type }))
-  const sessions = project.value.sessions.map(session => ({
-    id: `session-${session.id}`,
-    project_id: project.value!.id,
-    asset_type: 'research_session' as const,
-    asset_id: String(session.id),
-    source_scope: 'research',
-    metadata: {},
-    added_at: session.updated_at,
-    title: session.question,
-    subtitle: session.status === 'done' ? `${session.paper_ids.length} 篇论文 · 已完成` : `${session.paper_ids.length} 篇论文 · ${session.status}`,
-    route: `/?tool=research-library&session=${session.id}`,
-    missing: false,
-    kind: 'research_session' as const,
-  }))
-  const all = [...sessions, ...assets].sort((a, b) => b.added_at.localeCompare(a.added_at))
-  return activeFilter.value === 'all' ? all : all.filter(item => item.asset_type === activeFilter.value)
-})
+async function loadCandidates(current: ResearchProject) {
+  candidatesLoading.value = true
+  try {
+    const dates = await fetchDates()
+    const date = dates.dates[0]
+    if (!date) return void (candidates.value = [])
+    const digest = await fetchDigest(date)
+    if (project.value?.id === current.id) candidates.value = rankProjectCandidates(current, digest.papers, 6)
+  } catch {
+    candidates.value = []
+  } finally {
+    candidatesLoading.value = false
+  }
+}
 
 async function load() {
+  if (!Number.isFinite(projectId.value)) return
   loading.value = true
   error.value = ''
   try {
-    project.value = await fetchResearchProject(projectId.value)
-    editForm.value = {
-      name: project.value.name,
-      objective: project.value.objective,
-      description: project.value.description,
-    }
+    const [current, allProjects] = await Promise.all([fetchResearchProject(projectId.value), fetchResearchProjects(false)])
+    project.value = current
+    projects.value = allProjects
+    editForm.value = { name: current.name, objective: current.objective, description: current.description }
+    void loadEvidenceDetails(current)
+    void loadCandidates(current)
   } catch (err: any) {
     error.value = err?.response?.data?.detail || err?.message || '课题加载失败'
   } finally {
@@ -78,9 +75,7 @@ async function saveProject() {
   saving.value = true
   try {
     await updateResearchProject(project.value.id, {
-      name: editForm.value.name.trim(),
-      objective: editForm.value.objective.trim(),
-      description: editForm.value.description.trim(),
+      name: editForm.value.name.trim(), objective: editForm.value.objective.trim(), description: editForm.value.description.trim(),
     })
     showEdit.value = false
     await load()
@@ -95,10 +90,9 @@ async function addPapers(paperIds: string[]) {
   if (!project.value) return
   showPaperPicker.value = false
   try {
-    await Promise.all(paperIds.map(paperId => addResearchProjectAsset(project.value!.id, {
-      asset_type: 'paper',
-      asset_id: paperId,
-      source_scope: paperId.startsWith('up_') ? 'mypapers' : 'kb',
+    const existing = new Set(project.value.paper_ids)
+    await Promise.all(paperIds.filter(id => !existing.has(id)).map(paperId => addResearchProjectAsset(project.value!.id, {
+      asset_type: 'paper', asset_id: paperId, source_scope: paperId.startsWith('up_') ? 'mypapers' : 'kb',
     })))
     await load()
   } catch (err: any) {
@@ -108,13 +102,12 @@ async function addPapers(paperIds: string[]) {
 
 async function removeAsset(asset: ResearchProjectAsset) {
   if (!project.value) return
-  await removeResearchProjectAsset(
-    project.value.id,
-    asset.asset_type,
-    asset.asset_id,
-    asset.source_scope,
-  )
-  await load()
+  try {
+    await removeResearchProjectAsset(project.value.id, asset.asset_type, asset.asset_id, asset.source_scope)
+    await load()
+  } catch (err: any) {
+    error.value = err?.response?.data?.detail || err?.message || '资产移除失败'
+  }
 }
 
 async function archiveProject() {
@@ -123,160 +116,60 @@ async function archiveProject() {
   await router.push('/projects')
 }
 
-function startResearch() {
+function startResearch(question?: string) {
   if (!project.value) return
-  if (!project.value.paper_ids.length) {
-    showPaperPicker.value = true
-    return
-  }
-  router.push({ path: '/', query: { tool: 'research', project_id: String(project.value.id) } })
+  if (!project.value.paper_ids.length) return void (showPaperPicker.value = true)
+  router.push({ path: '/', query: { tool: 'research', project_id: String(project.value.id), ...(question?.trim() ? { question: question.trim() } : {}) } })
 }
 
-function openItem(item: any) {
-  if (!item.missing && item.route) router.push(item.route)
+function startCompare() {
+  if (!project.value) return
+  if (project.value.paper_ids.length < 2) return void (showPaperPicker.value = true)
+  router.push({ path: '/', query: { tool: 'compare', project_id: String(project.value.id) } })
 }
 
-function iconFor(type: string) {
-  const icons: Record<string, string> = {
-    paper: '📄', research_session: '🔬', compare_result: '⚖️', idea: '💡', note: '📝',
-  }
-  return icons[type] || '📎'
-}
-
-function labelFor(type: string) {
-  const labels: Record<string, string> = {
-    paper: '论文', research_session: '深度研究', compare_result: '对比报告', idea: '研究灵感', note: '笔记',
-  }
-  return labels[type] || type
-}
-
-function formatDate(value: string) {
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
+function openAsset(asset: ResearchProjectAsset) { if (!asset.missing && asset.route) router.push(asset.route) }
+function openCandidate(paper: PaperSummary) { router.push(`/papers/${encodeURIComponent(paper.paper_id)}`) }
+function openResearchSession(sessionId: number) { router.push({ path: '/', query: { tool: 'research-library', session: String(sessionId) } }) }
+function switchProject(id: number) { if (id !== projectId.value) router.push(`/projects/${id}`) }
 
 watch(projectId, load)
 onMounted(load)
 </script>
 
 <template>
-  <main class="h-full overflow-y-auto bg-bg px-4 py-5 sm:px-8">
-    <div class="mx-auto max-w-6xl space-y-5">
-      <button class="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary" @click="router.push('/projects')">← 返回研究库</button>
-
-      <div v-if="loading" class="space-y-4">
-        <div class="h-40 animate-pulse rounded-2xl border border-border bg-bg-card" />
-        <div class="h-64 animate-pulse rounded-2xl border border-border bg-bg-card" />
-      </div>
-
-      <div v-else-if="error && !project" class="rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-12 text-center">
-        <h1 class="text-lg font-bold text-red-300">无法打开课题</h1>
-        <p class="mt-2 text-sm text-red-200/80">{{ error }}</p>
-        <button class="mt-4 rounded-lg border border-red-400/30 px-4 py-2 text-sm text-red-200" @click="load">重新加载</button>
-      </div>
-
-      <template v-else-if="project">
-        <section class="rounded-2xl border border-border bg-bg-card p-5 sm:p-6">
-          <div class="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div class="min-w-0 flex-1">
-              <div class="flex flex-wrap items-center gap-2">
-                <span class="rounded-full border border-tinder-pink/30 bg-tinder-pink/10 px-2.5 py-1 text-[11px] font-semibold text-tinder-pink">进行中课题</span>
-                <span class="text-xs text-text-muted">更新于 {{ formatDate(project.updated_at) }}</span>
-              </div>
-              <h1 class="mt-3 text-2xl font-bold text-text-primary">{{ project.name }}</h1>
-              <p class="mt-2 max-w-3xl whitespace-pre-wrap text-sm leading-6 text-text-secondary">
-                {{ project.objective || '尚未填写核心研究问题。' }}
-              </p>
-              <p v-if="project.description" class="mt-2 max-w-3xl whitespace-pre-wrap text-xs leading-5 text-text-muted">{{ project.description }}</p>
-            </div>
-            <div class="flex shrink-0 flex-wrap gap-2">
-              <button class="rounded-lg border border-border px-3 py-2 text-xs text-text-secondary hover:bg-bg-hover" @click="showEdit = true">编辑课题</button>
-              <button class="rounded-lg border border-border px-3 py-2 text-xs text-text-muted hover:bg-bg-hover" @click="archiveProject">归档</button>
-              <button class="rounded-lg bg-brand-gradient px-4 py-2 text-xs font-semibold text-white" @click="startResearch">开始深度研究</button>
-            </div>
-          </div>
-
-          <div class="mt-6 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <div v-for="option in filterOptions.slice(1)" :key="option.key" class="rounded-xl bg-bg-elevated px-3 py-3 text-center">
-              <div class="text-lg font-bold text-text-primary">{{ project.counts[option.key] || 0 }}</div>
-              <div class="text-[10px] text-text-muted">{{ option.label }}</div>
-            </div>
-          </div>
-        </section>
-
-        <div v-if="error" class="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{{ error }}</div>
-
-        <section class="overflow-hidden rounded-2xl border border-border bg-bg-card">
-          <div class="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex gap-1 overflow-x-auto">
-              <button
-                v-for="option in filterOptions"
-                :key="option.key"
-                class="whitespace-nowrap rounded-lg px-3 py-1.5 text-xs transition"
-                :class="activeFilter === option.key ? 'bg-bg-elevated font-semibold text-text-primary' : 'text-text-muted hover:text-text-secondary'"
-                @click="activeFilter = option.key"
-              >{{ option.label }} <span v-if="option.key !== 'all'">{{ project.counts[option.key] || 0 }}</span></button>
-            </div>
-            <button class="shrink-0 rounded-lg border border-tinder-pink/30 px-3 py-1.5 text-xs font-medium text-tinder-pink hover:bg-tinder-pink/10" @click="showPaperPicker = true">＋ 添加论文</button>
-          </div>
-
-          <div v-if="displayItems.length" class="divide-y divide-border/70">
-            <article
-              v-for="item in displayItems"
-              :key="`${item.asset_type}-${item.asset_id}-${item.source_scope}`"
-              class="group flex items-center gap-3 px-4 py-3.5 transition"
-              :class="item.missing ? 'opacity-60' : 'cursor-pointer hover:bg-bg-hover'"
-              @click="openItem(item)"
-            >
-              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-bg-elevated text-lg">{{ iconFor(item.asset_type) }}</div>
-              <div class="min-w-0 flex-1">
-                <div class="flex items-center gap-2">
-                  <span class="truncate text-sm font-semibold text-text-primary">{{ item.title }}</span>
-                  <span class="shrink-0 rounded-full bg-bg-elevated px-2 py-0.5 text-[10px] text-text-muted">{{ labelFor(item.asset_type) }}</span>
-                </div>
-                <p class="mt-0.5 truncate text-xs text-text-muted">{{ item.missing ? '源资产已经删除' : item.subtitle }}</p>
-              </div>
-              <span class="hidden shrink-0 text-[11px] text-text-muted sm:block">{{ formatDate(item.added_at) }}</span>
-              <button
-                v-if="item.asset_type !== 'research_session'"
-                class="shrink-0 rounded-lg px-2 py-1 text-xs text-text-muted opacity-0 hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
-                title="从课题移除，不删除源资产"
-                @click.stop="removeAsset(item)"
-              >移除</button>
-            </article>
-          </div>
-
-          <div v-else class="px-6 py-14 text-center">
-            <div class="text-2xl">📚</div>
-            <h2 class="mt-2 text-sm font-bold text-text-primary">这个分类还没有研究资产</h2>
-            <p class="mt-1 text-xs text-text-muted">先加入论文，再从课题中发起深度研究。</p>
-            <button class="mt-4 rounded-lg border border-tinder-pink/30 px-4 py-2 text-xs text-tinder-pink" @click="showPaperPicker = true">添加论文</button>
-          </div>
-        </section>
-      </template>
+  <main class="project-detail-page">
+    <div v-if="loading" class="project-detail-page__loading"><div /><div /><div /></div>
+    <div v-else-if="error && !project" class="project-detail-page__error">
+      <h1>无法打开课题</h1><p>{{ error }}</p><button type="button" @click="load">重新加载</button>
     </div>
-
-    <PaperPickerDialog
-      v-if="showPaperPicker"
-      title="选择要加入课题的论文"
-      mode="research"
-      @confirm="(ids) => addPapers(ids)"
-      @cancel="showPaperPicker = false"
-    />
-
+    <template v-else-if="project">
+      <div v-if="error" class="project-detail-page__notice">{{ error }}<button type="button" @click="error = ''">关闭</button></div>
+      <ResearchProjectWorkspace
+        v-model:active-tab="activeTab" :project="project" :projects="projects"
+        :paper-details="paperDetails" :candidates="candidates" :candidates-loading="candidatesLoading"
+        @create-project="router.push({ path: '/projects', query: { create: '1' } })"
+        @switch-project="switchProject" @edit-project="showEdit = true" @archive-project="archiveProject"
+        @start-research="startResearch" @start-compare="startCompare" @add-papers="showPaperPicker = true"
+        @add-candidate="paper => addPapers([paper.paper_id])" @remove-asset="removeAsset"
+        @open-asset="openAsset" @open-candidate="openCandidate" @open-research-session="openResearchSession"
+      />
+    </template>
+    <PaperPickerDialog v-if="showPaperPicker" title="选择要加入课题的论文" mode="research" @confirm="addPapers" @cancel="showPaperPicker = false" />
     <Teleport to="body">
-      <div v-if="showEdit && project" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4" @click.self="showEdit = false">
-        <form class="w-full max-w-lg space-y-4 rounded-2xl border border-border bg-bg-card p-6 shadow-2xl" @submit.prevent="saveProject">
-          <h2 class="text-lg font-bold text-text-primary">编辑课题</h2>
-          <label class="block text-xs font-medium text-text-secondary">课题名称<input v-model="editForm.name" maxlength="120" class="mt-1.5 w-full rounded-lg border border-border bg-bg-elevated px-3 py-2.5 text-sm text-text-primary outline-none focus:border-tinder-pink"></label>
-          <label class="block text-xs font-medium text-text-secondary">核心研究问题<textarea v-model="editForm.objective" rows="3" maxlength="2000" class="mt-1.5 w-full resize-none rounded-lg border border-border bg-bg-elevated px-3 py-2.5 text-sm text-text-primary outline-none focus:border-tinder-pink" /></label>
-          <label class="block text-xs font-medium text-text-secondary">课题说明<textarea v-model="editForm.description" rows="3" maxlength="5000" class="mt-1.5 w-full resize-none rounded-lg border border-border bg-bg-elevated px-3 py-2.5 text-sm text-text-primary outline-none focus:border-tinder-pink" /></label>
-          <div class="flex justify-end gap-2 pt-2">
-            <button type="button" class="rounded-lg border border-border px-4 py-2 text-sm text-text-secondary" @click="showEdit = false">取消</button>
-            <button type="submit" :disabled="saving || !editForm.name.trim()" class="rounded-lg bg-brand-gradient px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{{ saving ? '保存中…' : '保存' }}</button>
-          </div>
+      <div v-if="showEdit && project" class="project-edit-modal" @click.self="showEdit = false">
+        <form @submit.prevent="saveProject">
+          <h2>编辑课题</h2>
+          <label>课题名称<input v-model="editForm.name" maxlength="120"></label>
+          <label>核心研究问题<textarea v-model="editForm.objective" rows="3" maxlength="2000" /></label>
+          <label>课题说明<textarea v-model="editForm.description" rows="3" maxlength="5000" /></label>
+          <div><button type="button" @click="showEdit = false">取消</button><button type="submit" :disabled="saving || !editForm.name.trim()">{{ saving ? '保存中…' : '保存' }}</button></div>
         </form>
       </div>
     </Teleport>
   </main>
 </template>
+
+<style scoped>
+.project-detail-page{height:100%;min-height:0;background:#fff}.project-detail-page__loading{display:grid;height:100%;grid-template-columns:210px 1fr 300px;gap:1px;background:#e8eaed}.project-detail-page__loading div{background:linear-gradient(90deg,#fafafa 25%,#f1f2f4 50%,#fafafa 75%);background-size:200% 100%;animation:project-shimmer 1.4s infinite}.project-detail-page__error{display:grid;height:100%;place-content:center;text-align:center;color:#252c36}.project-detail-page__error p{color:#747d89;font-size:12px}.project-detail-page__error button{justify-self:center;border:1px solid #e1e4e8;border-radius:8px;padding:8px 12px;background:#fff}.project-detail-page__notice{position:fixed;z-index:30;top:78px;left:50%;display:flex;align-items:center;gap:12px;transform:translateX(-50%);border:1px solid #ffc5cf;border-radius:9px;padding:9px 12px;background:#fff2f4;color:#a82740;font-size:11px}.project-detail-page__notice button{border:0;background:transparent;color:inherit;font-weight:800}.project-edit-modal{position:fixed;z-index:9999;inset:0;display:grid;place-items:center;padding:16px;background:rgba(12,17,24,.62)}.project-edit-modal form{width:min(100%,520px);padding:24px;border:1px solid #e1e4e8;border-radius:16px;background:#fff}.project-edit-modal h2{margin:0 0 18px;color:#18202c;font-size:18px}.project-edit-modal label{display:block;margin-top:13px;color:#56606e;font-size:11px;font-weight:700}.project-edit-modal input,.project-edit-modal textarea{box-sizing:border-box;width:100%;margin-top:7px;border:1px solid #dfe3e8;border-radius:9px;padding:10px 11px;outline:0;background:#fafafa;color:#18202c;font:inherit;font-size:12px}.project-edit-modal textarea{resize:vertical}.project-edit-modal form>div{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.project-edit-modal form>div button{border:1px solid #dfe3e8;border-radius:8px;padding:9px 14px;background:#fff;color:#596171;font-size:11px;font-weight:700}.project-edit-modal form>div button[type=submit]{border-color:#ff385c;background:#ff385c;color:#fff}@keyframes project-shimmer{to{background-position:-200% 0}}@media(max-width:1199px){.project-detail-page__loading{grid-template-columns:190px 1fr}}@media(max-width:767px){.project-detail-page__loading{display:block}.project-detail-page__loading div:not(:nth-child(2)){display:none}}
+</style>

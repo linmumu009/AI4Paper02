@@ -170,3 +170,12 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\hea
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\scale.svg
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\squares-2x2.svg
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\x-mark.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\project\ResearchProjectWorkspace.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\project\ResearchProjectWorkspace.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useProjectWorkspace.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useProjectWorkspace.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\archive-box.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\check-circle.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\folder.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\paper-clip.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\plus.svg

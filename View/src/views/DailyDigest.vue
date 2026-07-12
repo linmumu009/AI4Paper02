@@ -399,6 +399,10 @@ async function applyToolQuery(tool: string | string[] | undefined) {
                 .map(asset => [asset.asset_id, asset.title]),
             )
             researchScope.value = 'kb'
+            const rawQuestion = Array.isArray(route.query.question) ? route.query.question[0] : route.query.question
+            researchInitialQuestion.value = typeof rawQuestion === 'string' && rawQuestion.trim()
+              ? rawQuestion.trim()
+              : project.objective
           } catch (err) {
             showError('打开课题研究失败，请稍后重试')
             console.error('[Research] project load failed', err)
@@ -407,7 +411,21 @@ async function applyToolQuery(tool: string | string[] | undefined) {
       }
       break
     case 'compare':
-      handleCompare([])
+      {
+        const rawProjectId = Array.isArray(route.query.project_id) ? route.query.project_id[0] : route.query.project_id
+        const projectId = typeof rawProjectId === 'string' ? Number(rawProjectId) : NaN
+        if (Number.isFinite(projectId)) {
+          try {
+            const project = await fetchResearchProject(projectId)
+            handleCompare(project.paper_ids, 'kb')
+          } catch (err) {
+            showError('打开课题对比失败，请稍后重试')
+            console.error('[Compare] project load failed', err)
+          }
+        } else {
+          handleCompare([])
+        }
+      }
       break
   }
 }
@@ -1197,10 +1215,12 @@ function handleTabChanged(tab: string) {
     researchPaperTitles.value = {}
     researchInitialSessionId.value = null
     researchProjectId.value = null
+    researchInitialQuestion.value = ''
   } else {
     // 切换到其他 Tab 时关闭研究面板（无论是否有活跃论文）
     researchPaperIds.value = null
     researchProjectId.value = null
+    researchInitialQuestion.value = ''
     myPapersMode.value = false
     viewingMd.value = null
     _stopMyPapersCenterPoll()
@@ -1348,6 +1368,7 @@ function handleResearch(paperIds: string[], paperTitles: Record<string, string>,
   viewingCompareResultId.value = null
   researchInitialSessionId.value = null
   researchProjectId.value = null
+  researchInitialQuestion.value = ''
   researchPaperIds.value = paperIds
   researchPaperTitles.value = paperTitles
   researchScope.value = scope ?? 'kb'
@@ -1371,6 +1392,7 @@ async function handleOpenResearchSession(sessionId: number) {
     researchScope.value = 'kb'
     researchInitialSessionId.value = sessionId
     researchProjectId.value = session.project_id ?? null
+    researchInitialQuestion.value = ''
     globalChat.clearBrowsingContext()
     collapseSidebarOnMobile()
     void engagement.record('analyze', 'daily-digest-research-session', String(sessionId))
@@ -1383,6 +1405,7 @@ async function handleOpenResearchSession(sessionId: number) {
 function closeResearch() {
   researchPaperIds.value = null
   researchProjectId.value = null
+  researchInitialQuestion.value = ''
   sidebarRef.value?.switchToPapersTab()
 }
 
@@ -1721,6 +1744,7 @@ const researchDefaultLayout = computed<LayoutState>(() => ({
 }))
 
 const researchInitialSessionId = ref<number | null>(null)
+const researchInitialQuestion = ref('')
 
 const researchLayoutContext = computed<ContentLayoutContext>(() => ({
   researchPaperIds: researchPaperIds.value || [],
@@ -1728,6 +1752,7 @@ const researchLayoutContext = computed<ContentLayoutContext>(() => ({
   researchScope: researchScope.value,
   researchInitialSessionId: researchInitialSessionId.value,
   researchProjectId: researchProjectId.value,
+  researchInitialQuestion: researchInitialQuestion.value,
 }))
 
 const compareResultLayoutKey = computed(

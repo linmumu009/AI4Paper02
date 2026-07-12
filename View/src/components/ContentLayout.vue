@@ -48,6 +48,8 @@ export interface ContentLayoutContext {
   researchInitialSessionId?: number | null
   /** Primary project for newly-created deep-research sessions */
   researchProjectId?: number | null
+  /** Question prefilled by a project workspace */
+  researchInitialQuestion?: string
 }
 
 const props = defineProps<{
