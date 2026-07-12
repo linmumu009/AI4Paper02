@@ -8,6 +8,7 @@ param(
   [switch]$UseLocalDist,
   [switch]$SkipUpload,
   [switch]$DryRun,
+  [string]$ListFile = "",
   [string]$Remote = "root@8.137.23.146",
   [int]$Port = 22,
   [string]$IdentityFile = (Join-Path $env:USERPROFILE ".ssh\ai4papers_sync_ed25519")
@@ -15,7 +16,11 @@ param(
 
 $ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $uploadScript = Join-Path $ScriptDirectory "upload_changed_files.ps1"
-$changedFilesList = Join-Path $ScriptDirectory "changed_files_abs_paths.txt"
+$changedFilesList = if ([string]::IsNullOrWhiteSpace($ListFile)) {
+  Join-Path $ScriptDirectory "changed_files_abs_paths.txt"
+} else {
+  [System.IO.Path]::GetFullPath($ListFile)
+}
 $IdentityFile = [System.IO.Path]::GetFullPath($IdentityFile)
 
 if (-not (Test-Path -LiteralPath $uploadScript -PathType Leaf)) {
@@ -70,6 +75,7 @@ if (-not $SkipUpload) {
     Remote = $Remote
     Port = $Port
     IdentityFile = $IdentityFile
+    ListFile = $changedFilesList
   }
   if ($DryRun) { $uploadParams.DryRun = $true }
 

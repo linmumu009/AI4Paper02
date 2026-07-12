@@ -50,6 +50,12 @@ git diff --check
 
 部署脚本会检查 `changed_files_abs_paths.txt` 中的每一个文件。只要其中任意文件仍处于已修改、已删除或未跟踪状态，部署（包括 `-DryRun`）都会立即停止。这样可以避免上传工作区中的半成品或其他人的未提交修改。工作区中不在清单内的改动不会阻止发布。
 
+当总清单中同时存在其他尚未发布的功能时，可以通过 `-ListFile` 指定一份经过审核的临时绝对路径清单。总部署脚本会对这份清单执行相同的 Git 清洁度检查，并将它原样传给上传脚本；无需改写或截断永久清单。例如：
+
+```powershell
+.\deploy_changed_files.ps1 -Target View -UseLocalDist -ListFile $env:TEMP\ai4papers-view-release.txt
+```
+
 ## 4. 判断发布目标和 npm install
 
 发布目标：
