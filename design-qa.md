@@ -94,4 +94,53 @@ No actionable P0, P1, or P2 issues were found after the final iteration.
 - Phase 4: implement the immersive reader and expose the third `沉浸` mode.
 - Later phases: migrate project space, knowledge base, comparison, and deep research pages into the shared shell while preserving their task-specific tools.
 
+phase 3 result: passed
+# Phase 4 — Immersive reader
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-61458479-d277-4f94-9d0e-d14efd472e53.png`
+- Implementation route: `http://127.0.0.1:4174/?view=immersive&digest_paper=2605.20022`
+- Primary browser-rendered screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\workspace-immersive-1487x1058-final.png`
+- Responsive screenshots:
+  - `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\workspace-immersive-1024x768.png`
+  - `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\workspace-immersive-720x800.png`
+- Full-view comparison: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\phase4-immersive-full-comparison.png`
+- Focused document comparison: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\phase4-immersive-focused-comparison.png`
+- Reference viewport: 1487 × 1058. Responsive viewports: 1024 × 768 and 720 × 800.
+- State: light theme, local FastAPI data, guest session, one locally available paper. The source uses an authenticated project and three related papers; the implementation deliberately renders real project/auth and related-paper states, so the empty guest context is a data-state difference rather than a static placeholder.
+
+## Phase 4 findings
+
+No actionable P0, P1, or P2 issues remain after two design-QA iterations.
+
+- Fonts and typography: the implementation keeps the product's Inter/PingFang/Microsoft YaHei stack. The 24–34 px title, 10–13 px metadata/body hierarchy, readable line height, and restrained letter spacing preserve the source's document-first hierarchy without clipping long Chinese or English titles.
+- Spacing and layout rhythm: desktop uses a 68 px icon rail, a 1000 px maximum document inner frame, a 336 px context panel, and an approximately 1287 × 85 px floating action dock. Section dividers, recommendation surface, evidence grid, and bottom action rhythm align with the source. At 1024 px the context panel is removed and the document expands; at 720 px the rail becomes horizontal and the dock becomes four equal actions.
+- Colors and tokens: pink active/recommendation/research states, green relevance, blue evidence, card surfaces, borders, and muted copy all map to existing AI4Papers theme tokens. No parallel palette or hard-coded gradient was introduced.
+- Image quality and asset fidelity: the screen contains no photographic or illustrative raster content. All visible rail, paging, inline, and action-dock icons use downloaded official Tailwind Labs Heroicons SVG assets; no inline SVG, custom SVG, emoji, CSS drawing, or placeholder icon substitutes are used. Dark-theme filters preserve icon contrast.
+- Copy and content: `推荐理由`, `摘要`, `关键思路`, `核心证据`, `分析总结`, `研究课题`, `相关论文`, and the four decision actions map directly to research tasks. Missing personalized recommendation text falls back to the paper's real main-contribution field instead of fabricated copy.
+- Accessibility: the reader is a labelled region; rail and icon-only paging controls have explicit accessible names and titles; disabled previous/next controls are semantic buttons; every action is keyboard reachable; URL state exposes the active mode and paper.
+- Responsiveness: `documentElement.scrollWidth` never exceeds its client width at 1487, 1024, or 720 px. The 1024 context panel is hidden without leaving an empty track. The 720 rail, document, and fixed dock use the full viewport and preserve usable targets.
+- Product behavior: card/list/immersive mode changes persist in `view`; selection persists in `digest_paper`; the full knowledge sidebar is collapsed on immersive entry and restored on exit; PDF, precision reading, bookmark, knowledge collection, comparison, related-paper selection, project dialog, skip, and deep research call the existing real actions.
+
+## Phase 4 comparison history
+
+- Iteration 1 finding (P2): the initial implementation used a 900 px inner reader and 284 px context panel, leaving the document visibly narrower than the target; the text-only rail also drifted from the source icon language. Fix: expanded the inner frame to 1000 px and context panel to 336 px, added the recommendation fallback, and replaced rail/action imagery with official Heroicons. Post-fix evidence: `workspace-immersive-1487x1058-final.png` and the focused comparison.
+- Iteration 2 finding (P2): the first post-icon action dock remained centered in a roughly 720 px lane while the source dock spans most of the workspace. Fix: expanded the dock to 100 px insets, 12 px gaps, and 64 px action targets, producing an approximately 1287 × 85 px dock. The final full comparison shows the corrected proportion.
+- Final comparison: source and implementation are both 1487 × 1058. Remaining visible differences are expected data/product-state differences: different paper content, the existing production Navbar, a guest project state, and zero related papers in the one-paper local digest.
+
+## Phase 4 primary interactions tested
+
+- Clicked `沉浸` from card mode and verified `view=immersive` plus the rendered reader.
+- Clicked `列表` from immersive mode and verified `view=list` plus the dense list.
+- Pressed `I` in list mode and verified the reader and URL state.
+- Pressed Escape in immersive mode and verified a return to list mode.
+- Verified the full asset-sidebar expand button stays hidden while the immersive rail is active.
+- Verified previous/next disabled semantics in the one-paper state.
+- Verified a clean newly opened browser tab reports zero console errors for `127.0.0.1:4174`.
+- Targeted component/state suite passed: 4 files, 17 tests; full View suite passed: 10 files, 34 tests; TypeScript check passed; production build passed (1208 modules).
+
+## Remaining redesign work
+
+- Phase 5: migrate project space, knowledge base, comparison, and deep research pages into the shared workspace shell while preserving each page's task-specific tools.
+- Final phase: run cross-page regression, production build, source synchronization, and deployment verification.
+
 final result: passed

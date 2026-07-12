@@ -20,7 +20,15 @@ describe('WorkspaceModeSwitch', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([['list']])
   })
 
-  it('supports arrow-key navigation between modes', async () => {
+    it('shows the complete three-mode workspace by default', () => {
+    const wrapper = mount(WorkspaceModeSwitch, {
+      props: { modelValue: 'immersive' },
+    })
+    const buttons = wrapper.findAll('[role="radio"]')
+    expect(buttons.map(button => button.text())).toEqual(['卡片', '列表', '沉浸'])
+    expect(buttons[2]?.attributes('aria-checked')).toBe('true')
+  })
+it('supports arrow-key navigation between modes', async () => {
     const wrapper = mount(WorkspaceModeSwitch, {
       attachTo: document.body,
       props: {

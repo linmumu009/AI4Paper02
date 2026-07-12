@@ -2,8 +2,10 @@
 withDefaults(defineProps<{
   showSidebar: boolean
   openButtonTitle?: string
+  hideOpenButton?: boolean
 }>(), {
   openButtonTitle: '展开知识库',
+  hideOpenButton: false,
 })
 
 defineEmits<{ 'update:showSidebar': [value: boolean] }>()
@@ -38,7 +40,7 @@ defineEmits<{ 'update:showSidebar': [value: boolean] }>()
     <!-- Open sidebar button — visible when sidebar is collapsed -->
     <Transition name="spg-fade">
       <button
-        v-if="!showSidebar"
+        v-if="!showSidebar && !hideOpenButton"
         class="fixed top-[calc(var(--navbar-h)+2.5rem)] left-0 z-10 flex items-center justify-center w-[54px] h-[54px] bg-bg-card border border-border border-l-0 rounded-r-lg shadow-sm text-text-muted/60 hover:text-text-primary hover:bg-bg-elevated transition-colors cursor-pointer"
         :title="openButtonTitle"
         @click="$emit('update:showSidebar', true)"

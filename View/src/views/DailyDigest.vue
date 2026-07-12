@@ -39,6 +39,7 @@ import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShe
 import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
 import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
 import PaperInspector from '../components/workspace/PaperInspector.vue'
+import ImmersivePaperReader from '../components/workspace/ImmersivePaperReader.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -89,9 +90,7 @@ const {
 } = useResearchWorkspace({
   papers,
   pageSize: LIST_PAGE_SIZE,
-  // Immersive mode is enabled after its reader layout lands; the state layer
-  // already understands it so that the next phase only adds presentation.
-  supportedModes: ['card', 'list'],
+  supportedModes: ['card', 'list', 'immersive'],
 })
 
 useWorkspaceRouteState({
@@ -173,6 +172,16 @@ async function loadRadar(date: string) {
 
 // Knowledge base + sidebar shared state
 const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState()
+
+const sidebarWasOpenBeforeImmersive = ref(true)
+watch(digestViewMode, (mode, previousMode) => {
+  if (mode === 'immersive') {
+    sidebarWasOpenBeforeImmersive.value = showSidebar.value
+    showSidebar.value = false
+  } else if (previousMode === 'immersive' && sidebarWasOpenBeforeImmersive.value) {
+    showSidebar.value = true
+  }
+}, { immediate: true })
 
 // List mode pagination derived state
 const listScrollRef = ref<HTMLElement | null>(null)
@@ -757,6 +766,36 @@ function startListResearch(paper: PaperSummary) {
   )
 }
 
+const immersiveRelatedPapers = computed(() => {
+  const active = currentPaper.value
+  if (!active) return []
+  const activeCategories = new Set(active.categories ?? [])
+  const overlapScore = (paper: PaperSummary) =>
+    (paper.categories ?? []).reduce((count, category) => count + (activeCategories.has(category) ? 1 : 0), 0)
+  return displayPapers.value
+    .filter(paper => paper.paper_id !== active.paper_id)
+    .sort((a, b) => overlapScore(b) - overlapScore(a) || (b.relevance_score ?? 0) - (a.relevance_score ?? 0))
+    .slice(0, 3)
+})
+
+function navigateImmersive(delta: -1 | 1) {
+  selectDigestPaper(Math.max(0, Math.min(currentIndex.value + delta, displayPapers.value.length - 1)))
+}
+
+function openImmersiveRelated(paperId: string) {
+  selectDigestPaperById(paperId)
+}
+
+function compareImmersivePaper() {
+  const active = currentPaper.value
+  const related = immersiveRelatedPapers.value[0]
+  if (!active || !related) {
+    showError('当前筛选结果中暂无可对比论文')
+    return
+  }
+  handleCompare([active.paper_id, related.paper_id], 'digest-immersive')
+}
+
 function undo() {
   if (!restorePreviousIndex()) return
   cardAnimClass.value = 'card-enter'
@@ -793,8 +832,67 @@ function handleKeydown(e: KeyboardEvent) {
   ) return
   if (isInPanelView.value) return
 
+  // Immersive mode keeps reading navigation and research actions available without leaving the document.
+  if (digestViewMode.value === 'immersive') {
+    if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
+      e.preventDefault()
+      setDigestViewMode('list')
+      return
+    }
+    if (!currentPaper.value || loading.value) return
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'j' || e.key === 'J') {
+      e.preventDefault()
+      navigateImmersive(-1)
+      return
+    }
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'k' || e.key === 'K') {
+      e.preventDefault()
+      navigateImmersive(1)
+      return
+    }
+    if (e.key === 'Enter' || e.key === 'd' || e.key === 'D') {
+      e.preventDefault()
+      openDetail()
+      return
+    }
+    if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault()
+      openPdf()
+      return
+    }
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault()
+      collectListPaper(currentPaper.value)
+      return
+    }
+    if (e.key === 'b' || e.key === 'B') {
+      e.preventDefault()
+      bookmarkListPaper(currentPaper.value)
+      return
+    }
+    if (e.key === 'c' || e.key === 'C') {
+      e.preventDefault()
+      compareImmersivePaper()
+      return
+    }
+    if (e.key === 'r' || e.key === 'R') {
+      e.preventDefault()
+      startListResearch(currentPaper.value)
+      return
+    }
+    if (e.key === 'x' || e.key === 'X') {
+      e.preventDefault()
+      skip()
+    }
+    return
+  }
   // List mode keeps selection, the inspector and keyboard navigation in sync.
   if (digestViewMode.value === 'list') {
+    if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault()
+      setDigestViewMode('immersive')
+      return
+    }
     if (e.key === 'Escape' && listInspectorOpen.value) {
       e.preventDefault()
       listInspectorOpen.value = false
@@ -877,6 +975,11 @@ function handleKeydown(e: KeyboardEvent) {
     case 'L':
       e.preventDefault()
       setDigestViewMode('list')
+      break
+    case 'i':
+    case 'I':
+      e.preventDefault()
+      setDigestViewMode('immersive')
       break
   }
 }
@@ -2099,7 +2202,10 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 </script>
 
 <template>
-  <SidebarPageLayout v-model:show-sidebar="showSidebar">
+  <SidebarPageLayout
+    v-model:show-sidebar="showSidebar"
+    :hide-open-button="digestViewMode === 'immersive' && !isInPanelView"
+  >
 
     <h1 class="sr-only">AI4Papers 每日 AI 与机器学习论文推荐</h1>
 
@@ -2738,14 +2844,14 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <Teleport to="#navbar-page-controls">
           <WorkspaceModeSwitch
             :model-value="digestViewMode"
-            :modes="['card', 'list']"
+            :modes="['card', 'list', 'immersive']"
             @update:model-value="setDigestViewMode"
           />
         </Teleport>
 
         <!-- Today's mission bar — unified: progress + primary task + radar summary -->
         <TodayMissionBar
-          v-if="isAuthenticated && !error && (researchTasklineItems.length > 0 || radarData || radarLoading)"
+          v-if="digestViewMode !== 'immersive' && isAuthenticated && !error && (researchTasklineItems.length > 0 || radarData || radarLoading)"
           :items="researchTasklineItems"
           :radar="radarData"
           :radar-loading="radarLoading"
@@ -2756,7 +2862,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <!-- Main research workspace -->
         <ResearchWorkspaceShell
           :mode="digestViewMode"
-          :show-toolbar="!!(currentPaper || papers.length > 0)"
+          :show-toolbar="digestViewMode !== 'immersive' && !!(currentPaper || papers.length > 0)"
           class="flex-1 min-h-0"
         >
           <template #toolbar>
@@ -3024,6 +3130,32 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             </section>
           </div>
 
+          <!-- ===== IMMERSIVE VIEW ===== -->
+          <ImmersivePaperReader
+            v-else-if="digestViewMode === 'immersive' && currentPaper"
+            :key="currentPaper.paper_id"
+            :paper="currentPaper"
+            :related-papers="immersiveRelatedPapers"
+            :publication-date="effectiveDate || selectedDate"
+            :position="currentIndex + 1"
+            :total="displayPapers.length"
+            :collected="collectedPaperIds.has(currentPaper.paper_id)"
+            :bookmarked="bookmarkedPaperIds.has(currentPaper.paper_id)"
+            :can-go-previous="currentIndex > 0"
+            :can-go-next="currentIndex < displayPapers.length - 1"
+            @previous="navigateImmersive(-1)"
+            @next="navigateImmersive(1)"
+            @skip="skip"
+            @compare="compareImmersivePaper"
+            @collect="collectListPaper(currentPaper)"
+            @open-pdf="openPdf"
+            @open-detail="openDetail"
+            @toggle-bookmark="bookmarkListPaper(currentPaper)"
+            @start-research="startListResearch(currentPaper)"
+            @select-related="openImmersiveRelated"
+            @change-mode="setDigestViewMode"
+            @login="router.push({ path: '/login', query: { redirect: route.fullPath } })"
+          />
           <!-- ===== CARD VIEW ===== -->
           <!-- Wrap in own relative container so absolute children (counter pill, toasts) are scoped here -->
           <div v-else class="flex-1 relative w-full flex flex-col items-center justify-center">

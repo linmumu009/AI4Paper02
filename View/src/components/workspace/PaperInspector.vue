@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { fetchPaperDetail } from '../../api'
-import type { PaperDetailResponse, PaperSummary } from '../../types/paper'
+import { computed, ref } from 'vue'
+import type { PaperSummary } from '../../types/paper'
 import { isAuthenticated } from '../../stores/auth'
+import { useWorkspacePaperDetail } from '../../composables/useWorkspacePaperDetail'
 import AddToProjectDialog from '../project/AddToProjectDialog.vue'
 
 const props = defineProps<{
@@ -20,24 +20,10 @@ const emit = defineEmits<{
   startResearch: []
 }>()
 
-const detailCache = new Map<string, PaperDetailResponse>()
-const detail = ref<PaperDetailResponse | null>(null)
-const detailLoading = ref(false)
-const detailError = ref('')
 const showProjectDialog = ref(false)
-let loadVersion = 0
 
-const summary = computed<PaperSummary | null>(() => {
-  if (!props.paper) return detail.value?.summary ?? null
-  const loadedSummary = detail.value?.summary
-  if (!loadedSummary) return props.paper
-  return {
-    ...props.paper,
-    ...loadedSummary,
-    authors: loadedSummary.authors?.length ? loadedSummary.authors : props.paper.authors,
-    categories: loadedSummary.categories?.length ? loadedSummary.categories : props.paper.categories,
-  }
-})
+const paperRef = computed(() => props.paper)
+const { detail, detailLoading, detailError, summary } = useWorkspacePaperDetail(paperRef)
 const title = computed(() => summary.value?.short_title || summary.value?.['📖标题'] || props.paper?.paper_id || '')
 const originalTitle = computed(() => {
   const value = summary.value?.['📖标题']
@@ -68,33 +54,6 @@ const evidenceItems = computed(() => {
   ].filter(Boolean).slice(0, 4)
 })
 
-watch(
-  () => props.paper?.paper_id,
-  async (paperId) => {
-    const version = ++loadVersion
-    detail.value = null
-    detailError.value = ''
-    if (!paperId) return
-    const cached = detailCache.get(paperId)
-    if (cached) {
-      detail.value = cached
-      return
-    }
-    detailLoading.value = true
-    try {
-      const response = await fetchPaperDetail(paperId)
-      if (version !== loadVersion) return
-      detailCache.set(paperId, response)
-      detail.value = response
-    } catch (error: any) {
-      if (version !== loadVersion) return
-      detailError.value = error?.message || '详细证据暂时不可用'
-    } finally {
-      if (version === loadVersion) detailLoading.value = false
-    }
-  },
-  { immediate: true },
-)
 </script>
 
 <template>

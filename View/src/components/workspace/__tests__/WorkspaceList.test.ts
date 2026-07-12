@@ -1,6 +1,7 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fetchPaperDetail } from '../../../api'
+import { clearWorkspacePaperDetailCache } from '../../../composables/useWorkspacePaperDetail'
 import type { PaperDetailResponse, PaperSummary } from '../../../types/paper'
 import PaperInspector from '../PaperInspector.vue'
 import WorkspacePaperRow from '../WorkspacePaperRow.vue'
@@ -100,7 +101,11 @@ describe('WorkspacePaperRow', () => {
 
 describe('PaperInspector', () => {
   beforeEach(() => {
-    vi.mocked(fetchPaperDetail).mockResolvedValue(detailResponse)
+    clearWorkspacePaperDetailCache()
+    vi.mocked(fetchPaperDetail).mockResolvedValue({
+      ...detailResponse,
+      summary: { ...detailResponse.summary, authors: [], categories: [] },
+    })
   })
 
   it('renders immediate summary content and enriches it with structured evidence', async () => {
@@ -116,6 +121,7 @@ describe('PaperInspector', () => {
 
     expect(fetchPaperDetail).toHaveBeenCalledWith(paper.paper_id)
     expect(wrapper.text()).toContain('推荐理由')
+    expect(wrapper.text()).toContain('Yifan Wu, Lizhu Zhang')
     expect(wrapper.text()).toContain('如何减少长上下文中的记忆衰减')
     expect(wrapper.text()).toContain('在四个长上下文任务上平均提升 12.3%')
 

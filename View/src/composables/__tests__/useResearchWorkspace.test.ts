@@ -56,6 +56,15 @@ describe('useResearchWorkspace', () => {
     expect(applyDiversitySort(samplePapers).map(paper => paper.paper_id)).toEqual(['p1', 'p3', 'p2', 'p4'])
   })
 
+  it('activates immersive mode when the focused reader presentation is enabled', () => {
+    const workspace = useResearchWorkspace({
+      papers: ref(samplePapers),
+      supportedModes: ['card', 'list', 'immersive'],
+    })
+    expect(workspace.setMode('immersive')).toBe(true)
+    expect(workspace.mode.value).toBe('immersive')
+  })
+
   it('does not activate a mode whose presentation has not landed yet', () => {
     const workspace = useResearchWorkspace({
       papers: ref(samplePapers),
