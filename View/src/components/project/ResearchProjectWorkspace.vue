@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   PaperDetailResponse,
   PaperSummary,
@@ -17,6 +17,7 @@ import paperclipIcon from '../../assets/heroicons/paper-clip.svg'
 import plusIcon from '../../assets/heroicons/plus.svg'
 import scaleIcon from '../../assets/heroicons/scale.svg'
 import closeIcon from '../../assets/heroicons/x-mark.svg'
+import ImmersivePaperReader from '../workspace/ImmersivePaperReader.vue'
 
 export type ProjectWorkspaceTab = 'workspace' | 'evidence' | 'compare' | 'notes' | 'reports'
 
@@ -47,12 +48,14 @@ const emit = defineEmits<{
   addCandidate: [paper: PaperSummary]
   removeAsset: [asset: ResearchProjectAsset]
   openAsset: [asset: ResearchProjectAsset]
+  openPaperPdf: [paperId: string]
   openCandidate: [paper: PaperSummary]
   openResearchSession: [sessionId: number]
 }>()
 
 const prompt = ref('')
 const showMobileInbox = ref(false)
+const immersiveAssetId = ref<string | null>(null)
 
 const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
   { key: 'workspace', label: '工作台' },
@@ -63,6 +66,15 @@ const tabs: { key: ProjectWorkspaceTab; label: string }[] = [
 ]
 
 const paperAssets = computed(() => props.project.assets.filter(asset => asset.asset_type === 'paper'))
+const immersiveEntries = computed(() => paperAssets.value.filter(asset => Boolean(props.paperDetails[asset.asset_id])))
+const immersiveIndex = computed(() => immersiveEntries.value.findIndex(asset => asset.asset_id === immersiveAssetId.value))
+const immersiveAsset = computed(() => immersiveIndex.value >= 0 ? immersiveEntries.value[immersiveIndex.value] : null)
+const immersiveDetail = computed(() => immersiveAsset.value ? props.paperDetails[immersiveAsset.value.asset_id] || null : null)
+const immersiveRelated = computed(() => immersiveEntries.value
+  .filter(asset => asset.asset_id !== immersiveAssetId.value)
+  .map(asset => props.paperDetails[asset.asset_id]?.summary)
+  .filter((paper): paper is PaperSummary => Boolean(paper))
+  .slice(0, 4))
 const noteAssets = computed(() => props.project.assets.filter(asset => ['note', 'idea'].includes(asset.asset_type)))
 const compareAssets = computed(() => props.project.assets.filter(asset => asset.asset_type === 'compare_result'))
 const activeProjectCount = computed(() => Math.max(1, props.projects.filter(item => item.status === 'active').length))
@@ -106,10 +118,81 @@ function paperTitle(paper: PaperSummary) {
 function candidateReason(paper: PaperSummary) {
   return paper.why_recommended || paper['推荐理由'] || paper['🛎️文章简介']?.['🔸主要贡献'] || '论文元数据与当前课题关键词匹配。'
 }
+
+function openPaperAsset(asset: ResearchProjectAsset) {
+  if (props.paperDetails[asset.asset_id]) {
+    immersiveAssetId.value = asset.asset_id
+    return
+  }
+  emit('openAsset', asset)
+}
+
+function closeImmersiveReader() {
+  immersiveAssetId.value = null
+}
+
+function navigateImmersive(delta: number) {
+  const nextIndex = immersiveIndex.value + delta
+  const nextAsset = immersiveEntries.value[nextIndex]
+  if (nextAsset) immersiveAssetId.value = nextAsset.asset_id
+}
+
+function selectRelatedPaper(paperId: string) {
+  if (props.paperDetails[paperId]) immersiveAssetId.value = paperId
+}
+
+function handleImmersiveKeydown(event: KeyboardEvent) {
+  if (!immersiveAsset.value) return
+  const target = event.target
+  if (target instanceof Element && target.matches('input, textarea, select, [contenteditable="true"]')) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeImmersiveReader()
+  } else if (event.key === 'j' || event.key === 'J' || event.key === 'ArrowRight') {
+    event.preventDefault()
+    navigateImmersive(1)
+  } else if (event.key === 'k' || event.key === 'K' || event.key === 'ArrowLeft') {
+    event.preventDefault()
+    navigateImmersive(-1)
+  }
+}
+
+watch(() => props.project.id, closeImmersiveReader)
+watch(immersiveEntries, (entries) => {
+  if (immersiveAssetId.value && !entries.some(asset => asset.asset_id === immersiveAssetId.value)) closeImmersiveReader()
+})
+onMounted(() => window.addEventListener('keydown', handleImmersiveKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleImmersiveKeydown))
 </script>
 
 <template>
-  <div class="project-workspace">
+  <ImmersivePaperReader
+    v-if="immersiveAsset && immersiveDetail"
+    :paper="immersiveDetail.summary"
+    :detail-override="immersiveDetail"
+    :related-papers="immersiveRelated"
+    :position="immersiveIndex + 1"
+    :total="immersiveEntries.length"
+    :can-go-previous="immersiveIndex > 0"
+    :can-go-next="immersiveIndex < immersiveEntries.length - 1"
+    :can-compare="immersiveEntries.length > 1"
+    :show-collection-action="false"
+    :show-bookmark-action="false"
+    :source-scope="immersiveAsset.source_scope || 'project'"
+    :project-context="{ name: project.name, objective: project.objective, paperCount: paperAssets.length }"
+    return-label="返回研究项目"
+    decision-mode="project"
+    @exit="closeImmersiveReader"
+    @previous="navigateImmersive(-1)"
+    @next="navigateImmersive(1)"
+    @skip="navigateImmersive(1)"
+    @compare="emit('startCompare')"
+    @open-detail="emit('openAsset', immersiveAsset)"
+    @open-pdf="emit('openPaperPdf', immersiveAsset.asset_id)"
+    @start-research="emit('startResearch')"
+    @select-related="selectRelatedPaper"
+  />
+  <div v-else class="project-workspace">
     <aside class="project-workspace__rail" aria-label="课题导航">
       <div class="project-workspace__rail-head">
         <div>
@@ -186,7 +269,7 @@ function candidateReason(paper: PaperSummary) {
             </div>
             <div v-if="evidenceRows.length" class="project-workspace__evidence-table">
               <div class="project-workspace__evidence-header"><span>论文</span><span>关键方法</span><span>核心证据</span><span>支持度</span></div>
-              <article v-for="row in evidenceRows" :key="row.asset.id" class="project-workspace__evidence-row" @click="emit('openAsset', row.asset)">
+              <article v-for="row in evidenceRows" :key="row.asset.id" class="project-workspace__evidence-row" @click="openPaperAsset(row.asset)">
                 <div><strong>{{ row.summary?.short_title || row.asset.title }}</strong><small>{{ row.summary?.authors?.slice(0, 2).join('、') || row.asset.subtitle }}</small></div>
                 <p>{{ row.method }}</p><p>{{ row.evidence }}</p>
                 <span class="project-workspace__support" :class="`is-${row.support}`">{{ row.support }}</span>
@@ -247,7 +330,7 @@ function candidateReason(paper: PaperSummary) {
       <div v-if="!candidatesLoading && !candidates.length" class="project-workspace__candidate-empty">今天暂时没有匹配的候选论文。</div>
       <div class="project-workspace__recent">
         <span class="project-workspace__eyebrow">最近证据</span>
-        <button v-for="asset in paperAssets.slice(0, 3)" :key="asset.id" type="button" @click="emit('openAsset', asset)"><i /><span><strong>{{ asset.title }}</strong><small>{{ asset.subtitle }}</small></span></button>
+        <button v-for="asset in paperAssets.slice(0, 3)" :key="asset.id" type="button" @click="openPaperAsset(asset)"><i /><span><strong>{{ asset.title }}</strong><small>{{ asset.subtitle }}</small></span></button>
       </div>
     </aside>
   </div>

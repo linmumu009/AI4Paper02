@@ -44,4 +44,37 @@ describe('ResearchProjectWorkspace', () => {
     expect(wrapper.emitted('update:activeTab')).toContainEqual(['compare'])
     expect(wrapper.emitted('startResearch')).toContainEqual(['验证记忆干预的边界条件'])
   })
+
+  it('opens project evidence in the shared immersive reader and restores the project with Escape', async () => {
+    const wrapper = mount(ResearchProjectWorkspace, { props: { project, projects: [project], paperDetails: { 'paper-1': detail } } })
+
+    await wrapper.find('.project-workspace__evidence-row').trigger('click')
+
+    expect(wrapper.find('[aria-label="沉浸论文阅读"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="返回研究项目"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('当前课题')
+    expect(wrapper.text()).toContain('长期记忆智能体')
+    expect(wrapper.text()).toContain('下一证据')
+    expect(wrapper.text()).not.toContain('加入课题')
+
+    const pdfButton = wrapper.findAll('button').find(button => button.text().includes('打开论文 PDF'))
+    const detailButton = wrapper.findAll('button').find(button => button.text().includes('查看完整解析'))
+    await pdfButton?.trigger('click')
+    await detailButton?.trigger('click')
+    expect(wrapper.emitted('openPaperPdf')).toEqual([['paper-1']])
+    expect(wrapper.emitted('openAsset')).toEqual([[project.assets[0]]])
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[aria-label="沉浸论文阅读"]').exists()).toBe(false)
+    expect(wrapper.find('.project-workspace').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('falls back to the original asset route when structured paper detail is unavailable', async () => {
+    const wrapper = mount(ResearchProjectWorkspace, { props: { project, paperDetails: {} } })
+    await wrapper.find('.project-workspace__evidence-row').trigger('click')
+    expect(wrapper.emitted('openAsset')).toEqual([[project.assets[0]]])
+    expect(wrapper.find('[aria-label="沉浸论文阅读"]').exists()).toBe(false)
+  })
 })

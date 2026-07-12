@@ -9,7 +9,9 @@ import {
 import type { PaperDetailResponse, PaperSummary, ResearchProject, ResearchProjectAsset, ResearchProjectSummary } from '../types/paper'
 import PaperPickerDialog from '../components/PaperPickerDialog.vue'
 import ResearchProjectWorkspace, { type ProjectWorkspaceTab } from '../components/project/ResearchProjectWorkspace.vue'
+import { resolvePaperPdfUrl } from '../composables/usePdfUrl'
 import { rankProjectCandidates } from '../composables/useProjectWorkspace'
+import { openExternal } from '../utils/openExternal'
 
 const route = useRoute()
 const router = useRouter()
@@ -129,6 +131,7 @@ function startCompare() {
 }
 
 function openAsset(asset: ResearchProjectAsset) { if (!asset.missing && asset.route) router.push(asset.route) }
+function openPaperPdf(paperId: string) { openExternal(resolvePaperPdfUrl(paperId)) }
 function openCandidate(paper: PaperSummary) { router.push(`/papers/${encodeURIComponent(paper.paper_id)}`) }
 function openResearchSession(sessionId: number) { router.push({ path: '/', query: { tool: 'research-library', session: String(sessionId) } }) }
 function switchProject(id: number) { if (id !== projectId.value) router.push(`/projects/${id}`) }
@@ -152,7 +155,7 @@ onMounted(load)
         @switch-project="switchProject" @edit-project="showEdit = true" @archive-project="archiveProject"
         @start-research="startResearch" @start-compare="startCompare" @add-papers="showPaperPicker = true"
         @add-candidate="paper => addPapers([paper.paper_id])" @remove-asset="removeAsset"
-        @open-asset="openAsset" @open-candidate="openCandidate" @open-research-session="openResearchSession"
+        @open-asset="openAsset" @open-paper-pdf="openPaperPdf" @open-candidate="openCandidate" @open-research-session="openResearchSession"
       />
     </template>
     <PaperPickerDialog v-if="showPaperPicker" title="选择要加入课题的论文" mode="research" @confirm="addPapers" @cancel="showPaperPicker = false" />

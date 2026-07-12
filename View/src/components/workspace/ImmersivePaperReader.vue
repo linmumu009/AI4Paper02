@@ -28,12 +28,17 @@ const props = withDefaults(defineProps<{
   canGoNext?: boolean
   returnMode?: 'card' | 'list'
   returnLabel?: string
-  decisionMode?: 'digest' | 'knowledge' | 'mypapers'
+  decisionMode?: 'digest' | 'knowledge' | 'mypapers' | 'project'
   sourceScope?: string
   canCompare?: boolean
   showCollectionAction?: boolean
   showBookmarkAction?: boolean
   detailOverride?: PaperDetailResponse | null
+  projectContext?: {
+    name: string
+    objective?: string
+    paperCount?: number
+  } | null
 }>(), {
   decisionMode: 'digest',
   sourceScope: 'digest',
@@ -59,7 +64,7 @@ const emit = defineEmits<{
 
 const showProjectDialog = ref(false)
 const contextOpen = ref(false)
-const contextTab = ref<'outline' | 'project' | 'related'>('outline')
+const contextTab = ref<'outline' | 'project' | 'related'>(props.decisionMode === 'project' ? 'project' : 'outline')
 const readingProgress = ref(0)
 const paperRef = computed(() => props.paper)
 const detailOverrideRef = computed(() => props.detailOverride)
@@ -150,6 +155,8 @@ const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖�
 const resolvedReturnLabel = computed(() => props.returnLabel || (props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式'))
 const isKnowledgeDecision = computed(() => props.decisionMode === 'knowledge')
 const isMyPapersDecision = computed(() => props.decisionMode === 'mypapers')
+const isProjectDecision = computed(() => props.decisionMode === 'project')
+const isSequentialDecision = computed(() => isMyPapersDecision.value || isProjectDecision.value)
 
 function openContext(tab: 'outline' | 'project' | 'related' = contextTab.value) {
   contextTab.value = tab
@@ -371,10 +378,14 @@ function scrollToSection(sectionId: string) {
 
         <section v-else-if="contextTab === 'project'" role="tabpanel">
           <div class="immersive-reader__context-heading">
-            <h2>研究课题</h2>
-            <span>{{ isAuthenticated ? '当前论文' : '登录后启用' }}</span>
+            <h2>{{ projectContext ? '当前课题' : '研究课题' }}</h2>
+            <span>{{ projectContext ? `${projectContext.paperCount || 0} 篇论文` : isAuthenticated ? '当前论文' : '登录后启用' }}</span>
           </div>
-          <template v-if="isAuthenticated">
+          <template v-if="projectContext">
+            <p class="immersive-reader__context-title">{{ projectContext.name }}</p>
+            <p class="immersive-reader__context-copy">{{ projectContext.objective || '围绕课题目标继续核验证据。' }}</p>
+          </template>
+          <template v-else-if="isAuthenticated">
             <p class="immersive-reader__context-title">把这篇论文加入正在推进的研究课题</p>
             <button type="button" class="immersive-reader__context-primary" @click="showProjectDialog = true">加入课题</button>
           </template>
@@ -407,9 +418,9 @@ function scrollToSection(sectionId: string) {
 
     <template #dock>
       <div class="immersive-reader__dock" :class="{ 'immersive-reader__dock--three': !showCollectionAction }">
-        <button type="button" :disabled="isMyPapersDecision && !canGoNext" @click="emit('skip')">
-          <span class="immersive-reader__dock-icon"><img :src="isKnowledgeDecision ? checkIcon : xMarkIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : isMyPapersDecision ? '下一篇' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : isMyPapersDecision ? '继续浏览论文' : '不感兴趣' }}</small></span>
+        <button type="button" :disabled="isSequentialDecision && !canGoNext" @click="emit('skip')">
+          <span class="immersive-reader__dock-icon"><img :src="isKnowledgeDecision ? checkIcon : isSequentialDecision ? arrowRightIcon : xMarkIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : isProjectDecision ? '下一证据' : isMyPapersDecision ? '下一篇' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : isProjectDecision ? '继续核验课题论文' : isMyPapersDecision ? '继续浏览论文' : '不感兴趣' }}</small></span>
         </button>
         <button type="button" :disabled="canCompare === false" @click="emit('compare')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
