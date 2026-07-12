@@ -36,6 +36,8 @@ import { useToast } from '../composables/useToast'
 import { useResearchWorkspace } from '../composables/useResearchWorkspace'
 import { useWorkspaceRouteState } from '../composables/useWorkspaceRouteState'
 import { usePaperDecisionActions } from '../composables/usePaperDecisionActions'
+import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShell.vue'
+import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -2641,6 +2643,14 @@ onBeforeRouteLeave(async (_to, _from, next) => {
       <!-- 默认卡片刷刷模式 -->
       <div v-else class="flex-1 flex flex-col min-h-0">
 
+        <Teleport to="#navbar-page-controls">
+          <WorkspaceModeSwitch
+            :model-value="digestViewMode"
+            :modes="['card', 'list']"
+            @update:model-value="setDigestViewMode"
+          />
+        </Teleport>
+
         <!-- Today's mission bar — unified: progress + primary task + radar summary -->
         <TodayMissionBar
           v-if="isAuthenticated && !error && (researchTasklineItems.length > 0 || radarData || radarLoading)"
@@ -2651,8 +2661,61 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           @action="handleTasklineAction"
         />
 
-        <!-- Main content area -->
-        <div class="flex-1 flex flex-col items-center justify-center relative min-h-0">
+        <!-- Main research workspace -->
+        <ResearchWorkspaceShell
+          :mode="digestViewMode"
+          :show-toolbar="!!(currentPaper || papers.length > 0)"
+          class="flex-1 min-h-0"
+        >
+          <template #toolbar>
+            <div class="digest-workspace-toolbar">
+              <div class="digest-workspace-toolbar__context">
+                <span class="digest-workspace-toolbar__title">今日论文</span>
+                <span v-if="selectedDate" class="digest-workspace-toolbar__date">{{ selectedDate }}</span>
+                <span class="digest-workspace-toolbar__count">
+                  <template v-if="digestViewMode === 'list' && listTotalPages > 1">
+                    {{ listPage * LIST_PAGE_SIZE + 1 }}-{{ Math.min((listPage + 1) * LIST_PAGE_SIZE, displayPapers.length) }} / {{ displayPapers.length }} 篇
+                  </template>
+                  <template v-else>{{ displayPapers.length }} 篇</template>
+                </span>
+              </div>
+
+              <div class="digest-workspace-toolbar__filters">
+                <label v-if="availableCategories.length > 0" class="digest-workspace-toolbar__field">
+                  <span class="sr-only">论文分类</span>
+                  <select v-model="topicFilter" aria-label="论文分类">
+                    <option value="">全部分类</option>
+                    <option v-for="cat in availableCategories" :key="cat" :value="cat">{{ cat }}</option>
+                  </select>
+                </label>
+
+                <label class="digest-workspace-toolbar__field">
+                  <span class="sr-only">论文排序</span>
+                  <select v-model="sortMode" aria-label="论文排序">
+                    <option value="default">默认排序</option>
+                    <option value="relevance">相关性优先</option>
+                    <option value="institution">机构优先</option>
+                    <option value="diversity">多样性优先</option>
+                  </select>
+                </label>
+
+                <button
+                  v-if="topicFilter"
+                  type="button"
+                  class="digest-workspace-toolbar__clear"
+                  @click="topicFilter = ''"
+                >清除筛选</button>
+
+                <button
+                  v-if="isAuthenticated"
+                  type="button"
+                  class="digest-workspace-toolbar__secondary"
+                  title="查看可能被低估的论文"
+                  @click="missedPapersOpen = true"
+                >可能错过</button>
+              </div>
+            </div>
+          </template>
 
         <!-- Welcome Hero Banner — shown once to first-time unauthenticated visitors -->
         <Transition name="banner-slide">
@@ -2764,68 +2827,6 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
         <!-- Card / List view — shown when papers are available -->
         <template v-else-if="currentPaper || (papers.length > 0 && digestViewMode === 'list')">
-
-          <!-- ===== UNIFIED CONTROL BAR — teleported into Navbar row via #navbar-page-controls ===== -->
-          <Teleport to="#navbar-page-controls">
-            <div class="flex items-center gap-2">
-              <!-- Paper count -->
-              <span class="text-[11px] text-text-muted tabular-nums shrink-0 hidden sm:inline">
-                <template v-if="digestViewMode === 'list' && listTotalPages > 1">
-                  {{ listPage * LIST_PAGE_SIZE + 1 }}-{{ Math.min((listPage + 1) * LIST_PAGE_SIZE, displayPapers.length) }} / {{ displayPapers.length }} 篇
-                </template>
-                <template v-else>{{ displayPapers.length }} 篇</template>
-              </span>
-              <!-- Category filter dropdown (replaces pill row) -->
-              <select
-                v-if="availableCategories.length > 0"
-                v-model="topicFilter"
-                class="text-[11px] px-2 py-1 rounded-lg bg-bg-elevated border border-border/50 text-text-secondary focus:outline-none cursor-pointer shrink-0 max-w-[7rem]"
-              >
-                <option value="">全部分类</option>
-                <option v-for="cat in availableCategories" :key="cat" :value="cat">{{ cat }}</option>
-              </select>
-              <!-- Sort dropdown -->
-              <select
-                v-model="sortMode"
-                class="text-[11px] px-2 py-1 rounded-lg bg-bg-elevated border border-border/50 text-text-secondary focus:outline-none cursor-pointer shrink-0"
-              >
-                <option value="default">默认</option>
-                <option value="relevance">相关性↓</option>
-                <option value="institution">机构↑</option>
-                <option value="diversity">多样性</option>
-              </select>
-              <!-- Segmented view toggle -->
-              <div class="flex items-center rounded-lg bg-bg-elevated border border-border/50 p-0.5 shrink-0">
-                <button
-                  class="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 cursor-pointer border-none"
-                  :class="digestViewMode === 'card'
-                    ? 'bg-bg-card shadow-sm text-text-primary'
-                    : 'bg-transparent text-text-muted hover:text-text-secondary'"
-                  title="卡片模式"
-                  @click="digestViewMode = 'card'"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                </button>
-                <button
-                  class="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 cursor-pointer border-none"
-                  :class="digestViewMode === 'list'
-                    ? 'bg-bg-card shadow-sm text-text-primary'
-                    : 'bg-transparent text-text-muted hover:text-text-secondary'"
-                  title="列表模式 (L)"
-                  @click="digestViewMode = 'list'"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                </button>
-              </div>
-              <!-- Missed papers entry (authenticated users with enough preference data) -->
-              <button
-                v-if="isAuthenticated"
-                class="text-[11px] px-2 py-1 rounded-lg bg-bg-elevated border border-border/50 text-text-muted hover:text-text-secondary hover:border-border transition-colors cursor-pointer shrink-0"
-                title="查看可能被低估的论文"
-                @click="missedPapersOpen = true"
-              >可能错过</button>
-            </div>
-          </Teleport>
 
           <!-- ===== LIST VIEW ===== -->
           <div v-if="digestViewMode === 'list'" class="w-full flex-1 flex flex-col overflow-hidden max-w-3xl mx-auto">
@@ -2989,7 +2990,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @click="() => showSidebar = true"
           >查看知识库</button>
         </div>
-        </div><!-- /main content area -->
+        </ResearchWorkspaceShell><!-- /main research workspace -->
       </div><!-- /默认卡片刷刷模式 -->
 
   <!-- Upload dialog -->
@@ -3196,6 +3197,130 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 </template>
 
 <style scoped>
+.digest-workspace-toolbar {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px clamp(12px, 2vw, 24px);
+}
+
+.digest-workspace-toolbar__context,
+.digest-workspace-toolbar__filters {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.digest-workspace-toolbar__context {
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.digest-workspace-toolbar__filters {
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.digest-workspace-toolbar__title {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.digest-workspace-toolbar__date,
+.digest-workspace-toolbar__count {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.digest-workspace-toolbar__date::after {
+  margin-left: 8px;
+  color: var(--color-border-light);
+  content: '/';
+}
+
+.digest-workspace-toolbar__field select,
+.digest-workspace-toolbar__secondary,
+.digest-workspace-toolbar__clear {
+  height: 30px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+}
+
+.digest-workspace-toolbar__field select {
+  max-width: 128px;
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.digest-workspace-toolbar__field select:focus-visible,
+.digest-workspace-toolbar__secondary:focus-visible,
+.digest-workspace-toolbar__clear:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-tinder-pink) 68%, white);
+  outline-offset: 2px;
+}
+
+.digest-workspace-toolbar__secondary {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+.digest-workspace-toolbar__secondary:hover {
+  border-color: var(--color-border-light);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.digest-workspace-toolbar__clear {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--color-tinder-pink);
+  cursor: pointer;
+}
+
+@media (max-width: 767px) {
+  .digest-workspace-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 7px;
+    padding-block: 7px;
+  }
+
+  .digest-workspace-toolbar__filters {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 1px;
+    scrollbar-width: none;
+  }
+
+  .digest-workspace-toolbar__filters::-webkit-scrollbar {
+    display: none;
+  }
+
+  .digest-workspace-toolbar__date {
+    display: none;
+  }
+
+  .digest-workspace-toolbar__field select {
+    max-width: 116px;
+  }
+}
+
 /* Sidebar slide transition */
 .sidebar-slide-enter-active,
 .sidebar-slide-leave-active {

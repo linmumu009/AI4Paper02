@@ -4,6 +4,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\AGENTS.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\changed_files_abs_paths.txt
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_changed_files.ps1
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_server.sh
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\design-qa.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\change_sync_deploy_workflow.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\api.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_assets.py
@@ -75,6 +76,9 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\TodayMiss
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\UserBar.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\UserPaperFolderItem.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\WhyNotDrawer.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\__tests__\WorkspaceShell.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\ResearchWorkspaceShell.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\WorkspaceModeSwitch.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workbench\WorkbenchPageShell.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useAnnotationAdapter.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\usePollingTask.test.ts
