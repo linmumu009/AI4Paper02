@@ -110,6 +110,7 @@ describe('ImmersivePaperReader', () => {
         total: 2,
         canGoPrevious: false,
         canGoNext: true,
+        canCompare: true,
         returnMode: 'card',
       },
     })

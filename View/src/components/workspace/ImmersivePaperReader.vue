@@ -10,12 +10,13 @@ import arrowRightIcon from '../../assets/heroicons/arrow-right.svg'
 import beakerIcon from '../../assets/heroicons/beaker.svg'
 import bookOpenIcon from '../../assets/heroicons/book-open.svg'
 import bookmarkIcon from '../../assets/heroicons/bookmark.svg'
+import checkIcon from '../../assets/heroicons/check-circle.svg'
 import documentIcon from '../../assets/heroicons/document-text.svg'
 import heartIcon from '../../assets/heroicons/heart.svg'
 import scaleIcon from '../../assets/heroicons/scale.svg'
 import squaresIcon from '../../assets/heroicons/squares-2x2.svg'
 import xMarkIcon from '../../assets/heroicons/x-mark.svg'
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   paper: PaperSummary
   relatedPapers: PaperSummary[]
   publicationDate?: string
@@ -26,7 +27,15 @@ const props = defineProps<{
   canGoPrevious?: boolean
   canGoNext?: boolean
   returnMode?: 'card' | 'list'
-}>()
+  returnLabel?: string
+  decisionMode?: 'digest' | 'knowledge'
+  sourceScope?: string
+  canCompare?: boolean
+}>(), {
+  decisionMode: 'digest',
+  sourceScope: 'digest',
+  canCompare: true,
+})
 
 const emit = defineEmits<{
   previous: []
@@ -132,7 +141,8 @@ const readingSections = computed(() => [
 ].filter(section => section.visible))
 
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
-const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式')
+const resolvedReturnLabel = computed(() => props.returnLabel || (props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式'))
+const isKnowledgeDecision = computed(() => props.decisionMode === 'knowledge')
 
 function openContext(tab: 'outline' | 'project' | 'related' = contextTab.value) {
   contextTab.value = tab
@@ -160,7 +170,7 @@ function scrollToSection(sectionId: string) {
     @document-scroll="readingProgress = $event"
   >
     <template #rail>
-      <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" :aria-label="returnLabel" :title="returnLabel" @click="emit('exit')">
+      <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" :aria-label="resolvedReturnLabel" :title="resolvedReturnLabel" @click="emit('exit')">
         <img :src="bookOpenIcon" alt="">
         <span class="immersive-reader__rail-label">返回</span>
       </button>
@@ -391,16 +401,16 @@ function scrollToSection(sectionId: string) {
     <template #dock>
       <div class="immersive-reader__dock">
         <button type="button" @click="emit('skip')">
-          <span class="immersive-reader__dock-icon"><img :src="xMarkIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>跳过</strong><small>不感兴趣</small></span>
+          <span class="immersive-reader__dock-icon"><img :src="isKnowledgeDecision ? checkIcon : xMarkIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : '不感兴趣' }}</small></span>
         </button>
-        <button type="button" @click="emit('compare')">
+        <button type="button" :disabled="canCompare === false" @click="emit('compare')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
           <span class="immersive-reader__dock-copy"><strong>对比</strong><small>与相关文章比较</small></span>
         </button>
         <button type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>{{ collected ? '已收藏' : '收藏' }}</strong><small>加入知识库</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '移出知识库' : collected ? '已收藏' : '收藏' }}</strong><small>{{ isKnowledgeDecision ? '保留笔记' : '加入知识库' }}</small></span>
         </button>
         <button type="button" class="immersive-reader__dock-primary" @click="emit('startResearch')">
           <span class="immersive-reader__dock-icon"><img :src="beakerIcon" alt=""></span>
@@ -414,7 +424,7 @@ function scrollToSection(sectionId: string) {
     v-if="showProjectDialog"
     asset-type="paper"
     :asset-id="paper.paper_id"
-    source-scope="digest"
+    :source-scope="sourceScope || 'digest'"
     :asset-title="title"
     @close="showProjectDialog = false"
   />
@@ -993,6 +1003,11 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__dock button.is-active {
   border-color: color-mix(in srgb, var(--color-tinder-pink) 35%, var(--color-border));
   color: var(--color-tinder-pink);
+}
+
+.immersive-reader__dock button:disabled {
+  cursor: not-allowed;
+  opacity: .42;
 }
 
 .immersive-reader__dock-icon {

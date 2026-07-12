@@ -42,7 +42,10 @@ const detail: PaperDetailResponse = {
 describe('KnowledgeWorkspace', () => {
   beforeEach(() => {
     clearWorkspacePaperDetailCache()
-    vi.mocked(fetchPaperDetail).mockResolvedValue(detail)
+    vi.mocked(fetchPaperDetail).mockImplementation(async (paperId) => ({
+      ...detail,
+      summary: paperId === folderPaper.paper_id ? folderPaper.paper_data : rootPaper.paper_data,
+    }))
   })
 
   it('renders all papers and narrows to the active folder', async () => {
@@ -72,5 +75,29 @@ describe('KnowledgeWorkspace', () => {
     expect(wrapper.emitted('compare')).toEqual([[['paper-1', 'paper-2']]])
     expect(wrapper.emitted('research')?.[0]?.[0]).toEqual(['paper-1', 'paper-2'])
     expect(wrapper.emitted('updateReadStatus')?.[0]).toEqual([rootPaper, 'reading'])
+  })
+
+  it('opens knowledge papers in the shared immersive reader and restores the library on exit', async () => {
+    const wrapper = mount(KnowledgeWorkspace, { props: { kbTree: tree, activeFolderId: null } })
+    await wrapper.findAll('.knowledge-workspace__row')[0].trigger('dblclick')
+    await flushPromises()
+
+    expect(wrapper.find('[aria-label="沉浸论文阅读"]').exists()).toBe(true)
+    expect(wrapper.find('button[aria-label="返回知识库"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('标为已读')
+    expect(wrapper.text()).toContain('移出知识库')
+
+    const buttons = wrapper.findAll('button')
+    await buttons.find(button => button.text().includes('查看完整解析'))?.trigger('click')
+    expect(wrapper.emitted('openPaper')).toEqual([[rootPaper.paper_id]])
+
+    await buttons.find(button => button.text().includes('完成本次阅读'))?.trigger('click')
+    expect(wrapper.emitted('updateReadStatus')?.at(-1)).toEqual([rootPaper, 'read'])
+    expect(wrapper.text()).toContain('2 / 2')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.find('.knowledge-workspace__rows').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="沉浸论文阅读"]').exists()).toBe(false)
   })
 })

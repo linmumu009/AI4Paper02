@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { KbFolder, KbPaper, KbTree, PaperSummary } from '../../types/paper'
+import ImmersivePaperReader from './ImmersivePaperReader.vue'
 import PaperInspector from './PaperInspector.vue'
 import bookIcon from '../../assets/heroicons/book-open.svg'
 import checkIcon from '../../assets/heroicons/check-circle.svg'
@@ -41,6 +42,9 @@ const statusFilter = ref<StatusFilter>('all')
 const activePaperId = ref<string | null>(null)
 const selectedPaperIds = ref<Set<string>>(new Set())
 const inspectorOpen = ref(false)
+const immersiveOpen = ref(false)
+const rowsRef = ref<HTMLElement | null>(null)
+const listScrollTopBeforeImmersive = ref(0)
 
 function titleOf(paper: KbPaper) {
   return paper.paper_data.short_title || paper.paper_data['📖标题'] || paper.paper_id
@@ -97,6 +101,18 @@ const visibleEntries = computed(() => {
 
 const activeEntry = computed(() => visibleEntries.value.find(entry => entry.paper.paper_id === activePaperId.value) ?? null)
 const activeSummary = computed(() => activeEntry.value?.paper.paper_data ?? null)
+const activeIndex = computed(() => visibleEntries.value.findIndex(entry => entry.paper.paper_id === activePaperId.value))
+const immersiveRelatedPapers = computed(() => {
+  const active = activeSummary.value
+  if (!active) return []
+  const categories = new Set(active.categories ?? [])
+  const overlap = (paper: PaperSummary) => (paper.categories ?? []).filter(category => categories.has(category)).length
+  return visibleEntries.value
+    .map(entry => entry.paper.paper_data)
+    .filter(paper => paper.paper_id !== active.paper_id)
+    .sort((a, b) => overlap(b) - overlap(a) || (b.relevance_score ?? 0) - (a.relevance_score ?? 0))
+    .slice(0, 4)
+})
 const selectedEntries = computed(() => allEntries.value.filter(entry => selectedPaperIds.value.has(entry.paper.paper_id)))
 const selectedTitles = computed(() => Object.fromEntries(selectedEntries.value.map(entry => [entry.paper.paper_id, titleOf(entry.paper)])))
 const unreadCount = computed(() => allEntries.value.filter(entry => (entry.paper.read_status || 'unread') === 'unread').length)
@@ -104,16 +120,75 @@ const readingCount = computed(() => allEntries.value.filter(entry => entry.paper
 
 watch(visibleEntries, (entries) => {
   if (!entries.some(entry => entry.paper.paper_id === activePaperId.value)) activePaperId.value = entries[0]?.paper.paper_id ?? null
+  if (!entries.length) immersiveOpen.value = false
 }, { immediate: true })
 
 watch(() => props.activeFolderId, () => {
   selectedPaperIds.value = new Set()
+  immersiveOpen.value = false
 })
 
 function selectPaper(paper: KbPaper) {
   activePaperId.value = paper.paper_id
   inspectorOpen.value = true
 }
+
+function openImmersive(paper?: KbPaper) {
+  if (paper) activePaperId.value = paper.paper_id
+  if (!activeEntry.value) return
+  listScrollTopBeforeImmersive.value = rowsRef.value?.scrollTop ?? 0
+  inspectorOpen.value = false
+  immersiveOpen.value = true
+}
+
+function closeImmersive() {
+  immersiveOpen.value = false
+  void nextTick(() => {
+    if (rowsRef.value) rowsRef.value.scrollTop = listScrollTopBeforeImmersive.value
+  })
+}
+
+function navigateImmersive(delta: -1 | 1) {
+  const nextIndex = Math.max(0, Math.min(activeIndex.value + delta, visibleEntries.value.length - 1))
+  const next = visibleEntries.value[nextIndex]
+  if (next) activePaperId.value = next.paper.paper_id
+}
+
+function openRelatedPaper(paperId: string) {
+  if (visibleEntries.value.some(entry => entry.paper.paper_id === paperId)) activePaperId.value = paperId
+}
+
+function compareActivePaper() {
+  const active = activeEntry.value?.paper
+  const related = immersiveRelatedPapers.value[0]
+  if (active && related) emit('compare', [active.paper_id, related.paper_id])
+}
+
+function completeActiveReading() {
+  const active = activeEntry.value?.paper
+  if (!active) return
+  emit('updateReadStatus', active, 'read')
+  if (activeIndex.value < visibleEntries.value.length - 1) navigateImmersive(1)
+}
+
+function handleWorkspaceKeydown(event: KeyboardEvent) {
+  if (!immersiveOpen.value) return
+  const target = event.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeImmersive()
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'j' || event.key === 'J') {
+    event.preventDefault()
+    navigateImmersive(-1)
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'k' || event.key === 'K') {
+    event.preventDefault()
+    navigateImmersive(1)
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleWorkspaceKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', handleWorkspaceKeydown))
 
 function toggleSelection(paperId: string) {
   const next = new Set(selectedPaperIds.value)
@@ -152,7 +227,36 @@ function formatDate(value: string) {
 </script>
 
 <template>
-  <section class="knowledge-workspace" aria-label="知识库论文工作区">
+  <ImmersivePaperReader
+    v-if="immersiveOpen && activeEntry"
+    :key="activeEntry.paper.paper_id"
+    :paper="activeEntry.paper.paper_data"
+    :related-papers="immersiveRelatedPapers"
+    :publication-date="formatDate(activeEntry.paper.created_at)"
+    :position="activeIndex + 1"
+    :total="visibleEntries.length"
+    :collected="true"
+    :bookmarked="activeEntry.paper.read_status === 'reading'"
+    :can-go-previous="activeIndex > 0"
+    :can-go-next="activeIndex < visibleEntries.length - 1"
+    :can-compare="immersiveRelatedPapers.length > 0"
+    return-label="返回知识库"
+    decision-mode="knowledge"
+    source-scope="kb"
+    @exit="closeImmersive"
+    @previous="navigateImmersive(-1)"
+    @next="navigateImmersive(1)"
+    @skip="completeActiveReading"
+    @compare="compareActivePaper"
+    @collect="emit('removePaper', activeEntry.paper)"
+    @open-pdf="emit('openPdf', activeEntry.paper)"
+    @open-detail="emit('openPaper', activeEntry.paper.paper_id)"
+    @toggle-bookmark="emit('updateReadStatus', activeEntry.paper, activeEntry.paper.read_status === 'reading' ? 'unread' : 'reading')"
+    @start-research="emit('research', [activeEntry.paper.paper_id], { [activeEntry.paper.paper_id]: titleOf(activeEntry.paper) })"
+    @select-related="openRelatedPaper"
+  />
+
+  <section v-else class="knowledge-workspace" aria-label="知识库论文工作区">
     <div class="knowledge-workspace__list-pane">
       <header class="knowledge-workspace__header">
         <div class="knowledge-workspace__title-row">
@@ -192,7 +296,7 @@ function formatDate(value: string) {
         <span>相关度</span><span>笔记</span><span>收藏时间</span><span>状态</span>
       </div>
 
-      <div v-if="visibleEntries.length" class="knowledge-workspace__rows" role="listbox" aria-label="知识库论文">
+      <div v-if="visibleEntries.length" ref="rowsRef" class="knowledge-workspace__rows" role="listbox" aria-label="知识库论文">
         <article
           v-for="entry in visibleEntries"
           :key="entry.paper.paper_id"
@@ -202,8 +306,8 @@ function formatDate(value: string) {
           :aria-selected="activePaperId === entry.paper.paper_id"
           tabindex="0"
           @click="selectPaper(entry.paper)"
-          @dblclick="emit('openPaper', entry.paper.paper_id)"
-          @keydown.enter="emit('openPaper', entry.paper.paper_id)"
+          @dblclick="openImmersive(entry.paper)"
+          @keydown.enter="openImmersive(entry.paper)"
         >
           <div class="knowledge-workspace__paper-cell">
             <input type="checkbox" :checked="selectedPaperIds.has(entry.paper.paper_id)" :aria-label="`选择论文：${titleOf(entry.paper)}`" @click.stop @change="toggleSelection(entry.paper.paper_id)">
@@ -242,7 +346,8 @@ function formatDate(value: string) {
         collection-action-label="从知识库移除"
         collection-action-tone="danger"
         :project-action-primary="true"
-        @open-detail="activeEntry && emit('openPaper', activeEntry.paper.paper_id)"
+        source-scope="kb"
+        @open-detail="activeEntry && openImmersive(activeEntry.paper)"
         @open-pdf="activeEntry && emit('openPdf', activeEntry.paper)"
         @collect="activeEntry && emit('removePaper', activeEntry.paper)"
         @toggle-bookmark="activeEntry && emit('updateReadStatus', activeEntry.paper, activeEntry.paper.read_status === 'reading' ? 'unread' : 'reading')"

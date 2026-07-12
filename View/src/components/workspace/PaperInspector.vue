@@ -13,6 +13,7 @@ const props = defineProps<{
   collectionActionLabel?: string
   collectionActionTone?: 'primary' | 'danger' | 'neutral'
   projectActionPrimary?: boolean
+  sourceScope?: string
 }>()
 
 const emit = defineEmits<{
@@ -162,7 +163,7 @@ const evidenceItems = computed(() => {
         v-if="showProjectDialog"
         asset-type="paper"
         :asset-id="paper.paper_id"
-        source-scope="digest"
+        :source-scope="sourceScope || 'digest'"
         :asset-title="title"
         @close="showProjectDialog = false"
       />
