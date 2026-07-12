@@ -33,6 +33,9 @@ import { useKbSidebarState } from '../composables/useKbSidebarState'
 import { useEngagement } from '../composables/useEngagement'
 import { trackKbAction, trackPaperCardView } from '../composables/useAnalytics'
 import { useToast } from '../composables/useToast'
+import { useResearchWorkspace } from '../composables/useResearchWorkspace'
+import { useWorkspaceRouteState } from '../composables/useWorkspaceRouteState'
+import { usePaperDecisionActions } from '../composables/usePaperDecisionActions'
 
 const router = useRouter()
 const route = useRoute()
@@ -53,23 +56,47 @@ const quotaLimit = ref<number | null>(null)
 const responseTier = ref<string>('anonymous')
 
 // Card navigation
-const currentIndex = ref(0)
 const cardAnimClass = ref('card-enter')
-const history = ref<number[]>([])
-
-// Digest view mode: 'card' = Tinder swipe, 'list' = quick scan list
-const digestViewMode = ref<'card' | 'list'>('card')
-
-// List mode pagination
-const listPage = ref(0)
 const LIST_PAGE_SIZE = 15
+const {
+  mode: digestViewMode,
+  sortMode,
+  topicFilter,
+  currentIndex,
+  history,
+  listPage,
+  displayPapers,
+  currentPaper,
+  currentPaperId,
+  remaining,
+  allSwiped,
+  listTotalPages,
+  pagedPapers,
+  availableCategories,
+  setMode: setDigestViewMode,
+  selectIndex: selectDigestPaper,
+  selectPaperById: selectDigestPaperById,
+  rememberCurrentIndex,
+  moveToNext,
+  restorePreviousIndex,
+} = useResearchWorkspace({
+  papers,
+  pageSize: LIST_PAGE_SIZE,
+  // Immersive mode is enabled after its reader layout lands; the state layer
+  // already understands it so that the next phase only adds presentation.
+  supportedModes: ['card', 'list'],
+})
 
-// Sort mode applied locally after receiving papers from backend
-// 'diversity' = interleave T1/T2 with high-relevance T3/T4 papers (anti-filter-bubble)
-const sortMode = ref<'default' | 'relevance' | 'institution' | 'diversity'>('default')
-
-// arXiv category filter (empty = show all)
-const topicFilter = ref<string>('')
+useWorkspaceRouteState({
+  query: () => route.query,
+  router,
+  mode: digestViewMode,
+  currentPaperId,
+  paperIds: computed(() => displayPapers.value.map(paper => paper.paper_id)),
+  setMode: setDigestViewMode,
+  selectPaperById: selectDigestPaperById,
+  paperQueryKey: 'digest_paper',
+})
 
 // Digest statistics from API response (used in stats bar)
 const digestStats = ref<{
@@ -78,16 +105,6 @@ const digestStats = ref<{
   large_institution_count: number
   institution_distribution: { name: string; count: number }[]
 } | null>(null)
-
-// Bookmarked paper IDs (localStorage-backed, no backend required)
-function _loadBookmarks(): Set<string> {
-  try {
-    const raw = localStorage.getItem('ai4p-bookmarks')
-    if (raw) return new Set(JSON.parse(raw) as string[])
-  } catch { /* ignore */ }
-  return new Set()
-}
-const bookmarkedPaperIds = ref<Set<string>>(_loadBookmarks())
 
 // Onboarding hint: encourage authenticated users to set up paper_recommend
 const showRecommendHint = ref(false)
@@ -150,77 +167,23 @@ async function loadRadar(date: string) {
 // Knowledge base + sidebar shared state
 const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState()
 
-// Diversity interleaving: every 2 high-tier (T1/T2) papers, insert 1 high-relevance T3/T4 paper
-function _applyDiversitySort(papers: PaperSummary[]): PaperSummary[] {
-  const byScore = (a: PaperSummary, b: PaperSummary) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0)
-  const high = papers.filter(p => (p.institution_tier ?? 4) <= 2).sort(byScore)
-  const low  = papers.filter(p => (p.institution_tier ?? 4) >  2).sort(byScore)
-  const result: PaperSummary[] = []
-  let hi = 0, lo = 0
-  while (hi < high.length || lo < low.length) {
-    for (let i = 0; i < 2 && hi < high.length; i++, hi++) result.push(high[hi])
-    if (lo < low.length) result.push(low[lo++])
-  }
-  return result
-}
-
-// Sorted + filtered papers for display (sort mode and topic filter applied client-side)
-const displayPapers = computed<PaperSummary[]>(() => {
-  let list = [...papers.value]
-  if (sortMode.value === 'relevance') {
-    list.sort((a, b) => (b.relevance_score ?? 0) - (a.relevance_score ?? 0))
-  } else if (sortMode.value === 'institution') {
-    list.sort((a, b) => (a.institution_tier ?? 4) - (b.institution_tier ?? 4))
-  } else if (sortMode.value === 'diversity') {
-    list = _applyDiversitySort(list)
-  }
-  if (topicFilter.value) {
-    list = list.filter(p => p.categories?.includes(topicFilter.value))
-  }
-  return list
-})
-
 // List mode pagination derived state
 const listScrollRef = ref<HTMLElement | null>(null)
-const listTotalPages = computed(() =>
-  Math.max(1, Math.ceil(displayPapers.value.length / LIST_PAGE_SIZE))
-)
-const pagedPapers = computed(() => {
-  const start = listPage.value * LIST_PAGE_SIZE
-  return displayPapers.value.slice(start, start + LIST_PAGE_SIZE)
-})
 function listGoPage(page: number) {
   listPage.value = page
   listScrollRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
-// All arXiv categories present in current papers (for filter pills)
-const availableCategories = computed<string[]>(() => {
-  const cats = new Set<string>()
-  papers.value.forEach(p => p.categories?.forEach(c => cats.add(c)))
-  return [...cats].sort()
-})
-
-const currentPaper = computed(() => displayPapers.value[currentIndex.value] ?? null)
-const remaining = computed(() => displayPapers.value.length - currentIndex.value)
-
 // Track paper card views for funnel analytics
 watch(currentPaper, (paper) => {
   if (paper?.paper_id) trackPaperCardView(paper.paper_id)
 })
-const allSwiped = computed(() => displayPapers.value.length > 0 && currentIndex.value >= displayPapers.value.length)
 const isActuallyLimited = computed(() => {
   if (quotaLimit.value === null) return false
   return totalAvailable.value > papers.value.length
 })
 
-// Reset position when sort mode or topic filter changes
-watch([sortMode, topicFilter], () => {
-  currentIndex.value = 0
-  history.value = []
-  cardAnimClass.value = 'card-enter'
-  listPage.value = 0
-})
+watch([sortMode, topicFilter], () => { cardAnimClass.value = 'card-enter' })
 
 // Auto-advance across dates: becomes true only when all available dates are exhausted
 const allDatesExhausted = ref(false)
@@ -705,59 +668,52 @@ function retryLoad() {
 function next(direction: 'left' | 'right') {
   if (!currentPaper.value) return
   cardAnimClass.value = direction === 'left' ? 'card-swipe-left' : 'card-swipe-right'
-  history.value.push(currentIndex.value)
+  rememberCurrentIndex()
   setTimeout(() => {
-    currentIndex.value++
+    moveToNext()
     cardAnimClass.value = 'card-enter'
   }, 300)
 }
 
-function skip() {
-  const paper = currentPaper.value
-  next('left')
-  // 已登录用户：后台静默标记为"不感兴趣"，下次加载时不再展示
-  if (paper && isAuthenticated.value) {
-    dismissPaper(paper.paper_id).catch(() => {})
+const {
+  bookmarkedPaperIds,
+  skip,
+  collect: like,
+  toggleBookmark: bookmark,
+} = usePaperDecisionActions({
+  currentPaper,
+  isAuthenticated,
+  advance: next,
+  redirectToLogin: () => {
+    void router.push({ path: '/login', query: { redirect: route.fullPath } })
+  },
+  // Logged-in dismissals remain a silent background action.
+  dismissPaper: paper => dismissPaper(paper.paper_id),
+  collectPaper: paper => addKbPaper(paper.paper_id, paper, null).then(() => loadKbTree()),
+  onDismiss: (paper) => {
     trackKbAction('dismiss', paper.paper_id)
-  }
-}
-
-function like() {
-  const paper = currentPaper.value
-  if (!paper) return
-  if (!isAuthenticated.value) {
-    router.push({ path: '/login', query: { redirect: route.fullPath } })
-    return
-  }
-  // Animate card immediately for snappy UX
-  next('right')
-  // Fire API in background — don't block the animation
-  // Always pass null folder_id so the backend can trigger auto-classify.
-  // activeFolderId only controls the sidebar focus, not where new saves go.
-  addKbPaper(paper.paper_id, paper, null)
-    .then(() => loadKbTree())
-    .catch(() => {})
-  trackKbAction('save', paper.paper_id)
-  void engagement.record('collect', 'daily-digest-like', paper.paper_id)
-}
+  },
+  onCollect: (paper) => {
+    trackKbAction('save', paper.paper_id)
+    void engagement.record('collect', 'daily-digest-like', paper.paper_id)
+  },
+})
 
 function undo() {
-  if (history.value.length === 0) return
-  const prevIdx = history.value.pop()!
-  currentIndex.value = prevIdx
+  if (!restorePreviousIndex()) return
   cardAnimClass.value = 'card-enter'
 }
 
 // Jump to a specific paper by index (used from list view)
 function jumpToCard(index: number) {
-  currentIndex.value = index
-  digestViewMode.value = 'card'
+  selectDigestPaper(index)
+  setDigestViewMode('card')
   cardAnimClass.value = 'card-enter'
 }
 
 // Open paper detail panel directly from list view (keeps list mode, opens sidebar)
 function openListDetail(paper: PaperSummary, idx: number) {
-  currentIndex.value = idx
+  selectDigestPaper(idx)
   sidebarPaperId.value = paper.paper_id
   collapseSidebarOnMobile()
   globalChat.setBrowsingContext({
@@ -768,27 +724,6 @@ function openListDetail(paper: PaperSummary, idx: number) {
   })
   globalChat.applyBrowsingToPaperContext()
   void engagement.record('view', 'daily-digest-detail', paper.paper_id)
-}
-
-// Bookmark: add/remove from localStorage-backed set, then advance card
-function _saveBookmarks(ids: Set<string>) {
-  try { localStorage.setItem('ai4p-bookmarks', JSON.stringify([...ids])) } catch { /* ignore */ }
-}
-
-function bookmark() {
-  const paper = currentPaper.value
-  if (!paper) return
-  const updated = new Set(bookmarkedPaperIds.value)
-  if (updated.has(paper.paper_id)) {
-    updated.delete(paper.paper_id)
-    bookmarkedPaperIds.value = updated
-    _saveBookmarks(updated)
-  } else {
-    updated.add(paper.paper_id)
-    bookmarkedPaperIds.value = updated
-    _saveBookmarks(updated)
-    next('right')
-  }
 }
 
 // Keyboard shortcut handler for card navigation
@@ -806,7 +741,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (digestViewMode.value === 'list') {
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       e.preventDefault()
-      digestViewMode.value = 'card'
+      setDigestViewMode('card')
     }
     return
   }
@@ -849,7 +784,7 @@ function handleKeydown(e: KeyboardEvent) {
     case 'l':
     case 'L':
       e.preventDefault()
-      digestViewMode.value = 'list'
+      setDigestViewMode('list')
       break
   }
 }
