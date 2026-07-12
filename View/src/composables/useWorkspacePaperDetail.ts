@@ -22,7 +22,10 @@ export function clearWorkspacePaperDetailCache() {
   paperDetailCache.clear()
 }
 
-export function useWorkspacePaperDetail(paper: Readonly<Ref<PaperSummary | null>>) {
+export function useWorkspacePaperDetail(
+  paper: Readonly<Ref<PaperSummary | null>>,
+  detailOverride?: Readonly<Ref<PaperDetailResponse | null | undefined>>,
+) {
   const detail = shallowRef<PaperDetailResponse | null>(null)
   const detailLoading = ref(false)
   const detailError = ref('')
@@ -31,13 +34,18 @@ export function useWorkspacePaperDetail(paper: Readonly<Ref<PaperSummary | null>
   const summary = computed(() => mergeWorkspacePaperSummary(paper.value, detail.value?.summary))
 
   watch(
-    () => paper.value?.paper_id,
-    async (paperId) => {
+    () => [paper.value?.paper_id, detailOverride?.value] as const,
+    async ([paperId, override]) => {
       const version = ++loadVersion
       detail.value = null
       detailError.value = ''
       detailLoading.value = false
       if (!paperId) return
+
+      if (override) {
+        detail.value = override
+        return
+      }
 
       const cached = paperDetailCache.get(paperId)
       if (cached) {

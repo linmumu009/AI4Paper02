@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useWorkspacePaperDetail } from '../../composables/useWorkspacePaperDetail'
 import { isAuthenticated } from '../../stores/auth'
-import type { PaperSummary } from '../../types/paper'
+import type { PaperDetailResponse, PaperSummary } from '../../types/paper'
 import AddToProjectDialog from '../project/AddToProjectDialog.vue'
 import ImmersiveWorkspaceShell from './ImmersiveWorkspaceShell.vue'
 import arrowLeftIcon from '../../assets/heroicons/arrow-left.svg'
@@ -28,13 +28,18 @@ const props = withDefaults(defineProps<{
   canGoNext?: boolean
   returnMode?: 'card' | 'list'
   returnLabel?: string
-  decisionMode?: 'digest' | 'knowledge'
+  decisionMode?: 'digest' | 'knowledge' | 'mypapers'
   sourceScope?: string
   canCompare?: boolean
+  showCollectionAction?: boolean
+  showBookmarkAction?: boolean
+  detailOverride?: PaperDetailResponse | null
 }>(), {
   decisionMode: 'digest',
   sourceScope: 'digest',
   canCompare: true,
+  showCollectionAction: true,
+  showBookmarkAction: true,
 })
 
 const emit = defineEmits<{
@@ -57,7 +62,8 @@ const contextOpen = ref(false)
 const contextTab = ref<'outline' | 'project' | 'related'>('outline')
 const readingProgress = ref(0)
 const paperRef = computed(() => props.paper)
-const { detail, detailLoading, detailError, summary } = useWorkspacePaperDetail(paperRef)
+const detailOverrideRef = computed(() => props.detailOverride)
+const { detail, detailLoading, detailError, summary } = useWorkspacePaperDetail(paperRef, detailOverrideRef)
 
 const title = computed(() => summary.value?.short_title || summary.value?.['📖标题'] || props.paper.paper_id)
 const originalTitle = computed(() => {
@@ -143,6 +149,7 @@ const readingSections = computed(() => [
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
 const resolvedReturnLabel = computed(() => props.returnLabel || (props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式'))
 const isKnowledgeDecision = computed(() => props.decisionMode === 'knowledge')
+const isMyPapersDecision = computed(() => props.decisionMode === 'mypapers')
 
 function openContext(tab: 'outline' | 'project' | 'related' = contextTab.value) {
   contextTab.value = tab
@@ -224,7 +231,7 @@ function scrollToSection(sectionId: string) {
           <div class="immersive-reader__inline-actions">
             <button type="button" @click="emit('openPdf')"><img :src="documentIcon" alt="">查看 PDF</button>
             <button type="button" @click="emit('openDetail')"><img :src="bookOpenIcon" alt="">进入精读</button>
-            <button type="button" :class="{ 'is-active': bookmarked }" @click="emit('toggleBookmark')">
+            <button v-if="showBookmarkAction" type="button" :class="{ 'is-active': bookmarked }" @click="emit('toggleBookmark')">
               <img :src="bookmarkIcon" alt="">{{ bookmarked ? '已标记稍后读' : '稍后读' }}
             </button>
           </div>
@@ -399,16 +406,16 @@ function scrollToSection(sectionId: string) {
     </template>
 
     <template #dock>
-      <div class="immersive-reader__dock">
-        <button type="button" @click="emit('skip')">
+      <div class="immersive-reader__dock" :class="{ 'immersive-reader__dock--three': !showCollectionAction }">
+        <button type="button" :disabled="isMyPapersDecision && !canGoNext" @click="emit('skip')">
           <span class="immersive-reader__dock-icon"><img :src="isKnowledgeDecision ? checkIcon : xMarkIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : '不感兴趣' }}</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : isMyPapersDecision ? '下一篇' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : isMyPapersDecision ? '继续浏览论文' : '不感兴趣' }}</small></span>
         </button>
         <button type="button" :disabled="canCompare === false" @click="emit('compare')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
           <span class="immersive-reader__dock-copy"><strong>对比</strong><small>与相关文章比较</small></span>
         </button>
-        <button type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
+        <button v-if="showCollectionAction" type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
           <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '移出知识库' : collected ? '已收藏' : '收藏' }}</strong><small>{{ isKnowledgeDecision ? '保留笔记' : '加入知识库' }}</small></span>
         </button>
@@ -982,6 +989,10 @@ function scrollToSection(sectionId: string) {
   gap: 12px;
 }
 
+.immersive-reader__dock--three {
+  grid-template-columns: repeat(2, minmax(112px, 1fr)) minmax(160px, 1.35fr);
+}
+
 .immersive-reader__dock button {
   display: flex;
   min-height: 64px;
@@ -1120,6 +1131,10 @@ function scrollToSection(sectionId: string) {
   .immersive-reader__dock {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
+  }
+
+  .immersive-reader__dock--three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .immersive-reader__dock button {

@@ -41,6 +41,7 @@ import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
 import PaperInspector from '../components/workspace/PaperInspector.vue'
 import ImmersivePaperReader from '../components/workspace/ImmersivePaperReader.vue'
 import KnowledgeWorkspace from '../components/workspace/KnowledgeWorkspace.vue'
+import UserPaperImmersiveReader from '../components/workspace/UserPaperImmersiveReader.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -1098,6 +1099,9 @@ const myPapersViewMode = ref<'card' | 'compact'>('card')
 const myPapersTotal = ref(0)
 const myPapersPageSize = 20
 const myPapersHasMore = ref(false)
+const myPapersImmersiveId = ref<string | null>(null)
+const myPapersListRef = ref<HTMLElement | null>(null)
+const myPapersListScrollTop = ref(0)
 let _myPapersSearchDebounce: ReturnType<typeof setTimeout> | null = null
 
 async function loadMyPapersInstitutions() {
@@ -1121,6 +1125,82 @@ const myPapersCenterSorted = computed(() => {
   }
   return list // date_desc — default from backend
 })
+
+const myPapersReadable = computed(() => myPapersCenterSorted.value.filter(
+  paper => paper.process_status === 'completed' && !!paper.summary,
+))
+const myPapersImmersiveIndex = computed(() => myPapersReadable.value.findIndex(
+  paper => paper.paper_id === myPapersImmersiveId.value,
+))
+const myPapersImmersivePaper = computed(() => myPapersReadable.value[myPapersImmersiveIndex.value] ?? null)
+const myPapersImmersiveRelated = computed(() => {
+  const active = myPapersImmersivePaper.value?.summary
+  if (!active) return []
+  const categories = new Set(active.categories ?? [])
+  const overlap = (paper: UserPaper) => (paper.summary?.categories ?? []).filter(category => categories.has(category)).length
+  return myPapersReadable.value
+    .filter(paper => paper.paper_id !== myPapersImmersiveId.value)
+    .sort((a, b) => overlap(b) - overlap(a) || (b.summary?.relevance_score ?? 0) - (a.summary?.relevance_score ?? 0))
+    .slice(0, 4)
+})
+
+function openMyPapersImmersive(paper: UserPaper) {
+  if (paper.process_status !== 'completed' || !paper.summary) {
+    void openUserPaper(paper.paper_id)
+    return
+  }
+  myPapersListScrollTop.value = myPapersListRef.value?.scrollTop ?? 0
+  myPapersImmersiveId.value = paper.paper_id
+  globalChat.setBrowsingContext({
+    paperId: paper.paper_id,
+    title: paper.summary.short_title || paper.title || paper.paper_id,
+    summary: paper.summary,
+    source: 'user-paper',
+  })
+  globalChat.applyBrowsingToPaperContext()
+}
+
+function closeMyPapersImmersive() {
+  myPapersImmersiveId.value = null
+  globalChat.clearBrowsingContext()
+  void nextTick(() => {
+    if (myPapersListRef.value) myPapersListRef.value.scrollTop = myPapersListScrollTop.value
+  })
+}
+
+function navigateMyPapersImmersive(delta: -1 | 1) {
+  if (!myPapersReadable.value.length) return
+  const index = Math.max(0, Math.min(myPapersImmersiveIndex.value + delta, myPapersReadable.value.length - 1))
+  const nextPaper = myPapersReadable.value[index]
+  if (nextPaper) myPapersImmersiveId.value = nextPaper.paper_id
+}
+
+function selectMyPapersImmersiveRelated(paperId: string) {
+  if (myPapersReadable.value.some(paper => paper.paper_id === paperId)) myPapersImmersiveId.value = paperId
+}
+
+function openMyPapersImmersiveDetail(paperId: string) {
+  myPapersImmersiveId.value = null
+  void openUserPaper(paperId)
+}
+
+function openMyPapersImmersivePdf(paper: UserPaper) {
+  myPapersImmersiveId.value = null
+  if (paper.pdf_static_url) {
+    openUserPaperViewMd({
+      paperId: paper.paper_id,
+      title: paper.title || paper.summary?.short_title || paper.paper_id,
+      pdfUrl: paper.pdf_static_url,
+      mdUrl: null,
+      viewMode: 'pdf',
+      scope: 'mypapers',
+    })
+    return
+  }
+  const externalPdf = paper.arxiv_pdf_url || (paper.source_type === 'arxiv' ? paper.external_url : '')
+  if (externalPdf) openExternal(externalPdf)
+  else void openUserPaper(paper.paper_id)
+}
 
 async function loadMyPapersCenter(opts?: { append?: boolean }) {
   myPapersCenterLoading.value = true
@@ -1164,11 +1244,18 @@ function loadMoreMyPapers() {
 
 // debounced reload when search / filter changes
 watch([myPapersSearch, myPapersSourceFilter, myPapersInstitutionFilter], () => {
+  myPapersImmersiveId.value = null
   if (_myPapersSearchDebounce) clearTimeout(_myPapersSearchDebounce)
   _myPapersSearchDebounce = setTimeout(() => {
     myPapersCenter.value = []
     loadMyPapersCenter()
   }, 300)
+})
+
+watch(myPapersReadable, (papers) => {
+  if (myPapersImmersiveId.value && !papers.some(paper => paper.paper_id === myPapersImmersiveId.value)) {
+    myPapersImmersiveId.value = null
+  }
 })
 
 function _startMyPapersCenterPoll() {
@@ -1210,6 +1297,7 @@ async function openKnowledgeWorkspace() {
 }
 
 function handleTabChanged(tab: string) {
+  myPapersImmersiveId.value = null
   if (tab === 'papers') {
     void openKnowledgeWorkspace()
     return
@@ -1257,6 +1345,10 @@ function handleTabChanged(tab: string) {
     globalChat.clearBrowsingContext()
   }
 }
+
+watch(myPapersMode, (active) => {
+  if (!active) myPapersImmersiveId.value = null
+})
 
 async function openUserPaper(paperId: string) {
   editingNote.value = null
@@ -2514,9 +2606,29 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         @note-saved="handleChatNoteSaved"
       />
 
+      <UserPaperImmersiveReader
+        v-else-if="myPapersMode && myPapersImmersivePaper"
+        class="flex-1 min-h-0"
+        :paper="myPapersImmersivePaper"
+        :related-papers="myPapersImmersiveRelated"
+        :position="myPapersImmersiveIndex + 1"
+        :total="myPapersReadable.length"
+        :can-go-previous="myPapersImmersiveIndex > 0"
+        :can-go-next="myPapersImmersiveIndex < myPapersReadable.length - 1"
+        @exit="closeMyPapersImmersive"
+        @previous="navigateMyPapersImmersive(-1)"
+        @next="navigateMyPapersImmersive(1)"
+        @open-pdf="openMyPapersImmersivePdf"
+        @open-detail="openMyPapersImmersiveDetail"
+        @compare="ids => handleCompare(ids, 'mypapers')"
+        @research="(ids, titles) => handleResearch(ids, titles, 'mypapers')"
+        @select-related="selectMyPapersImmersiveRelated"
+      />
+
       <!-- 「我的论文」Tab 激活：展示用户论文列表（未选中具体论文时） -->
       <div
         v-else-if="myPapersMode && !viewingUserPaperId"
+        ref="myPapersListRef"
         class="flex-1 overflow-y-auto px-2 sm:px-4 py-4"
       >
         <!-- Initial loading (no data yet) -->
@@ -2746,7 +2858,15 @@ onBeforeRouteLeave(async (_to, _from, next) => {
               <!-- Footer -->
               <div class="mt-3 pt-3 border-t border-border/60 flex items-center justify-between">
                 <span class="text-[10px] text-text-muted">{{ new Date(paper.created_at).toLocaleDateString('zh-CN') }}</span>
-                <span class="text-xs text-amber-500 hover:text-amber-400 font-medium">查看详情 →</span>
+                <div class="flex items-center gap-3">
+                  <button
+                    v-if="paper.process_status === 'completed' && paper.summary"
+                    type="button"
+                    class="text-xs text-tinder-blue hover:text-tinder-pink font-medium bg-transparent border-none cursor-pointer"
+                    @click.stop="openMyPapersImmersive(paper)"
+                  >沉浸阅读</button>
+                  <span class="text-xs text-amber-500 hover:text-amber-400 font-medium">查看详情 →</span>
+                </div>
               </div>
             </div>
           </div>
@@ -2787,6 +2907,13 @@ onBeforeRouteLeave(async (_to, _from, next) => {
               <span class="shrink-0 text-[10px] text-text-muted hidden sm:block">
                 {{ new Date(paper.created_at).toLocaleDateString('zh-CN') }}
               </span>
+
+              <button
+                v-if="paper.process_status === 'completed' && paper.summary"
+                type="button"
+                class="shrink-0 text-[10px] px-2 py-1 rounded-md border border-tinder-blue/25 bg-tinder-blue/5 text-tinder-blue hover:text-tinder-pink hover:border-tinder-pink/30 cursor-pointer"
+                @click.stop="openMyPapersImmersive(paper)"
+              >沉浸</button>
 
               <!-- Arrow -->
               <svg class="shrink-0 w-3.5 h-3.5 text-text-muted/50" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
