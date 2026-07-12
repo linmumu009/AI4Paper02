@@ -115,4 +115,29 @@ describe('ImmersivePaperReader', () => {
     expect(buttons.filter(button => button.text().includes('与相关文章比较'))).toHaveLength(1)
     expect(buttons.filter(button => button.text().includes('深入追踪这条线索'))).toHaveLength(1)
   })
+
+  it('keeps research context available as a drawer with focused tabs', async () => {
+    const wrapper = mount(ImmersivePaperReader, {
+      props: {
+        paper,
+        relatedPapers: [related],
+        position: 1,
+        total: 2,
+      },
+    })
+
+    const context = wrapper.find('.immersive-workspace-shell__context')
+    expect(context.attributes('data-open')).toBe('false')
+    expect(wrapper.text()).toContain('长时程记忆增强智能体')
+
+    await wrapper.find('button[aria-label="打开研究上下文"]').trigger('click')
+    expect(context.attributes('data-open')).toBe('true')
+
+    const tabs = wrapper.findAll('[role="tab"]')
+    await tabs.find(tab => tab.text().includes('课题'))?.trigger('click')
+    expect(wrapper.text()).toContain('登录后可以保存论文、建立课题并持续追踪研究脉络')
+
+    await wrapper.find('.immersive-workspace-shell__context-close').trigger('click')
+    expect(context.attributes('data-open')).toBe('false')
+  })
 })

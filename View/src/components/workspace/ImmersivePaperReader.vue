@@ -4,6 +4,7 @@ import { useWorkspacePaperDetail } from '../../composables/useWorkspacePaperDeta
 import { isAuthenticated } from '../../stores/auth'
 import type { PaperSummary } from '../../types/paper'
 import AddToProjectDialog from '../project/AddToProjectDialog.vue'
+import ImmersiveWorkspaceShell from './ImmersiveWorkspaceShell.vue'
 import arrowLeftIcon from '../../assets/heroicons/arrow-left.svg'
 import arrowRightIcon from '../../assets/heroicons/arrow-right.svg'
 import beakerIcon from '../../assets/heroicons/beaker.svg'
@@ -12,6 +13,7 @@ import bookmarkIcon from '../../assets/heroicons/bookmark.svg'
 import documentIcon from '../../assets/heroicons/document-text.svg'
 import heartIcon from '../../assets/heroicons/heart.svg'
 import scaleIcon from '../../assets/heroicons/scale.svg'
+import squaresIcon from '../../assets/heroicons/squares-2x2.svg'
 import xMarkIcon from '../../assets/heroicons/x-mark.svg'
 const props = defineProps<{
   paper: PaperSummary
@@ -42,6 +44,8 @@ const emit = defineEmits<{
 }>()
 
 const showProjectDialog = ref(false)
+const contextOpen = ref(false)
+const contextTab = ref<'project' | 'related'>('related')
 const paperRef = computed(() => props.paper)
 const { detail, detailLoading, detailError, summary } = useWorkspacePaperDetail(paperRef)
 
@@ -87,19 +91,45 @@ const evidenceCards = computed(() => {
 
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
 const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式')
+
+function openContext(tab: 'project' | 'related' = contextTab.value) {
+  contextTab.value = tab
+  contextOpen.value = true
+}
+
+function selectRelatedPaper(paperId: string) {
+  emit('selectRelated', paperId)
+  contextOpen.value = false
+}
 </script>
 
 <template>
-  <section class="immersive-reader" aria-label="沉浸论文阅读">
-    <nav class="immersive-reader__rail" aria-label="沉浸阅读快捷入口">
+  <ImmersiveWorkspaceShell
+    class="immersive-reader"
+    :context-open="contextOpen"
+    context-label="论文研究上下文"
+    aria-label="沉浸论文阅读"
+    @close-context="contextOpen = false"
+  >
+    <template #rail>
       <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" :aria-label="returnLabel" :title="returnLabel" @click="emit('exit')">
         <img :src="bookOpenIcon" alt="">
         <span class="immersive-reader__rail-label">返回</span>
       </button>
-    </nav>
+      <button
+        type="button"
+        class="immersive-reader__rail-button immersive-reader__context-trigger"
+        aria-label="打开研究上下文"
+        title="研究上下文"
+        :aria-expanded="contextOpen"
+        @click="openContext()"
+      >
+        <img :src="squaresIcon" alt="">
+        <span class="immersive-reader__rail-label">上下文</span>
+      </button>
+    </template>
 
-    <main class="immersive-reader__document">
-      <div class="immersive-reader__document-inner">
+    <div class="immersive-reader__document-inner">
         <div class="immersive-reader__document-topline">
           <p>推荐论文 · {{ paper.categories?.[0] || '今日精选' }}</p>
           <div class="immersive-reader__pager" aria-label="论文导航">
@@ -171,99 +201,98 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
 
         <p v-if="detailLoading" class="immersive-reader__status">正在补充结构化证据…</p>
         <p v-else-if="detailError" class="immersive-reader__status">{{ detailError }}</p>
+    </div>
+
+    <template #context>
+      <div class="immersive-reader__context">
+        <div class="immersive-reader__context-tabs" role="tablist" aria-label="研究上下文分类">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="contextTab === 'project'"
+            :class="{ 'is-active': contextTab === 'project' }"
+            @click="contextTab = 'project'"
+          >课题</button>
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="contextTab === 'related'"
+            :class="{ 'is-active': contextTab === 'related' }"
+            @click="contextTab = 'related'"
+          >相关论文 <span>{{ relatedPapers.length }}</span></button>
+        </div>
+
+        <section v-if="contextTab === 'project'" role="tabpanel">
+          <div class="immersive-reader__context-heading">
+            <h2>研究课题</h2>
+            <span>{{ isAuthenticated ? '当前论文' : '登录后启用' }}</span>
+          </div>
+          <template v-if="isAuthenticated">
+            <p class="immersive-reader__context-title">把这篇论文加入正在推进的研究课题</p>
+            <button type="button" class="immersive-reader__context-primary" @click="showProjectDialog = true">加入课题</button>
+          </template>
+          <template v-else>
+            <p class="immersive-reader__context-copy">登录后可以保存论文、建立课题并持续追踪研究脉络。</p>
+            <button type="button" class="immersive-reader__context-primary" @click="emit('login')">登录并使用</button>
+          </template>
+        </section>
+
+        <section v-else role="tabpanel">
+          <div class="immersive-reader__context-heading">
+            <h2>相关论文</h2>
+            <span>{{ relatedPapers.length }} 篇</span>
+          </div>
+          <button
+            v-for="related in relatedPapers"
+            :key="related.paper_id"
+            type="button"
+            class="immersive-reader__related-paper"
+            @click="selectRelatedPaper(related.paper_id)"
+          >
+            <strong>{{ relatedTitle(related) }}</strong>
+            <span>{{ related.authors?.slice(0, 2).join(', ') || related.institution || related.paper_id }}</span>
+            <small>{{ related.categories?.slice(0, 2).join(' · ') || '相关研究' }}</small>
+          </button>
+          <p v-if="relatedPapers.length === 0" class="immersive-reader__context-copy">当前筛选结果中暂无相关论文。</p>
+        </section>
       </div>
-    </main>
+    </template>
 
-    <aside class="immersive-reader__context" aria-label="论文研究上下文">
-      <section>
-        <div class="immersive-reader__context-heading">
-          <h2>研究课题</h2>
-          <span>{{ isAuthenticated ? '当前论文' : '登录后启用' }}</span>
-        </div>
-        <template v-if="isAuthenticated">
-          <p class="immersive-reader__context-title">把这篇论文加入正在推进的研究课题</p>
-          <button type="button" class="immersive-reader__context-primary" @click="showProjectDialog = true">加入课题</button>
-        </template>
-        <template v-else>
-          <p class="immersive-reader__context-copy">登录后可以保存论文、建立课题并持续追踪研究脉络。</p>
-          <button type="button" class="immersive-reader__context-primary" @click="emit('login')">登录并使用</button>
-        </template>
-      </section>
-
-      <section>
-        <div class="immersive-reader__context-heading">
-          <h2>相关论文</h2>
-          <span>{{ relatedPapers.length }} 篇</span>
-        </div>
-        <button
-          v-for="related in relatedPapers"
-          :key="related.paper_id"
-          type="button"
-          class="immersive-reader__related-paper"
-          @click="emit('selectRelated', related.paper_id)"
-        >
-          <strong>{{ relatedTitle(related) }}</strong>
-          <span>{{ related.authors?.slice(0, 2).join(', ') || related.institution || related.paper_id }}</span>
-          <small>{{ related.categories?.slice(0, 2).join(' · ') || '相关研究' }}</small>
+    <template #dock>
+      <div class="immersive-reader__dock">
+        <button type="button" @click="emit('skip')">
+          <span class="immersive-reader__dock-icon"><img :src="xMarkIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>跳过</strong><small>不感兴趣</small></span>
         </button>
-        <p v-if="relatedPapers.length === 0" class="immersive-reader__context-copy">当前筛选结果中暂无相关论文。</p>
-      </section>
-    </aside>
+        <button type="button" @click="emit('compare')">
+          <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>对比</strong><small>与相关文章比较</small></span>
+        </button>
+        <button type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
+          <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ collected ? '已收藏' : '收藏' }}</strong><small>加入知识库</small></span>
+        </button>
+        <button type="button" class="immersive-reader__dock-primary" @click="emit('startResearch')">
+          <span class="immersive-reader__dock-icon"><img :src="beakerIcon" alt=""></span>
+          <span class="immersive-reader__dock-copy"><strong>深度研究</strong><small>深入追踪这条线索</small></span>
+        </button>
+      </div>
+    </template>
+  </ImmersiveWorkspaceShell>
 
-    <footer class="immersive-reader__dock" aria-label="论文决策操作">
-      <button type="button" @click="emit('skip')">
-        <span class="immersive-reader__dock-icon"><img :src="xMarkIcon" alt=""></span>
-        <span class="immersive-reader__dock-copy"><strong>跳过</strong><small>不感兴趣</small></span>
-      </button>
-      <button type="button" @click="emit('compare')">
-        <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
-        <span class="immersive-reader__dock-copy"><strong>对比</strong><small>与相关文章比较</small></span>
-      </button>
-      <button type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
-        <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
-        <span class="immersive-reader__dock-copy"><strong>{{ collected ? '已收藏' : '收藏' }}</strong><small>加入知识库</small></span>
-      </button>
-      <button type="button" class="immersive-reader__dock-primary" @click="emit('startResearch')">
-        <span class="immersive-reader__dock-icon"><img :src="beakerIcon" alt=""></span>
-        <span class="immersive-reader__dock-copy"><strong>深度研究</strong><small>深入追踪这条线索</small></span>
-      </button>
-    </footer>
-
-    <AddToProjectDialog
-      v-if="showProjectDialog"
-      asset-type="paper"
-      :asset-id="paper.paper_id"
-      source-scope="digest"
-      :asset-title="title"
-      @close="showProjectDialog = false"
-    />
-  </section>
+  <AddToProjectDialog
+    v-if="showProjectDialog"
+    asset-type="paper"
+    :asset-id="paper.paper_id"
+    source-scope="digest"
+    :asset-title="title"
+    @close="showProjectDialog = false"
+  />
 </template>
 
 <style scoped>
 .immersive-reader {
-  position: relative;
-  display: grid;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  grid-template-columns: 68px minmax(0, 1fr) 336px;
-  padding-bottom: 88px;
-  overflow: hidden;
-  background: var(--color-bg);
   color: var(--color-text-primary);
-}
-
-.immersive-reader__rail {
-  display: flex;
-  min-height: 0;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  padding: 16px 7px;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-bg-card);
 }
 
 .immersive-reader__rail-button {
@@ -292,24 +321,16 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
   font-weight: 700;
 }
 
+.immersive-reader__context-trigger {
+  display: none;
+}
+
 .immersive-reader__rail-button:hover,
 .immersive-reader__rail-button:focus-visible,
 .immersive-reader__rail-button--active {
   border-color: color-mix(in srgb, var(--color-tinder-pink) 22%, transparent);
   background: color-mix(in srgb, var(--color-tinder-pink) 8%, transparent);
   color: var(--color-tinder-pink);
-}
-
-.immersive-reader__document,
-.immersive-reader__context {
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.immersive-reader__document {
-  background: var(--color-bg-card);
 }
 
 .immersive-reader__document-inner {
@@ -556,14 +577,48 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
   font-size: 10px;
 }
 
-.immersive-reader__context {
-  border-left: 1px solid var(--color-border);
-  background: var(--color-bg-card);
-}
-
 .immersive-reader__context section {
   padding: 20px 18px;
   border-bottom: 1px solid var(--color-border);
+}
+
+.immersive-reader__context-tabs {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-card) 96%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.immersive-reader__context-tabs button {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.immersive-reader__context-tabs button span {
+  margin-left: 3px;
+  color: var(--color-tinder-blue);
+}
+
+.immersive-reader__context-tabs button:hover,
+.immersive-reader__context-tabs button:focus-visible,
+.immersive-reader__context-tabs button.is-active {
+  border-color: color-mix(in srgb, var(--color-tinder-pink) 24%, var(--color-border));
+  background: color-mix(in srgb, var(--color-tinder-pink) 8%, transparent);
+  color: var(--color-tinder-pink);
 }
 
 .immersive-reader__context-heading span {
@@ -630,18 +685,10 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
 }
 
 .immersive-reader__dock {
-  position: absolute;
-  z-index: 5;
-  right: 100px;
-  bottom: 0;
-  left: 100px;
   display: grid;
+  width: 100%;
   grid-template-columns: repeat(3, minmax(112px, 1fr)) minmax(160px, 1.35fr);
   gap: 12px;
-  padding: 10px 72px;
-  border-top: 1px solid var(--color-border);
-  background: color-mix(in srgb, var(--color-bg-card) 95%, transparent);
-  box-shadow: 0 -8px 22px color-mix(in srgb, #000 7%, transparent);
 }
 
 .immersive-reader__dock button {
@@ -726,43 +773,23 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
 }
 
 
-:global(.dark) .immersive-reader__rail img,
+:global(.dark) .immersive-reader__rail-button img,
 :global(.dark) .immersive-reader__pager img,
 :global(.dark) .immersive-reader__inline-actions img,
 :global(.dark) .immersive-reader__dock img {
   filter: invert(1);
 }
 @media (max-width: 1279px) {
-  .immersive-reader {
-    grid-template-columns: 58px minmax(0, 1fr);
+  .immersive-reader__context-trigger {
+    display: flex;
   }
 
-  .immersive-reader__context {
-    display: none;
-  }
-
-  .immersive-reader__dock {
-    right: 24px;
-    left: 82px;
-    padding-inline: 34px;
+  .immersive-reader__context-tabs {
+    padding-right: 52px;
   }
 }
 
 @media (max-width: 767px) {
-  .immersive-reader {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 48px minmax(0, 1fr);
-    padding-bottom: 72px;
-  }
-
-  .immersive-reader__rail {
-    flex-direction: row;
-    gap: 4px;
-    padding: 5px 8px;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-border);
-  }
-
   .immersive-reader__rail-button {
     min-height: 36px;
     flex: 1 1 0;
@@ -798,11 +825,8 @@ const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片�
   }
 
   .immersive-reader__dock {
-    right: 0;
-    left: 0;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
-    padding: 7px;
   }
 
   .immersive-reader__dock button {

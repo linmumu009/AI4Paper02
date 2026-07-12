@@ -203,3 +203,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\task-center.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\task-center.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\composables\useResearchOutcome.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\idea.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\ImmersiveWorkspaceShell.vue
