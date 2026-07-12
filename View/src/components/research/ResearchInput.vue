@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
+import closeIcon from '../../assets/heroicons/x-mark.svg'
+import plusIcon from '../../assets/heroicons/plus.svg'
+import settingsIcon from '../../assets/heroicons/squares-2x2.svg'
 
 const props = withDefaults(defineProps<{
   modelValue: string
@@ -84,9 +87,7 @@ watch(showSettings, (v) => {
             :title="`移除「${titleFor(pid)}」`"
             @click.stop="emit('removePaper', pid)"
           >
-            <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-              <path d="M18 6 6 18M6 6l12 12"/>
-            </svg>
+            <img :src="closeIcon" alt="" class="w-[9px] h-[9px]">
           </button>
         </span>
       </div>
@@ -116,11 +117,7 @@ watch(showSettings, (v) => {
           title="研究设置"
           @click.stop="showSettings = !showSettings"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-            <circle cx="12" cy="12" r="3"/>
-          </svg>
+          <img :src="settingsIcon" alt="" class="w-[15px] h-[15px]">
         </button>
 
         <Transition name="popover">
@@ -197,10 +194,7 @@ watch(showSettings, (v) => {
           class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl border border-dashed border-border/60 text-text-muted/60 hover:text-text-muted hover:border-border hover:bg-bg-elevated/40 transition-all text-xs cursor-pointer"
           @click="emit('pickPapers')"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <line x1="12" x2="12" y1="5" y2="19"/><line x1="5" x2="19" y1="12" y2="12"/>
-          </svg>
+          <img :src="plusIcon" alt="" class="w-[13px] h-[13px]">
           从知识库选择论文
         </button>
 
@@ -225,9 +219,7 @@ watch(showSettings, (v) => {
                 :title="`移除「${titleFor(pid)}」`"
                 @click.stop="emit('removePaper', pid)"
               >
-                <svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                  <path d="M18 6 6 18M6 6l12 12"/>
-                </svg>
+                <img :src="closeIcon" alt="" class="w-[9px] h-[9px]">
               </button>
             </span>
           </div>
@@ -252,11 +244,7 @@ watch(showSettings, (v) => {
             title="研究设置"
             @click.stop="showSettings = !showSettings"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
-              <circle cx="12" cy="12" r="3"/>
-            </svg>
+            <img :src="settingsIcon" alt="" class="w-[13px] h-[13px]">
             Top {{ topN }}
           </button>
 
@@ -324,4 +312,5 @@ watch(showSettings, (v) => {
   opacity: 0;
   transform: translateY(4px);
 }
+:global(.dark) img { filter: invert(1); }
 </style>

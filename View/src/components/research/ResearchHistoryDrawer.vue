@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import type { ResearchSession } from '../../types/paper'
+import archiveIcon from '../../assets/heroicons/archive-box.svg'
+import closeIcon from '../../assets/heroicons/x-mark.svg'
 
 const props = defineProps<{
   open: boolean
@@ -46,9 +48,11 @@ async function handleDelete(e: MouseEvent, id: number) {
 <template>
   <!-- Backdrop -->
   <Transition name="backdrop-fade">
-    <div
+    <button
       v-if="open"
-      class="absolute inset-0 bg-bg/60 backdrop-blur-sm z-30"
+      type="button"
+      aria-label="关闭研究历史遮罩"
+      class="absolute inset-0 border-0 bg-bg/60 backdrop-blur-sm z-30"
       @click="emit('close')"
     />
   </Transition>
@@ -62,12 +66,7 @@ async function handleDelete(e: MouseEvent, id: number) {
       <!-- Drawer header -->
       <div class="flex items-center justify-between px-4 py-3.5 border-b border-border shrink-0">
         <div class="flex items-center gap-2">
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            class="text-text-muted">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
-          </svg>
+          <img :src="archiveIcon" alt="" class="history-icon w-[15px] h-[15px]">
           <span class="text-sm font-semibold text-text-primary">研究历史</span>
         </div>
         <div class="flex items-center gap-1">
@@ -76,13 +75,12 @@ async function handleDelete(e: MouseEvent, id: number) {
             @click="emit('refresh')"
           >刷新</button>
           <button
+            type="button"
+            aria-label="关闭研究历史"
             class="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-bg-elevated transition-colors"
             @click="emit('close')"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M18 6 6 18"/><path d="m6 6 12 12"/>
-            </svg>
+            <img :src="closeIcon" alt="" class="history-icon w-[15px] h-[15px]">
           </button>
         </div>
       </div>
@@ -90,20 +88,12 @@ async function handleDelete(e: MouseEvent, id: number) {
       <!-- Session list -->
       <div class="flex-1 overflow-y-auto">
         <div v-if="loading" class="flex items-center justify-center gap-2 py-12 text-sm text-text-muted">
-          <svg class="animate-spin" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-            fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-          </svg>
+          <img :src="archiveIcon" alt="" class="history-icon animate-spin w-4 h-4">
           加载中…
         </div>
 
         <div v-else-if="sessions.length === 0" class="flex flex-col items-center justify-center py-12 text-text-muted">
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
-            class="mb-3 opacity-30">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
-          </svg>
+          <img :src="archiveIcon" alt="" class="history-icon w-7 h-7 mb-3 opacity-30">
           <p class="text-sm">暂无历史记录</p>
         </div>
 
@@ -137,7 +127,7 @@ async function handleDelete(e: MouseEvent, id: number) {
                 <span class="text-[10px] text-text-muted">{{ s.paper_ids?.length ?? 0 }} 篇</span>
               </div>
               <div v-if="viewedSessionId === s.id" class="mt-1">
-                <span class="text-[10px] text-accent-primary font-medium">▶ 当前查看</span>
+                <span class="text-[10px] text-accent-primary font-medium">当前查看</span>
               </div>
             </div>
 
@@ -147,11 +137,7 @@ async function handleDelete(e: MouseEvent, id: number) {
               title="删除此记录"
               @click="handleDelete($event, s.id)"
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/>
-                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/>
-              </svg>
+              <img :src="closeIcon" alt="" class="history-icon w-[13px] h-[13px]">
             </button>
           </div>
         </div>
@@ -170,4 +156,5 @@ async function handleDelete(e: MouseEvent, id: number) {
 .drawer-slide-leave-active { transition: transform 0.25s ease; }
 .drawer-slide-enter-from,
 .drawer-slide-leave-to { transform: translateX(100%); }
+:global(.dark) .history-icon { filter: invert(1); }
 </style>

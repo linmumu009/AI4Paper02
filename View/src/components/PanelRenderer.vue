@@ -10,7 +10,7 @@ import CompareResultViewer from './CompareResultViewer.vue'
 import IdeaDetailPanel from './idea/IdeaDetailPanel.vue'
 import PaperChat from './PaperChat.vue'
 import PdfPanel from './panels/PdfPanel.vue'
-import ResearchPanel from './ResearchPanel.vue'
+import ResearchWorkspace from './research/ResearchWorkspace.vue'
 import { PANEL_IDS } from '../composables/usePanelLayout'
 import type { ContentLayoutContext } from './ContentLayout.vue'
 
@@ -153,7 +153,7 @@ defineExpose({
     :paper-summary="context.paperDetail?.summary ?? context.paperSummary"
     @note-saved="emit('noteSaved')"
   />
-  <ResearchPanel
+  <ResearchWorkspace
     v-else-if="panelId === PANEL_IDS.RESEARCH && context.researchPaperIds"
     :paper-ids="context.researchPaperIds"
     :paper-titles="context.researchPaperTitles"

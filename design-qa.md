@@ -275,4 +275,74 @@ No actionable P0, P1, or P2 differences remain.
 - Phase 8: migrate the deep-research workspace into the same research-shell language.
 - Final phase: run cross-page regression, finalize the changed-file manifest, then synchronize/deploy only when production upload is explicitly requested.
 
+phase 7 result: passed
+
+# Phase 8 — Deep research workspace
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-f9e74772-821e-4c9d-8d2e-9d86e8bc4535.png`
+- Isolated implementation route: `http://127.0.0.1:4174/test-results/research-workspace-preview.html`
+- Browser-rendered desktop screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\research-workspace-desktop-final.png`
+- Browser-rendered mobile screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\research-workspace-mobile-final.png`
+- Full-view comparison evidence: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\research-workspace-qa-board.png`
+- Viewports: 1440 × 900, 1024 × 768, and 390 × 844.
+- State: light-theme project-owned research preparation state with four realistic source papers and a prefilled research question. The source is the approved shared research-workspace language rather than a deep-research-specific mock, so content/state differences are intentional.
+
+## Phase 8 findings
+
+No actionable P0, P1, or P2 issues remain after the final iteration.
+
+- Information architecture: deep research now uses a three-track workspace: the current research corpus on the left, the existing real R1–R3 stream/input/history experience in the center, and a concise execution plan plus output contract on the right. No research API, session, follow-up, download, or save behavior was replaced.
+- Fonts and typography: the implementation keeps the approved Inter/PingFang/Microsoft YaHei stack, 8–10 px rail metadata, 13–15 px rail headings, a 28 px central task title, and a 13–14 px question/input hierarchy. Long source titles clamp without obscuring identifiers.
+- Spacing and layout rhythm: desktop uses 230/auto/250 px tracks with thin dividers, 6–14 px gaps, restrained 8–16 px radii, and a deliberately quiet preparation canvas. At 1199 px the plan rail is removed; at 767 px the corpus becomes a compact two-column strip above the main research flow.
+- Colors and tokens: the workspace uses existing background, border, text, accent, status, and disabled tokens. Pink is reserved for research progress and the primary action; light blue is limited to process guidance. No parallel palette or gradient was introduced.
+- Image quality and asset fidelity: the screen contains no raster imagery. All visible corpus, plan, settings, history, close, remove, suggestion, loading, and error icons on the primary path now use the project's official Tailwind Labs Heroicons assets. The old inline SVG and text-glyph substitutes were removed from the migrated path.
+- Copy and content: the corpus scope, project ownership, R1–R3 descriptions, final deliverable, progressive-reading rule, suggested questions, and Top N control describe actual behavior. The initial question from a project is preserved without auto-submission or unexpected quota use.
+- Responsiveness: `scrollWidth` equals `innerWidth` at 1440, 1024, and 390 px. At 390 × 844 the four sources, history, question, paper chips, Top N, primary action, and suggestions remain reachable without a broken toolbar or horizontal page overflow.
+- Accessibility: the workspace, corpus, and plan are labelled regions. History drawer backdrop and close controls have distinct accessible names. Source-removal buttons have paper-specific labels, and all primary controls remain semantic and keyboard reachable.
+- Focused-region comparison: a separate crop was not required because the source defines the shared shell and density rather than deep-research-specific controls. The full-resolution desktop and mobile captures were inspected for corpus cards, input toolbar, history control, plan rail, and suggested-question spacing; the side-by-side board establishes overall visual-language fidelity.
+
+## Phase 8 comparison history
+
+- Iteration 1 finding (P2, behavior/content): with four available papers, the visible settings button said `Top 5` while the range input was silently constrained to 4. Fix: make the paper-count watcher immediate, so the displayed Top N and slider value both initialize to 4. Post-fix browser evidence shows `Top 4`; a dedicated component regression test covers first render.
+- Iteration 1 finding (P2, accessibility/icons): the history drawer close button had no accessible name, and the migrated preparation path still displayed older inline SVG controls. Fix: add separately named backdrop and close buttons, replace the visible history/settings/remove/suggestion/status icons with existing official Heroicons, and remove the `▶` text glyph. Post-fix DOM evidence exposes `关闭研究历史遮罩` and `关闭研究历史` as unique controls.
+- Final responsive comparison: desktop retains all three tracks, 1024 px hides only the plan rail, and 390 px stacks the corpus above the complete research input. No actionable P0/P1/P2 differences remain.
+
+## Phase 8 primary interactions tested
+
+- Clicked a suggested research question and verified the textarea value changed to the selected question.
+- Opened the Top N settings popover and verified the visible label and slider both use the available-paper maximum.
+- Opened and closed the research-history drawer with its unique semantic controls; the unauthenticated fixture displayed its valid empty-history state.
+- Verified existing workspace events continue to forward close, remove-paper, and save-to-library actions.
+- Verified zero browser console errors at desktop and mobile viewports.
+- Targeted deep-research suite passed: 4 files, 12 tests. Final View suite passed: 16 files, 44 tests; TypeScript check passed; production build passed (1226 modules).
+
+## Remaining work
+
+- Run the final cross-page manifest/status audit and create the deep-research commit.
+- Synchronize and verify production only after explicit production-upload authorization.
+
+phase 8 result: passed
+
+# Phase 9 — Final cross-page regression
+
+- Actual application route: `http://127.0.0.1:4174/?view=list`
+- Browser-rendered desktop screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\final-app-desktop.png`
+- Browser-rendered mobile screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\final-app-mobile-navbar-fixed.png`
+- Viewports: 1440 × 900 and 390 × 844.
+
+## Phase 9 findings
+
+- Iteration 1 finding (P2, responsive navigation): at 390 px the registration action was clipped at the right edge even though the document itself did not report horizontal overflow. Fix: compact the navbar spacing and primary-item padding below 480 px, hide the secondary workbench and theme actions at that width, reduce registration padding, and reserve the search action until the narrower 359 px breakpoint.
+- Post-fix evidence: at 390 × 844, `scrollWidth = innerWidth = 390`; the registration control occupies approximately 287.6–327.6 px and is fully visible. The logo, three primary navigation items, card/list/immersive mode switch, search, and registration actions remain available without overlap.
+- Desktop regression: the 1440 × 900 application retains the complete navigation, research-space shell, paper workspace, and mode controls with no layout regression or horizontal overflow.
+- Scope regression: list, immersive reader, research project, knowledge library, comparison, and deep-research surfaces now share the approved workspace language while preserving their existing behaviors and APIs.
+- Final automated validation: 16 test files and 44 tests passed; TypeScript validation passed; the production build passed with 1226 transformed modules.
+
+No actionable P0, P1, or P2 issue remains in the redesigned View scope.
+
+## Remaining production action
+
+- Source changes are ready for commit and are recorded in the changed-file manifest.
+- Production synchronization and service reload remain intentionally pending until explicit production-upload authorization is given.
+
 final result: passed

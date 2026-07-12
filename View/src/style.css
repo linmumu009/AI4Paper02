@@ -171,6 +171,39 @@
   }
 }
 
+@media (max-width: 479px) {
+  .app-navbar {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .navbar-center {
+    margin-left: 0.25rem;
+    margin-right: 0.125rem;
+  }
+
+  .navbar-primary-item {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+  }
+
+  .navbar-workbench-link,
+  .navbar-theme-button {
+    display: none !important;
+  }
+
+  .navbar-register-link {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+}
+
+@media (max-width: 359px) {
+  .navbar-search-button {
+    display: none !important;
+  }
+}
+
 /* Base */
 * { box-sizing: border-box; }
 

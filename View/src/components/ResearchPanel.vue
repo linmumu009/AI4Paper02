@@ -21,6 +21,9 @@ import ResearchSessionViewer from './research/ResearchSessionViewer.vue'
 import ResearchFollowup from './research/ResearchFollowup.vue'
 import ResearchFinalBanner from './research/ResearchFinalBanner.vue'
 import type { StepDef, StepStatus } from './research/ResearchStepper.vue'
+import archiveIcon from '../assets/heroicons/archive-box.svg'
+import beakerIcon from '../assets/heroicons/beaker.svg'
+import closeIcon from '../assets/heroicons/x-mark.svg'
 
 // ---------------------------------------------------------------------------
 // Props / emits
@@ -517,7 +520,7 @@ function onViewerSaveToLibrary(id: number) {
 
 watch(() => props.paperIds.length, (len) => {
   if (topN.value > len) topN.value = Math.max(1, len)
-})
+}, { immediate: true })
 
 watch(() => props.paperIds, () => {
   if (!isRunning.value) resetState()
@@ -547,14 +550,7 @@ onBeforeUnmount(() => {
     >
       <div class="flex items-center gap-2">
         <div class="flex items-center justify-center w-5 h-5 rounded-md bg-accent-primary/10">
-          <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-            class="text-accent-primary">
-            <circle cx="11" cy="11" r="8"/>
-            <path d="m21 21-4.3-4.3"/>
-            <path d="M11 8v6"/>
-            <path d="M8 11h6"/>
-          </svg>
+          <img :src="beakerIcon" alt="" class="research-panel-icon w-3 h-3">
         </div>
         <span class="font-medium text-xs text-text-secondary tracking-wide">深度研究 Q&amp;A</span>
       </div>
@@ -567,12 +563,7 @@ onBeforeUnmount(() => {
           title="研究历史"
           @click="toggleHistory"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
-            <path d="M12 7v5l4 2"/>
-          </svg>
+          <img :src="archiveIcon" alt="" class="research-panel-icon w-[15px] h-[15px]">
         </button>
 
         <!-- Close -->
@@ -581,11 +572,7 @@ onBeforeUnmount(() => {
           title="关闭"
           @click="emit('close')"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M18 6 6 18"/>
-            <path d="m6 6 12 12"/>
-          </svg>
+          <img :src="closeIcon" alt="" class="research-panel-icon w-[15px] h-[15px]">
         </button>
       </div>
     </div>
@@ -598,11 +585,7 @@ onBeforeUnmount(() => {
         :class="showHistory ? 'text-accent-primary bg-accent-primary/10' : ''"
         @click="toggleHistory"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-          <path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>
-        </svg>
+        <img :src="archiveIcon" alt="" class="research-panel-icon w-[13px] h-[13px]">
         历史记录
       </button>
 
@@ -721,12 +704,7 @@ onBeforeUnmount(() => {
           v-if="isAborted"
           class="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20 text-sm text-amber-400"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
-            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-            <line x1="12" x2="12" y1="9" y2="13"/>
-            <line x1="12" x2="12.01" y1="17" y2="17"/>
-          </svg>
+          <img :src="beakerIcon" alt="" class="research-panel-icon shrink-0 w-[15px] h-[15px]">
           研究已中止 — 已完成的部分结果仍可查看。
         </div>
 
@@ -736,12 +714,7 @@ onBeforeUnmount(() => {
           class="flex flex-col gap-2 px-3 py-2.5 rounded-xl bg-red-500/8 border border-red-500/20 text-sm text-red-400"
         >
           <div class="flex items-start gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 mt-0.5">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" x2="12" y1="8" y2="12"/>
-              <line x1="12" x2="12.01" y1="16" y2="16"/>
-            </svg>
+            <img :src="closeIcon" alt="" class="research-panel-icon shrink-0 mt-0.5 w-[15px] h-[15px]">
             <span class="flex-1">{{ errorMsg }}</span>
             <div class="flex flex-col gap-1 shrink-0">
               <button
@@ -761,10 +734,7 @@ onBeforeUnmount(() => {
             v-if="errorMsg.includes('Connection error') || errorMsg.includes('无法连接') || errorMsg.includes('认证失败') || errorMsg.includes('Authentication')"
             class="flex items-center gap-2 pt-1 border-t border-red-500/15 text-xs text-red-400/70"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none"
-              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0">
-              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
-            </svg>
+            <img :src="beakerIcon" alt="" class="research-panel-icon shrink-0 w-3 h-3">
             <span>请前往</span>
             <a
               href="/profile"
@@ -892,3 +862,7 @@ onBeforeUnmount(() => {
 
   </div>
 </template>
+
+<style scoped>
+:global(.dark) .research-panel-icon { filter: invert(1); }
+</style>

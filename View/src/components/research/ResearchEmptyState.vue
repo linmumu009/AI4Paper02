@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import arrowRightIcon from '../../assets/heroicons/arrow-right.svg'
+
 const emit = defineEmits<{
   suggest: [question: string]
 }>()
@@ -34,12 +36,12 @@ const suggestions = [
         @click="emit('suggest', s.title)"
       >
         <span class="text-[13px] text-text-secondary group-hover:text-text-primary transition-colors leading-snug">{{ s.title }}</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-          class="shrink-0 text-text-muted/30 group-hover:text-text-muted transition-colors ml-3">
-          <path d="M7 17 17 7"/><path d="M7 7h10v10"/>
-        </svg>
+        <img :src="arrowRightIcon" alt="" class="shrink-0 w-[13px] h-[13px] opacity-30 group-hover:opacity-60 transition-opacity ml-3">
       </button>
     </div>
   </div>
 </template>
+
+<style scoped>
+:global(.dark) img { filter: invert(1); }
+</style>

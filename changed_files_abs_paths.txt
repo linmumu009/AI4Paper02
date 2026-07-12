@@ -183,3 +183,9 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\__tests__\KnowledgeWorkspace.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ComparePanel.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ComparePanel.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchWorkspace.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchWorkspace.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchPanel.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchInput.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchEmptyState.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchHistoryDrawer.vue

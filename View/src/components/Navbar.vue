@@ -265,7 +265,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <nav class="relative h-12 sm:h-14 flex items-center px-3 sm:px-5 bg-bg-sidebar border-b border-border">
+  <nav class="app-navbar relative h-12 sm:h-14 flex items-center px-3 sm:px-5 bg-bg-sidebar border-b border-border">
 
     <!-- LEFT: Logo -->
     <router-link to="/" class="flex items-center gap-1.5 no-underline shrink-0">
@@ -409,7 +409,7 @@ onBeforeUnmount(() => {
         type="button"
         title="搜索研究资产 (Ctrl/⌘ K)"
         aria-label="搜索研究资产"
-        class="flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-text-muted transition-all duration-200 hover:bg-bg-hover hover:text-text-secondary sm:h-9 sm:w-9"
+        class="navbar-search-button flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-text-muted transition-all duration-200 hover:bg-bg-hover hover:text-text-secondary sm:h-9 sm:w-9"
         @click="globalSearch.open()"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 sm:h-[18px] sm:w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -422,7 +422,7 @@ onBeforeUnmount(() => {
         to="/workbench"
         title="工作台"
         :aria-current="route.path.startsWith('/workbench') || route.path.startsWith('/idea') ? 'page' : undefined"
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline"
+        class="navbar-workbench-link w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full transition-all duration-200 no-underline"
         :class="route.path.startsWith('/workbench') || route.path.startsWith('/idea')
           ? 'bg-bg-elevated text-text-primary scale-110'
           : 'text-text-muted hover:text-text-secondary hover:bg-bg-hover'"
@@ -576,13 +576,13 @@ onBeforeUnmount(() => {
         >登录</router-link>
         <router-link
           :to="{ path: '/register', query: { redirect: route.fullPath } }"
-          class="flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold text-white border-none bg-brand-gradient hover:opacity-90 transition-opacity no-underline"
+          class="navbar-register-link flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold text-white border-none bg-brand-gradient hover:opacity-90 transition-opacity no-underline"
         >注册</router-link>
       </template>
 
       <!-- 主题切换 -->
       <button
-        class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-primary hover:bg-bg-hover transition-all duration-200 cursor-pointer bg-transparent border-none"
+        class="navbar-theme-button w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-full text-text-muted hover:text-text-primary hover:bg-bg-hover transition-all duration-200 cursor-pointer bg-transparent border-none"
         :title="isDark ? '切换到日间模式' : '切换到夜间模式'"
         @click="toggleTheme"
       >
