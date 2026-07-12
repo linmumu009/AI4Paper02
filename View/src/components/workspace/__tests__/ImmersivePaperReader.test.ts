@@ -48,9 +48,14 @@ const detail: PaperDetailResponse = {
     url: `https://arxiv.org/abs/${paper.paper_id}`,
     year: 2026,
     blocks: {
-      method: { text: '', bullets: [], key_mechanisms: ['通过工具调用更新三部分记忆库。'] },
+      objective: { text: '', bullets: [], research_questions: ['长期轨迹中哪些状态值得主动重新激活？'] },
+      method: { text: '', bullets: [], architecture_or_paradigm: '主动记忆干预架构', key_mechanisms: ['通过工具调用更新三部分记忆库。'] },
+      data: { text: '', bullets: [], datasets_or_materials: ['LongBench-Agent'], data_scale: '6 类长期任务' },
+      experiment_or_argumentation: { text: '', bullets: [], design: '比较固定检索与主动干预。', baselines_or_comparators: ['被动 RAG'] },
+      metrics: { text: '', bullets: [], metric_names: ['任务成功率'] },
       results: { text: '', bullets: [], numerical_results: ['长期任务成功率提升 18–27%。'] },
-      limitations: { text: '', bullets: [], threats_to_validity: ['仍需在更多真实任务上验证。'] },
+      evidence_chain: { text: '', bullets: [], strongly_supported_claims: ['主动干预在长时程任务上更稳定。'] },
+      limitations: { text: '', bullets: [], scope_boundaries: ['仅覆盖工具型智能体。'], threats_to_validity: ['仍需在更多真实任务上验证。'] },
     },
   },
   date: '2026-07-11',
@@ -82,9 +87,18 @@ describe('ImmersivePaperReader', () => {
     expect(fetchPaperDetail).toHaveBeenCalledWith(paper.paper_id)
     expect(wrapper.text()).toContain('主动记忆干预改善长期记忆智能体')
     expect(wrapper.text()).toContain('Yifan Wu, Lizhu Zhang')
+    expect(wrapper.text()).toContain('研究问题与贡献')
+    expect(wrapper.text()).toContain('主动记忆干预架构')
+    expect(wrapper.text()).toContain('LongBench-Agent')
     expect(wrapper.text()).toContain('长期任务成功率提升 18–27%')
-    expect(wrapper.text()).toContain('长时程记忆增强智能体')
+    expect(wrapper.text()).toContain('局限性与适用边界')
+    expect(wrapper.text()).toContain('仍需在更多真实任务上验证。')
     expect(wrapper.text()).toContain('2 / 34')
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
+
+    const relatedTab = wrapper.findAll('[role="tab"]').find(tab => tab.text().includes('相关论文'))
+    await relatedTab?.trigger('click')
+    expect(wrapper.text()).toContain('长时程记忆增强智能体')
   })
 
   it('emits navigation and research decisions from the focused workspace', async () => {
@@ -105,6 +119,7 @@ describe('ImmersivePaperReader', () => {
     await wrapper.find('button[aria-label="下一篇论文"]').trigger('click')
     await buttons.find(button => button.text().includes('深入追踪这条线索'))?.trigger('click')
     await buttons.find(button => button.text().includes('与相关文章比较'))?.trigger('click')
+    await wrapper.findAll('[role="tab"]').find(tab => tab.text().includes('相关论文'))?.trigger('click')
     await wrapper.find('.immersive-reader__related-paper').trigger('click')
 
     expect(wrapper.emitted('exit')).toHaveLength(1)
@@ -128,16 +143,38 @@ describe('ImmersivePaperReader', () => {
 
     const context = wrapper.find('.immersive-workspace-shell__context')
     expect(context.attributes('data-open')).toBe('false')
-    expect(wrapper.text()).toContain('长时程记忆增强智能体')
+    expect(wrapper.text()).toContain('阅读目录')
 
     await wrapper.find('button[aria-label="打开研究上下文"]').trigger('click')
     expect(context.attributes('data-open')).toBe('true')
 
     const tabs = wrapper.findAll('[role="tab"]')
+    await tabs.find(tab => tab.text().includes('相关论文'))?.trigger('click')
+    expect(wrapper.text()).toContain('长时程记忆增强智能体')
     await tabs.find(tab => tab.text().includes('课题'))?.trigger('click')
     expect(wrapper.text()).toContain('登录后可以保存论文、建立课题并持续追踪研究脉络')
 
     await wrapper.find('.immersive-workspace-shell__context-close').trigger('click')
     expect(context.attributes('data-open')).toBe('false')
+  })
+
+  it('reports document reading progress through the shared shell', async () => {
+    const wrapper = mount(ImmersivePaperReader, {
+      props: {
+        paper,
+        relatedPapers: [],
+        position: 1,
+        total: 1,
+      },
+    })
+    const documentPane = wrapper.find('.immersive-workspace-shell__document')
+    Object.defineProperties(documentPane.element, {
+      scrollHeight: { value: 1000, configurable: true },
+      clientHeight: { value: 500, configurable: true },
+      scrollTop: { value: 250, configurable: true },
+    })
+
+    await documentPane.trigger('scroll')
+    expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('50')
   })
 })

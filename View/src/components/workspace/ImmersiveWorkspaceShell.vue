@@ -11,7 +11,14 @@ withDefaults(defineProps<{
 
 const emit = defineEmits<{
   closeContext: []
+  documentScroll: [progress: number]
 }>()
+
+function handleDocumentScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement
+  const scrollable = target.scrollHeight - target.clientHeight
+  emit('documentScroll', scrollable > 0 ? target.scrollTop / scrollable : 0)
+}
 </script>
 
 <template>
@@ -20,7 +27,7 @@ const emit = defineEmits<{
       <slot name="rail" />
     </nav>
 
-    <main class="immersive-workspace-shell__document">
+    <main class="immersive-workspace-shell__document" @scroll.passive="handleDocumentScroll">
       <slot />
     </main>
 

@@ -45,7 +45,8 @@ const emit = defineEmits<{
 
 const showProjectDialog = ref(false)
 const contextOpen = ref(false)
-const contextTab = ref<'project' | 'related'>('related')
+const contextTab = ref<'outline' | 'project' | 'related'>('outline')
+const readingProgress = ref(0)
 const paperRef = computed(() => props.paper)
 const { detail, detailLoading, detailError, summary } = useWorkspacePaperDetail(paperRef)
 
@@ -70,29 +71,70 @@ const mainContribution = computed(() => summary.value?.['🛎️文章简介']?.
 const recommendation = computed(() => summary.value?.why_recommended || summary.value?.['推荐理由'] || mainContribution.value)
 const keyThoughts = computed(() => summary.value?.['📝重点思路']?.filter(Boolean).slice(0, 5) ?? [])
 const analysisSummary = computed(() => summary.value?.['🔎分析总结']?.filter(Boolean).slice(0, 3) ?? [])
+const assetBlocks = computed(() => detail.value?.paper_assets?.blocks)
 
-const evidenceCards = computed(() => {
-  const blocks = detail.value?.paper_assets?.blocks
-  const result = blocks?.results?.numerical_results?.[0]
-    || blocks?.results?.main_findings?.[0]
-    || analysisSummary.value[0]
-  const method = blocks?.method?.key_mechanisms?.[0]
-    || blocks?.method?.novelty?.[0]
-    || keyThoughts.value[0]
-  const boundary = blocks?.limitations?.threats_to_validity?.[0]
-    || blocks?.limitations?.generalization_limits?.[0]
-    || mainContribution.value
-  return [
-    { label: '关键结果', value: result },
-    { label: '方法证据', value: method },
-    { label: '可信边界', value: boundary },
-  ].filter(card => Boolean(card.value))
-})
+function uniqueItems(...groups: Array<string | string[] | null | undefined>): string[] {
+  return [...new Set(groups.flatMap(group => Array.isArray(group) ? group : group ? [group] : []))]
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+const objectiveItems = computed(() => uniqueItems(
+  researchQuestion.value,
+  assetBlocks.value?.objective?.research_questions,
+  mainContribution.value,
+  assetBlocks.value?.objective?.claimed_contributions,
+  keyThoughts.value.slice(0, 3),
+))
+const methodItems = computed(() => uniqueItems(
+  assetBlocks.value?.method?.architecture_or_paradigm,
+  assetBlocks.value?.method?.key_mechanisms,
+  assetBlocks.value?.method?.novelty,
+  assetBlocks.value?.method?.training_or_optimization,
+  assetBlocks.value?.method?.inference_strategy,
+  assetBlocks.value?.method?.text,
+  assetBlocks.value?.method?.bullets,
+))
+const evaluationItems = computed(() => uniqueItems(
+  assetBlocks.value?.data?.datasets_or_materials,
+  assetBlocks.value?.data?.data_scale,
+  assetBlocks.value?.experiment_or_argumentation?.design,
+  assetBlocks.value?.experiment_or_argumentation?.baselines_or_comparators,
+  assetBlocks.value?.experiment?.text,
+  assetBlocks.value?.metrics?.metric_names,
+  assetBlocks.value?.metrics?.evaluation_protocol,
+))
+const resultItems = computed(() => uniqueItems(
+  assetBlocks.value?.results?.numerical_results,
+  assetBlocks.value?.results?.main_findings,
+  assetBlocks.value?.results?.phenomena,
+  assetBlocks.value?.evidence_chain?.strongly_supported_claims,
+  assetBlocks.value?.evidence_chain?.key_evidence_from_figures_tables_appendix,
+))
+const limitationItems = computed(() => uniqueItems(
+  assetBlocks.value?.limitations?.scope_boundaries,
+  assetBlocks.value?.limitations?.threats_to_validity,
+  assetBlocks.value?.limitations?.generalization_limits,
+  assetBlocks.value?.evidence_chain?.unsupported_or_overextended_claims,
+  assetBlocks.value?.critical_analysis?.weakest_argument,
+  assetBlocks.value?.critical_analysis?.needs_more_evidence,
+))
+const readingPercent = computed(() => Math.round(readingProgress.value * 100))
+const readingSections = computed(() => [
+  { id: 'reader-overview', label: '导读', visible: Boolean(recommendation.value || summary.value?.abstract) },
+  { id: 'reader-objective', label: '研究问题与贡献', visible: objectiveItems.value.length > 0 },
+  { id: 'reader-method', label: '方法与机制', visible: methodItems.value.length > 0 },
+  { id: 'reader-evaluation', label: '数据与评估', visible: evaluationItems.value.length > 0 },
+  { id: 'reader-results', label: '结果与证据', visible: resultItems.value.length > 0 },
+  { id: 'reader-limitations', label: '局限性与边界', visible: limitationItems.value.length > 0 },
+  { id: 'reader-analysis', label: '分析总结', visible: analysisSummary.value.length > 0 },
+  { id: 'reader-resources', label: '继续核验', visible: true },
+].filter(section => section.visible))
 
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
 const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式')
 
-function openContext(tab: 'project' | 'related' = contextTab.value) {
+function openContext(tab: 'outline' | 'project' | 'related' = contextTab.value) {
   contextTab.value = tab
   contextOpen.value = true
 }
@@ -100,6 +142,11 @@ function openContext(tab: 'project' | 'related' = contextTab.value) {
 function selectRelatedPaper(paperId: string) {
   emit('selectRelated', paperId)
   contextOpen.value = false
+}
+
+function scrollToSection(sectionId: string) {
+  document.getElementById(sectionId)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  if (typeof window !== 'undefined' && window.innerWidth < 1280) contextOpen.value = false
 }
 </script>
 
@@ -110,6 +157,7 @@ function selectRelatedPaper(paperId: string) {
     context-label="论文研究上下文"
     aria-label="沉浸论文阅读"
     @close-context="contextOpen = false"
+    @document-scroll="readingProgress = $event"
   >
     <template #rail>
       <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" :aria-label="returnLabel" :title="returnLabel" @click="emit('exit')">
@@ -130,6 +178,16 @@ function selectRelatedPaper(paperId: string) {
     </template>
 
     <div class="immersive-reader__document-inner">
+        <div
+          class="immersive-reader__progress"
+          role="progressbar"
+          aria-label="论文阅读进度"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="readingPercent"
+        >
+          <span :style="{ width: `${readingPercent}%` }" />
+        </div>
         <div class="immersive-reader__document-topline">
           <p>推荐论文 · {{ paper.categories?.[0] || '今日精选' }}</p>
           <div class="immersive-reader__pager" aria-label="论文导航">
@@ -162,41 +220,89 @@ function selectRelatedPaper(paperId: string) {
           </div>
         </header>
 
-        <section v-if="recommendation" class="immersive-reader__recommendation">
-          <h2>推荐理由</h2>
-          <p>{{ recommendation }}</p>
+        <section
+          v-if="recommendation || summary?.abstract"
+          id="reader-overview"
+          class="immersive-reader__section immersive-reader__overview"
+        >
+          <div v-if="recommendation" class="immersive-reader__recommendation">
+            <h2>推荐理由</h2>
+            <p>{{ recommendation }}</p>
+          </div>
+          <div v-if="summary?.abstract" class="immersive-reader__reading-block">
+            <h2>摘要导读</h2>
+            <p>{{ summary.abstract }}</p>
+          </div>
         </section>
 
-        <section v-if="summary?.abstract" class="immersive-reader__section">
-          <h2>摘要</h2>
-          <p>{{ summary.abstract }}</p>
+        <section v-if="objectiveItems.length" id="reader-objective" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>研究问题与贡献</h2>
+            <span>论文要解决什么，以及新增了什么</span>
+          </div>
+          <ol class="immersive-reader__numbered-list">
+            <li v-for="item in objectiveItems" :key="item">{{ item }}</li>
+          </ol>
         </section>
 
-        <section v-if="researchQuestion || mainContribution" class="immersive-reader__section">
-          <h2>关键思路</h2>
+        <section v-if="methodItems.length" id="reader-method" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>方法与机制</h2>
+            <span>架构、关键机制与优化方式</span>
+          </div>
           <ul>
-            <li v-if="researchQuestion">{{ researchQuestion }}</li>
-            <li v-if="mainContribution">{{ mainContribution }}</li>
-            <li v-for="item in keyThoughts.slice(0, 3)" :key="item">{{ item }}</li>
+            <li v-for="item in methodItems" :key="item">{{ item }}</li>
           </ul>
         </section>
 
-        <section v-if="evidenceCards.length" class="immersive-reader__section">
+        <section v-if="evaluationItems.length" id="reader-evaluation" class="immersive-reader__section">
           <div class="immersive-reader__section-heading">
-            <h2>核心证据</h2>
-            <span>来自结构化论文证据</span>
+            <h2>数据与评估</h2>
+            <span>数据集、基线和评价协议</span>
           </div>
-          <div class="immersive-reader__evidence-grid">
-            <article v-for="card in evidenceCards" :key="card.label">
-              <h3>{{ card.label }}</h3>
-              <p>{{ card.value }}</p>
+          <ul>
+            <li v-for="item in evaluationItems" :key="item">{{ item }}</li>
+          </ul>
+        </section>
+
+        <section v-if="resultItems.length" id="reader-results" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>结果与证据</h2>
+            <span>优先展示数值结果和强支持结论</span>
+          </div>
+          <div class="immersive-reader__evidence-list">
+            <article v-for="(item, index) in resultItems" :key="item">
+              <span>{{ index + 1 }}</span>
+              <p>{{ item }}</p>
             </article>
           </div>
         </section>
 
-        <section v-if="analysisSummary.length" class="immersive-reader__section immersive-reader__analysis">
+        <section v-if="limitationItems.length" id="reader-limitations" class="immersive-reader__section immersive-reader__limitations">
+          <div class="immersive-reader__section-heading">
+            <h2>局限性与适用边界</h2>
+            <span>阅读结论时需要保留的条件</span>
+          </div>
+          <ul>
+            <li v-for="item in limitationItems" :key="item">{{ item }}</li>
+          </ul>
+        </section>
+
+        <section v-if="analysisSummary.length" id="reader-analysis" class="immersive-reader__section immersive-reader__analysis">
           <h2>分析总结</h2>
           <p v-for="item in analysisSummary" :key="item">{{ item }}</p>
+        </section>
+
+        <section id="reader-resources" class="immersive-reader__section immersive-reader__resources">
+          <div class="immersive-reader__section-heading">
+            <h2>继续核验</h2>
+            <span>回到原文确认关键证据</span>
+          </div>
+          <p>结构化解读用于快速定位问题，重要结论仍建议结合论文原文、图表和附录核验。</p>
+          <div class="immersive-reader__resource-actions">
+            <button type="button" @click="emit('openPdf')"><img :src="documentIcon" alt="">打开论文 PDF</button>
+            <button type="button" @click="emit('openDetail')"><img :src="bookOpenIcon" alt="">查看完整解析</button>
+          </div>
         </section>
 
         <p v-if="detailLoading" class="immersive-reader__status">正在补充结构化证据…</p>
@@ -206,6 +312,13 @@ function selectRelatedPaper(paperId: string) {
     <template #context>
       <div class="immersive-reader__context">
         <div class="immersive-reader__context-tabs" role="tablist" aria-label="研究上下文分类">
+          <button
+            type="button"
+            role="tab"
+            :aria-selected="contextTab === 'outline'"
+            :class="{ 'is-active': contextTab === 'outline' }"
+            @click="contextTab = 'outline'"
+          >目录</button>
           <button
             type="button"
             role="tab"
@@ -222,7 +335,24 @@ function selectRelatedPaper(paperId: string) {
           >相关论文 <span>{{ relatedPapers.length }}</span></button>
         </div>
 
-        <section v-if="contextTab === 'project'" role="tabpanel">
+        <section v-if="contextTab === 'outline'" class="immersive-reader__outline" role="tabpanel">
+          <div class="immersive-reader__context-heading">
+            <h2>阅读目录</h2>
+            <span>{{ readingPercent }}%</span>
+          </div>
+          <button
+            v-for="(section, index) in readingSections"
+            :key="section.id"
+            type="button"
+            class="immersive-reader__outline-link"
+            @click="scrollToSection(section.id)"
+          >
+            <span>{{ String(index + 1).padStart(2, '0') }}</span>
+            <strong>{{ section.label }}</strong>
+          </button>
+        </section>
+
+        <section v-else-if="contextTab === 'project'" role="tabpanel">
           <div class="immersive-reader__context-heading">
             <h2>研究课题</h2>
             <span>{{ isAuthenticated ? '当前论文' : '登录后启用' }}</span>
@@ -334,9 +464,29 @@ function selectRelatedPaper(paperId: string) {
 }
 
 .immersive-reader__document-inner {
-  width: min(100%, 1000px);
+  width: min(100%, 920px);
   margin: 0 auto;
   padding: 24px 40px 62px;
+}
+
+.immersive-reader__progress {
+  position: sticky;
+  z-index: 3;
+  top: 0;
+  width: 100%;
+  height: 3px;
+  margin: -24px 0 21px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-border) 70%, transparent);
+}
+
+.immersive-reader__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--color-tinder-pink), var(--color-tinder-blue));
+  transition: width 120ms linear;
 }
 
 .immersive-reader__document-topline,
@@ -476,7 +626,7 @@ function selectRelatedPaper(paperId: string) {
 }
 
 .immersive-reader__recommendation {
-  margin-top: 20px;
+  margin-top: 0;
   padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--color-tinder-pink) 16%, transparent);
   border-radius: 10px;
@@ -505,8 +655,30 @@ function selectRelatedPaper(paperId: string) {
 }
 
 .immersive-reader__section {
+  scroll-margin-top: 18px;
   padding: 22px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
+}
+
+.immersive-reader__overview {
+  padding-top: 20px;
+}
+
+.immersive-reader__reading-block {
+  margin-top: 22px;
+}
+
+.immersive-reader__reading-block h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.immersive-reader__reading-block p {
+  margin: 8px 0 0;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 1.85;
 }
 
 .immersive-reader__section ul {
@@ -527,48 +699,125 @@ function selectRelatedPaper(paperId: string) {
   content: '•';
 }
 
+.immersive-reader__numbered-list {
+  display: grid;
+  gap: 9px;
+  counter-reset: objective;
+}
+
+.immersive-reader__numbered-list li {
+  padding: 11px 13px 11px 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: var(--color-bg);
+  counter-increment: objective;
+}
+
+.immersive-reader__numbered-list li::before {
+  top: 10px;
+  left: 13px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-tinder-pink) 10%, transparent);
+  color: var(--color-tinder-pink);
+  content: counter(objective);
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+}
+
 .immersive-reader__section-heading span {
   color: var(--color-text-muted);
   font-size: 9px;
 }
 
-.immersive-reader__evidence-grid {
+.immersive-reader__evidence-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
 }
 
-.immersive-reader__evidence-grid article {
-  min-width: 0;
-  padding: 13px;
-  border: 1px solid var(--color-border);
+.immersive-reader__evidence-list article {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-tinder-blue) 20%, var(--color-border));
   border-radius: 9px;
-  background: var(--color-bg);
+  background: color-mix(in srgb, var(--color-tinder-blue) 4%, var(--color-bg));
 }
 
-.immersive-reader__evidence-grid h3 {
-  margin: 0;
-  color: var(--color-text-muted);
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.immersive-reader__evidence-grid p {
-  display: -webkit-box;
-  margin-top: 7px;
-  overflow: hidden;
+.immersive-reader__evidence-list article > span {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-tinder-blue) 11%, transparent);
   color: var(--color-tinder-blue);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.immersive-reader__evidence-list p {
+  margin: 1px 0 0;
+  color: var(--color-text-secondary);
   font-size: 11px;
-  font-weight: 700;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 4;
+  line-height: 1.7;
+}
+
+.immersive-reader__limitations {
+  margin-top: 4px;
+  padding-inline: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-tinder-pink) 18%, var(--color-border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-tinder-pink) 4%, transparent);
 }
 
 .immersive-reader__analysis p {
   padding-left: 14px;
   border-left: 2px solid color-mix(in srgb, var(--color-tinder-blue) 34%, transparent);
+}
+
+.immersive-reader__resources > p {
+  max-width: 680px;
+}
+
+.immersive-reader__resource-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.immersive-reader__resource-actions button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-card);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.immersive-reader__resource-actions button:hover,
+.immersive-reader__resource-actions button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-tinder-pink) 34%, var(--color-border));
+  color: var(--color-tinder-pink);
+}
+
+.immersive-reader__resource-actions img {
+  width: 14px;
+  height: 14px;
 }
 
 .immersive-reader__status {
@@ -587,12 +836,44 @@ function selectRelatedPaper(paperId: string) {
   z-index: 1;
   top: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   padding: 14px;
   border-bottom: 1px solid var(--color-border);
   background: color-mix(in srgb, var(--color-bg-card) 96%, transparent);
   backdrop-filter: blur(10px);
+}
+
+.immersive-reader__outline-link {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 65%, transparent);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.immersive-reader__outline-link > span {
+  color: var(--color-tinder-blue);
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.immersive-reader__outline-link strong {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.immersive-reader__outline-link:hover,
+.immersive-reader__outline-link:focus-visible {
+  color: var(--color-tinder-pink);
 }
 
 .immersive-reader__context-tabs button {
@@ -776,6 +1057,7 @@ function selectRelatedPaper(paperId: string) {
 :global(.dark) .immersive-reader__rail-button img,
 :global(.dark) .immersive-reader__pager img,
 :global(.dark) .immersive-reader__inline-actions img,
+:global(.dark) .immersive-reader__resource-actions img,
 :global(.dark) .immersive-reader__dock img {
   filter: invert(1);
 }
@@ -820,10 +1102,6 @@ function selectRelatedPaper(paperId: string) {
     font-size: 23px;
   }
 
-  .immersive-reader__evidence-grid {
-    grid-template-columns: 1fr;
-  }
-
   .immersive-reader__dock {
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px;
@@ -836,6 +1114,12 @@ function selectRelatedPaper(paperId: string) {
 
   .immersive-reader__dock-copy small {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .immersive-reader__progress span {
+    transition: none;
   }
 }
 </style>
