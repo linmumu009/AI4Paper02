@@ -15,6 +15,7 @@ param(
 
 $ScriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 $uploadScript = Join-Path $ScriptDirectory "upload_changed_files.ps1"
+$changedFilesList = Join-Path $ScriptDirectory "changed_files_abs_paths.txt"
 $IdentityFile = [System.IO.Path]::GetFullPath($IdentityFile)
 
 if (-not (Test-Path -LiteralPath $uploadScript -PathType Leaf)) {
@@ -23,11 +24,45 @@ if (-not (Test-Path -LiteralPath $uploadScript -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $IdentityFile -PathType Leaf)) {
   throw "SSH private key not found: $IdentityFile"
 }
+if (-not (Test-Path -LiteralPath $changedFilesList -PathType Leaf)) {
+  throw "Changed-file list not found: $changedFilesList"
+}
 if ($UseLocalDist -and $InstallNpm) {
   throw "UseLocalDist and InstallNpm cannot be used together. Build locally before using UseLocalDist."
 }
 if ($UseLocalDist -and $Target -eq "Backend") {
   throw "UseLocalDist is not valid for the Backend target."
+}
+
+# The uploader reads files from the live working tree. Refuse to deploy when a
+# listed file differs from Git so unrelated or half-finished edits cannot be
+# copied to production accidentally. Changes outside the manifest are ignored.
+$repositoryRoot = [System.IO.Path]::GetFullPath($ScriptDirectory).TrimEnd([char]92, [char]47)
+$repositoryPrefix = $repositoryRoot + [System.IO.Path]::DirectorySeparatorChar
+$manifestPaths = @(
+  Get-Content -LiteralPath $changedFilesList |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ -and -not $_.StartsWith("#") }
+)
+$relativeManifestPaths = @(
+  foreach ($manifestPath in $manifestPaths) {
+    $fullManifestPath = [System.IO.Path]::GetFullPath($manifestPath)
+    if (-not $fullManifestPath.StartsWith($repositoryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "Changed-file entry is outside the repository: $fullManifestPath"
+    }
+    $fullManifestPath.Substring($repositoryPrefix.Length).Replace([char]92, [char]47)
+  }
+)
+
+$gitStatusArgs = @("status", "--porcelain=v1", "--untracked-files=all", "--") + $relativeManifestPaths
+$dirtyManifestEntries = @(& git -C $repositoryRoot @gitStatusArgs)
+if ($LASTEXITCODE -ne 0) {
+  throw "Failed to inspect Git status for the changed-file manifest."
+}
+if ($dirtyManifestEntries.Count -gt 0) {
+  Write-Host "Deployment blocked: the changed-file manifest contains uncommitted files:" -ForegroundColor Red
+  $dirtyManifestEntries | ForEach-Object { Write-Host ("  " + $_) }
+  throw "Commit or remove every listed change before deploying."
 }
 
 if (-not $SkipUpload) {
