@@ -152,3 +152,6 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\projects.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\research.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\index.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\project.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\PaperInspector.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\WorkspacePaperRow.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\__tests__\WorkspaceList.test.ts

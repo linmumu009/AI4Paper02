@@ -4,7 +4,6 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 import DatePill from '../components/DatePill.vue'
 import PaperCard from '../components/PaperCard.vue'
-import PaperListRow from '../components/PaperListRow.vue'
 import ActionButtons from '../components/ActionButtons.vue'
 import WhyNotDrawer from '../components/WhyNotDrawer.vue'
 import ContentLayout from '../components/ContentLayout.vue'
@@ -38,6 +37,8 @@ import { useWorkspaceRouteState } from '../composables/useWorkspaceRouteState'
 import { usePaperDecisionActions } from '../composables/usePaperDecisionActions'
 import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShell.vue'
 import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
+import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
+import PaperInspector from '../components/workspace/PaperInspector.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -67,6 +68,7 @@ const {
   currentIndex,
   history,
   listPage,
+  selectedPaperIds,
   displayPapers,
   currentPaper,
   currentPaperId,
@@ -81,6 +83,9 @@ const {
   rememberCurrentIndex,
   moveToNext,
   restorePreviousIndex,
+  togglePaperSelection,
+  selectPaperIds,
+  clearPaperSelection,
 } = useResearchWorkspace({
   papers,
   pageSize: LIST_PAGE_SIZE,
@@ -535,6 +540,8 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
     currentIndex.value = 0
     listPage.value = 0
     history.value = []
+    clearPaperSelection()
+    listInspectorOpen.value = false
     cardAnimClass.value = 'card-enter'
     // When the backend fell back to an earlier date, sync the date selector so
     // that auto-advance (watch allSwiped) can navigate from the correct position.
@@ -681,7 +688,9 @@ const {
   bookmarkedPaperIds,
   skip,
   collect: like,
+  collectTarget,
   toggleBookmark: bookmark,
+  toggleBookmarkTarget,
 } = usePaperDecisionActions({
   currentPaper,
   isAuthenticated,
@@ -701,22 +710,62 @@ const {
   },
 })
 
+const collectedPaperIds = ref<Set<string>>(new Set())
+const listInspectorOpen = ref(false)
+const selectedPaperCount = computed(() => selectedPaperIds.value.size)
+const currentPagePaperIds = computed(() => pagedPapers.value.map(paper => paper.paper_id))
+const isCurrentPageSelected = computed(() =>
+  currentPagePaperIds.value.length > 0
+  && currentPagePaperIds.value.every(paperId => selectedPaperIds.value.has(paperId)),
+)
+
+function toggleCurrentPageSelection() {
+  if (isCurrentPageSelected.value) {
+    const remainingSelection = new Set(selectedPaperIds.value)
+    currentPagePaperIds.value.forEach(paperId => remainingSelection.delete(paperId))
+    selectPaperIds(remainingSelection)
+  } else {
+    selectPaperIds([...selectedPaperIds.value, ...currentPagePaperIds.value])
+  }
+}
+
+function collectListPaper(paper: PaperSummary) {
+  if (!collectTarget(paper, false)) return
+  collectedPaperIds.value = new Set([...collectedPaperIds.value, paper.paper_id])
+}
+
+function bookmarkListPaper(paper: PaperSummary) {
+  toggleBookmarkTarget(paper, false)
+}
+
+function collectSelectedPapers() {
+  const selected = displayPapers.value.filter(paper => selectedPaperIds.value.has(paper.paper_id))
+  selected.forEach(collectListPaper)
+}
+
+function compareSelectedPapers() {
+  const ids = [...selectedPaperIds.value]
+  if (ids.length < 2) return
+  handleCompare(ids, 'digest-list')
+}
+
+function startListResearch(paper: PaperSummary) {
+  handleResearch(
+    [paper.paper_id],
+    { [paper.paper_id]: paper.short_title || paper['📖标题'] || paper.paper_id },
+    'digest-list',
+  )
+}
+
 function undo() {
   if (!restorePreviousIndex()) return
   cardAnimClass.value = 'card-enter'
 }
 
-// Jump to a specific paper by index (used from list view)
-function jumpToCard(index: number) {
-  selectDigestPaper(index)
-  setDigestViewMode('card')
-  cardAnimClass.value = 'card-enter'
-}
-
-// Open paper detail panel directly from list view (keeps list mode, opens sidebar)
+// Select a paper while keeping the list visible and updating the persistent inspector.
 function openListDetail(paper: PaperSummary, idx: number) {
   selectDigestPaper(idx)
-  sidebarPaperId.value = paper.paper_id
+  listInspectorOpen.value = true
   collapseSidebarOnMobile()
   globalChat.setBrowsingContext({
     paperId: paper.paper_id,
@@ -726,6 +775,11 @@ function openListDetail(paper: PaperSummary, idx: number) {
   })
   globalChat.applyBrowsingToPaperContext()
   void engagement.record('view', 'daily-digest-detail', paper.paper_id)
+}
+
+function openListPaper(paper: PaperSummary, idx: number) {
+  selectDigestPaper(idx)
+  openDetail()
 }
 
 // Keyboard shortcut handler for card navigation
@@ -739,11 +793,47 @@ function handleKeydown(e: KeyboardEvent) {
   ) return
   if (isInPanelView.value) return
 
-  // In list mode: only allow Escape / L to switch back to card
+  // List mode keeps selection, the inspector and keyboard navigation in sync.
   if (digestViewMode.value === 'list') {
+    if (e.key === 'Escape' && listInspectorOpen.value) {
+      e.preventDefault()
+      listInspectorOpen.value = false
+      return
+    }
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       e.preventDefault()
       setDigestViewMode('card')
+      return
+    }
+    if (!currentPaper.value || loading.value) return
+    if (e.key === 'ArrowDown' || e.key === 'j' || e.key === 'J') {
+      e.preventDefault()
+      selectDigestPaper(Math.min(currentIndex.value + 1, displayPapers.value.length - 1))
+      return
+    }
+    if (e.key === 'ArrowUp' || e.key === 'k' || e.key === 'K') {
+      e.preventDefault()
+      selectDigestPaper(Math.max(currentIndex.value - 1, 0))
+      return
+    }
+    if (e.key === 'Enter' || e.key === 'd' || e.key === 'D') {
+      e.preventDefault()
+      openDetail()
+      return
+    }
+    if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault()
+      openPdf()
+      return
+    }
+    if (e.key === 's' || e.key === 'S') {
+      e.preventDefault()
+      collectListPaper(currentPaper.value)
+      return
+    }
+    if (e.key === 'b' || e.key === 'B') {
+      e.preventDefault()
+      bookmarkListPaper(currentPaper.value)
     }
     return
   }
@@ -1890,6 +1980,8 @@ async function handleNoteSaved(payload: { id: number; title: string }) {
 function resetCards() {
   currentIndex.value = 0
   history.value = []
+  clearPaperSelection()
+  listInspectorOpen.value = false
   cardAnimClass.value = 'card-enter'
   if (allDatesExhausted.value) {
     allDatesExhausted.value = false
@@ -2829,73 +2921,107 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         <template v-else-if="currentPaper || (papers.length > 0 && digestViewMode === 'list')">
 
           <!-- ===== LIST VIEW ===== -->
-          <div v-if="digestViewMode === 'list'" class="w-full flex-1 flex flex-col overflow-hidden max-w-3xl mx-auto">
-            <div ref="listScrollRef" class="flex-1 overflow-y-auto px-3 py-2">
-              <!-- Empty filtered result -->
-              <div v-if="displayPapers.length === 0" class="flex flex-col items-center py-12 gap-2 text-center">
-                <p class="text-sm text-text-muted">没有符合 {{ topicFilter }} 分类的论文</p>
-                <button class="text-xs text-tinder-blue cursor-pointer bg-transparent border-none" @click="topicFilter = ''">清除筛选</button>
-              </div>
-              <!-- Paper list — unified card container with dividers -->
-              <div v-else class="bg-bg-card rounded-2xl overflow-hidden border border-border/50">
-                <PaperListRow
-                  v-for="(paper, idx) in pagedPapers"
-                  :key="paper.paper_id"
-                  :paper="paper"
-                  :index="listPage * LIST_PAGE_SIZE + idx"
-                  :is-active="listPage * LIST_PAGE_SIZE + idx === currentIndex"
-                  :is-bookmarked="bookmarkedPaperIds.has(paper.paper_id)"
-                  :class="idx > 0 ? 'border-t border-border/40' : ''"
-                  @click="openListDetail(paper, listPage * LIST_PAGE_SIZE + idx)"
-                />
-              </div>
+          <div v-if="digestViewMode === 'list'" class="digest-list-workspace">
+            <section class="digest-list-pane" aria-label="论文列表">
+              <div class="digest-list-commandbar">
+                <label class="digest-list-commandbar__select-all">
+                  <input
+                    type="checkbox"
+                    :checked="isCurrentPageSelected"
+                    aria-label="选择当前页全部论文"
+                    @change="toggleCurrentPageSelection"
+                  >
+                  <span>{{ selectedPaperCount > 0 ? `已选 ${selectedPaperCount} 篇` : '选择' }}</span>
+                </label>
 
-              <!-- 分页控件（仅在总页数 > 1 时显示） -->
-              <div v-if="listTotalPages > 1" class="flex items-center justify-center gap-3 py-3">
-                <button
-                  class="px-3 py-1.5 text-xs rounded-lg border border-border text-text-secondary bg-bg-card cursor-pointer hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  :disabled="listPage <= 0"
-                  @click="listGoPage(listPage - 1)"
-                >上一页</button>
-                <span class="text-xs text-text-muted tabular-nums">{{ listPage + 1 }} / {{ listTotalPages }}</span>
-                <button
-                  class="px-3 py-1.5 text-xs rounded-lg border border-border text-text-secondary bg-bg-card cursor-pointer hover:bg-bg-elevated transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  :disabled="listPage >= listTotalPages - 1"
-                  @click="listGoPage(listPage + 1)"
-                >下一页</button>
-              </div>
-
-              <!-- 配额截断提示：还有更多论文因当前档位限制未显示 -->
-              <div v-if="isActuallyLimited && totalAvailable > papers.length" class="mt-4 mb-2">
-                <div class="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500/8 border border-amber-500/20 mb-3">
-                  <span class="text-amber-400 text-sm shrink-0">🔒</span>
-                  <p class="text-xs text-amber-400/90">
-                    还有 <span class="font-semibold">{{ totalAvailable - papers.length }}</span> 篇论文因当前档位限制未显示（共 {{ totalAvailable }} 篇）
-                  </p>
+                <div v-if="selectedPaperCount > 0" class="digest-list-commandbar__bulk-actions">
+                  <button type="button" @click="collectSelectedPapers">批量收藏</button>
+                  <button type="button" :disabled="selectedPaperCount < 2" @click="compareSelectedPapers">加入对比</button>
+                  <button type="button" @click="clearPaperSelection">清除选择</button>
                 </div>
-                <!-- 未登录用户：注册/登录引导 -->
-                <template v-if="!isAuthenticated">
-                  <div class="flex items-center gap-2 w-full">
-                    <button
-                      class="flex-1 px-5 py-2 rounded-full bg-brand-gradient text-white text-sm font-semibold border-none cursor-pointer hover:opacity-90 transition-opacity"
-                      @click="router.push({ path: '/register', query: { redirect: route.fullPath } })"
-                    >
-                      免费注册解锁全部
-                    </button>
-                    <button
-                      class="flex-1 px-5 py-2 rounded-full border border-border text-text-secondary text-sm font-medium cursor-pointer hover:bg-bg-hover transition-colors"
-                      @click="router.push({ path: '/login', query: { redirect: route.fullPath } })"
-                    >
-                      已有账号，登录
-                    </button>
-                  </div>
-                </template>
-                <!-- 已登录用户：统一升级组件 -->
-                <template v-else>
-                  <UpgradePrompt feature="browse" class="w-full" />
-                </template>
+                <p v-else>单击查看详情，双击或按 Enter 精读</p>
               </div>
-            </div>
+
+              <div class="digest-list-columns" aria-hidden="true">
+                <span></span>
+                <span>论文信息</span>
+                <span>相关度</span>
+                <span>作者</span>
+                <span>日期</span>
+                <span>操作</span>
+              </div>
+
+              <div ref="listScrollRef" class="digest-list-scroll" role="listbox" aria-label="论文结果">
+                <div v-if="displayPapers.length === 0" class="digest-list-empty">
+                  <p>没有符合 {{ topicFilter }} 分类的论文</p>
+                  <button type="button" @click="topicFilter = ''">清除筛选</button>
+                </div>
+
+                <div v-else class="digest-list-rows">
+                  <WorkspacePaperRow
+                    v-for="(paper, idx) in pagedPapers"
+                    :key="paper.paper_id"
+                    :paper="paper"
+                    :index="listPage * LIST_PAGE_SIZE + idx"
+                    :active="listPage * LIST_PAGE_SIZE + idx === currentIndex"
+                    :selected="selectedPaperIds.has(paper.paper_id)"
+                    :collected="collectedPaperIds.has(paper.paper_id)"
+                    :bookmarked="bookmarkedPaperIds.has(paper.paper_id)"
+                    :publication-date="effectiveDate || selectedDate"
+                    @select="openListDetail(paper, listPage * LIST_PAGE_SIZE + idx)"
+                    @open="openListPaper(paper, listPage * LIST_PAGE_SIZE + idx)"
+                    @toggle-selection="togglePaperSelection(paper.paper_id)"
+                    @collect="collectListPaper(paper)"
+                    @toggle-bookmark="bookmarkListPaper(paper)"
+                  />
+                </div>
+
+                <div v-if="listTotalPages > 1" class="digest-list-pagination">
+                  <button type="button" :disabled="listPage <= 0" @click="listGoPage(listPage - 1)">上一页</button>
+                  <span>{{ listPage + 1 }} / {{ listTotalPages }}</span>
+                  <button type="button" :disabled="listPage >= listTotalPages - 1" @click="listGoPage(listPage + 1)">下一页</button>
+                </div>
+
+                <div v-if="isActuallyLimited && totalAvailable > papers.length" class="digest-list-quota">
+                  <p>还有 {{ totalAvailable - papers.length }} 篇论文因当前档位限制未显示（共 {{ totalAvailable }} 篇）</p>
+                  <template v-if="!isAuthenticated">
+                    <button type="button" class="digest-list-quota__primary" @click="router.push({ path: '/register', query: { redirect: route.fullPath } })">免费注册解锁全部</button>
+                    <button type="button" @click="router.push({ path: '/login', query: { redirect: route.fullPath } })">已有账号，登录</button>
+                  </template>
+                  <UpgradePrompt v-else feature="browse" class="w-full" />
+                </div>
+              </div>
+            </section>
+
+            <button
+              v-if="listInspectorOpen"
+              type="button"
+              class="digest-list-inspector-backdrop"
+              aria-label="关闭论文检查器"
+              @click="listInspectorOpen = false"
+            />
+
+            <section
+              class="digest-list-inspector"
+              :class="{ 'digest-list-inspector--open': listInspectorOpen }"
+            >
+              <button
+                type="button"
+                class="digest-list-inspector__close"
+                @click="listInspectorOpen = false"
+              >关闭</button>
+              <PaperInspector
+                :paper="currentPaper"
+                :publication-date="effectiveDate || selectedDate"
+                :collected="currentPaper ? collectedPaperIds.has(currentPaper.paper_id) : false"
+                :bookmarked="currentPaper ? bookmarkedPaperIds.has(currentPaper.paper_id) : false"
+                @open-detail="openDetail"
+                @open-pdf="openPdf"
+                @collect="currentPaper && collectListPaper(currentPaper)"
+                @toggle-bookmark="currentPaper && bookmarkListPaper(currentPaper)"
+                @start-research="currentPaper && startListResearch(currentPaper)"
+              />
+            </section>
           </div>
 
           <!-- ===== CARD VIEW ===== -->
@@ -3197,6 +3323,290 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 </template>
 
 <style scoped>
+.digest-list-workspace {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 34vw, 520px);
+  overflow: hidden;
+}
+
+.digest-list-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg);
+}
+
+.digest-list-commandbar {
+  display: flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+}
+
+.digest-list-commandbar__select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.digest-list-commandbar__select-all input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-tinder-pink);
+}
+
+.digest-list-commandbar > p {
+  margin: 0 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 10px;
+}
+
+.digest-list-commandbar__bulk-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.digest-list-commandbar__bulk-actions button,
+.digest-list-pagination button,
+.digest-list-empty button,
+.digest-list-quota button {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.digest-list-commandbar__bulk-actions button:hover,
+.digest-list-pagination button:hover:not(:disabled),
+.digest-list-empty button:hover,
+.digest-list-quota button:hover {
+  border-color: color-mix(in srgb, var(--color-tinder-pink) 38%, var(--color-border));
+  color: var(--color-text-primary);
+}
+
+.digest-list-commandbar__bulk-actions button:disabled,
+.digest-list-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.digest-list-columns {
+  display: grid;
+  grid-template-columns: 32px minmax(260px, 1fr) 76px 112px 92px 124px;
+  gap: 12px;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.digest-list-columns span:nth-child(n + 3) {
+  text-align: left;
+}
+
+.digest-list-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--color-bg);
+}
+
+.digest-list-rows {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.digest-list-empty {
+  display: flex;
+  min-height: 240px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.digest-list-empty p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.digest-list-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px;
+}
+
+.digest-list-pagination span {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.digest-list-quota {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--color-tinder-gold) 24%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-tinder-gold) 7%, transparent);
+}
+
+.digest-list-quota p {
+  min-width: 220px;
+  flex: 1 1 auto;
+  margin: 0;
+  color: var(--color-tag-score-mid);
+  font-size: 10px;
+}
+
+.digest-list-quota .digest-list-quota__primary {
+  border-color: transparent;
+  background: var(--color-tinder-pink);
+  color: white;
+}
+
+.digest-list-inspector {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-card);
+}
+
+.digest-list-inspector__close,
+.digest-list-inspector-backdrop {
+  display: none;
+}
+
+@media (max-width: 1599px) {
+  .digest-list-columns {
+    grid-template-columns: 30px minmax(200px, 1fr) 58px 76px 82px 96px;
+  }
+}
+
+@media (max-width: 1279px) {
+  .digest-list-workspace {
+    display: block;
+  }
+
+  .digest-list-pane {
+    width: 100%;
+    height: 100%;
+  }
+
+  .digest-list-columns {
+    grid-template-columns: 28px minmax(0, 1fr) 58px 102px;
+  }
+
+  .digest-list-columns span:nth-child(4),
+  .digest-list-columns span:nth-child(5) {
+    display: none;
+  }
+
+  .digest-list-inspector {
+    position: absolute;
+    z-index: 21;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: none;
+    width: min(460px, calc(100% - 24px));
+    border-left: 1px solid var(--color-border);
+    box-shadow: -16px 0 44px color-mix(in srgb, #000 25%, transparent);
+  }
+
+  .digest-list-inspector--open {
+    display: block;
+  }
+
+  .digest-list-inspector-backdrop {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    display: block;
+    border: 0;
+    background: color-mix(in srgb, #000 32%, transparent);
+    cursor: default;
+  }
+
+  .digest-list-inspector__close {
+    position: absolute;
+    z-index: 2;
+    top: 10px;
+    right: 12px;
+    display: inline-flex;
+    min-height: 28px;
+    align-items: center;
+    padding: 0 9px;
+    border: 1px solid var(--color-border);
+    border-radius: 7px;
+    background: var(--color-bg-elevated);
+    color: var(--color-text-secondary);
+    font: inherit;
+    font-size: 10px;
+    cursor: pointer;
+  }
+}
+
+@media (max-width: 767px) {
+  .digest-list-commandbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .digest-list-commandbar > p {
+    display: none;
+  }
+
+  .digest-list-commandbar__bulk-actions {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .digest-list-columns {
+    display: none;
+  }
+
+  .digest-list-inspector {
+    width: 100%;
+  }
+}
+
 .digest-workspace-toolbar {
   display: flex;
   width: 100%;

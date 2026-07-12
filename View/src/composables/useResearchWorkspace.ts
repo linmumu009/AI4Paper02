@@ -56,6 +56,7 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
   const currentIndex = ref(0)
   const history = ref<number[]>([])
   const listPage = ref(0)
+  const selectedPaperIds = ref<Set<string>>(new Set())
   const pageSize = options.pageSize ?? 15
 
   const displayPapers = computed<T[]>(() => {
@@ -134,6 +135,22 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
     listPage.value = 0
   }
 
+  function togglePaperSelection(paperId: string): boolean {
+    const selected = new Set(selectedPaperIds.value)
+    if (selected.has(paperId)) selected.delete(paperId)
+    else selected.add(paperId)
+    selectedPaperIds.value = selected
+    return selected.has(paperId)
+  }
+
+  function selectPaperIds(paperIds: Iterable<string>) {
+    selectedPaperIds.value = new Set(paperIds)
+  }
+
+  function clearPaperSelection() {
+    selectedPaperIds.value = new Set()
+  }
+
   watch([sortMode, topicFilter], resetPosition)
 
   return {
@@ -143,6 +160,7 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
     currentIndex,
     history,
     listPage,
+    selectedPaperIds,
     displayPapers,
     currentPaper,
     currentPaperId,
@@ -158,5 +176,8 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
     moveToNext,
     restorePreviousIndex,
     resetPosition,
+    togglePaperSelection,
+    selectPaperIds,
+    clearPaperSelection,
   }
 }

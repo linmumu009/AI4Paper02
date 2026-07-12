@@ -1,6 +1,6 @@
 # AI4Papers Research Workspace Design QA
 
-Scope: phase 2 only — shared research workspace shell, responsive secondary toolbar, and card/list mode switch. The dense three-column list, paper inspector, and immersive reader remain later phases and are not claimed as complete here.
+Scope: phases 2–3 — shared research workspace shell, responsive secondary toolbar, card/list mode switch, dense paper list, persistent paper inspector, selection, and bulk actions. The immersive reader and remaining page migrations are not claimed as complete here.
 
 - Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-7296fdea-5561-486f-9ff7-b41c460af9de.png`
 - Implementation route: `http://127.0.0.1:4174/?view=list&digest_paper=2605.20022`
@@ -55,5 +55,43 @@ Iteration 1 normalized the implementation from dark to light theme so the visual
 - Phase 3: replace the current narrow list with the dense central list and persistent paper inspector.
 - Phase 4: add the immersive reader and expose the third mode.
 - Later phases: migrate research projects, knowledge base, compare, and deep research into the shared shell.
+
+phase 2 result: passed
+
+# Phase 3 — Dense list and paper inspector
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-7296fdea-5561-486f-9ff7-b41c460af9de.png`
+- Implementation route: `http://127.0.0.1:4174/?view=list&digest_paper=2605.20022`
+- Primary implementation screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\workspace-list-inspector-1488x1045-final.png`
+- Responsive drawer screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\workspace-list-inspector-1024x768.png`
+- Full-view comparison: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\phase3-list-full-comparison.png`
+- Focused list/inspector comparison: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\phase3-list-focused-comparison.png`
+- Reference viewport: 1488 × 1045; responsive viewport: 1024 × 768.
+- State: light theme, local FastAPI data, guest session, one locally available paper selected. The reference contains many papers and an authenticated project sidebar, so row count and account-only content were treated as data-state differences rather than layout defects.
+
+## Phase 3 findings
+
+No actionable P0, P1, or P2 issues were found after the final iteration.
+
+- Structure: the implementation now matches the source's three-part research workspace at desktop width: existing product navigation, a dense central paper list, and a persistent right inspector.
+- List fidelity: checkbox, paper metadata, relevance score, author, date, and actions remain visible at 1488 px. The selected row uses a restrained pink surface and leading marker. `documentElement.scrollWidth` does not exceed its client width.
+- Inspector fidelity: selected-paper metadata, high-priority actions, summary, research question, contribution, key thoughts, analysis, memory, and evidence occupy a dedicated scrollable surface. List data remains available when a detail response omits authors or categories.
+- Responsive behavior: below 1280 px, the persistent inspector becomes a 460 px overlay drawer with backdrop and an explicit close control. It is hidden initially, opens from a row click, closes successfully, and creates no horizontal overflow at 1024 × 768.
+- Interaction model: single-click selects and previews; double-click or Enter opens precision reading; checkboxes support multi-selection; `S` collects selected papers; `B` toggles bookmark; `J/K` and arrow keys move the active paper; `P` opens PDF; Escape closes the inspector before leaving list mode.
+- Accessibility: the list exposes an option model, each checkbox has a paper-specific accessible name, actions have descriptive names, active state is announced, and the responsive close button is keyboard-addressable.
+- Product continuity: the existing date context, category/sort controls, guest registration state, knowledge-base collection, PDF, precision reading, deep research, and project dialog integrations are retained instead of becoming static mock controls.
+
+## Phase 3 interactions tested
+
+- Selected the only local paper and verified `批量收藏`, disabled one-paper `加入对比`, and `清除选择` appear.
+- Cleared selection, reduced the viewport to 1024 × 768, opened the paper row, verified the inspector drawer is 460 px wide, then closed it.
+- Confirmed all six desktop list columns are rendered at 1488 px and the inspector shows merged author metadata.
+- Checked current-source console errors for `127.0.0.1:4174`: none.
+- TypeScript check passed; targeted workspace tests passed: 2 files, 9 tests; full View suite passed: 9 files, 30 tests; production build passed (1193 modules).
+
+## Remaining redesign work
+
+- Phase 4: implement the immersive reader and expose the third `沉浸` mode.
+- Later phases: migrate project space, knowledge base, comparison, and deep research pages into the shared shell while preserving their task-specific tools.
 
 final result: passed

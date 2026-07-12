@@ -44,6 +44,12 @@ describe('useResearchWorkspace', () => {
     expect(workspace.currentIndex.value).toBe(0)
     expect(workspace.history.value).toEqual([])
     expect(workspace.displayPapers.value.map(paper => paper.paper_id)).toEqual(['p1', 'p3'])
+
+    expect(workspace.togglePaperSelection('p1')).toBe(true)
+    workspace.selectPaperIds(['p1', 'p3'])
+    expect([...workspace.selectedPaperIds.value]).toEqual(['p1', 'p3'])
+    workspace.clearPaperSelection()
+    expect(workspace.selectedPaperIds.value.size).toBe(0)
   })
 
   it('interleaves lower-tier papers after every two high-tier papers', () => {
@@ -148,6 +154,11 @@ describe('usePaperDecisionActions', () => {
     expect(collectPaper).toHaveBeenCalledWith(samplePapers[0])
     expect(onCollect).toHaveBeenCalledWith(samplePapers[0])
 
+    advance.mockClear()
+    expect(actions.collectTarget(samplePapers[1], false)).toBe(true)
+    expect(advance).not.toHaveBeenCalled()
+    expect(collectPaper).toHaveBeenCalledWith(samplePapers[1])
+
     expect(actions.skip()).toBe(true)
     expect(advance).toHaveBeenCalledWith('left')
     expect(dismissPaper).toHaveBeenCalledWith(samplePapers[0])
@@ -158,5 +169,9 @@ describe('usePaperDecisionActions', () => {
     expect(JSON.parse(values.get('ai4p-bookmarks') ?? '[]')).toContain('p1')
     expect(actions.toggleBookmark()).toBe(false)
     expect(actions.bookmarkedPaperIds.value.has('p1')).toBe(false)
+
+    advance.mockClear()
+    expect(actions.toggleBookmarkTarget(samplePapers[1], false)).toBe(true)
+    expect(advance).not.toHaveBeenCalled()
   })
 })

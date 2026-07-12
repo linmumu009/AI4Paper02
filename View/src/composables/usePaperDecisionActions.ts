@@ -52,38 +52,46 @@ export function usePaperDecisionActions<T extends PaperDecisionTarget>(
     return true
   }
 
-  function collect(): boolean {
-    const paper = options.currentPaper.value
-    if (!paper) return false
+  function collectTarget(paper: T, advance = false): boolean {
     if (!options.isAuthenticated.value) {
       options.redirectToLogin()
       return false
     }
-    options.advance('right')
+    if (advance) options.advance('right')
     void options.collectPaper(paper).catch(() => {})
     options.onCollect?.(paper)
     return true
   }
 
-  function toggleBookmark(): boolean {
+  function collect(): boolean {
     const paper = options.currentPaper.value
-    if (!paper) return false
+    return paper ? collectTarget(paper, true) : false
+  }
+
+  function toggleBookmarkTarget(paper: T, advanceOnAdd = false): boolean {
     const updated = new Set(bookmarkedPaperIds.value)
     if (updated.has(paper.paper_id)) {
       updated.delete(paper.paper_id)
     } else {
       updated.add(paper.paper_id)
-      options.advance('right')
+      if (advanceOnAdd) options.advance('right')
     }
     bookmarkedPaperIds.value = updated
     saveBookmarks(updated)
     return updated.has(paper.paper_id)
   }
 
+  function toggleBookmark(): boolean {
+    const paper = options.currentPaper.value
+    return paper ? toggleBookmarkTarget(paper, true) : false
+  }
+
   return {
     bookmarkedPaperIds,
     skip,
     collect,
+    collectTarget,
     toggleBookmark,
+    toggleBookmarkTarget,
   }
 }
