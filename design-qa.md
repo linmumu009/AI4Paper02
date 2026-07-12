@@ -186,4 +186,48 @@ No actionable P0, P1, or P2 issues remain after the mobile-drawer correction.
 - Phase 6: migrate the knowledge-base surface into the shared workspace language.
 - Later phases: migrate comparison and deep-research surfaces, then run cross-page regression, source synchronization, and deployment verification.
 
+phase 5 result: passed
+
+# Phase 6 — Knowledge library workspace
+
+- Source visual truth: `C:\Users\Liu Lin\.codex\generated_images\019f4f0d-dd4d-70a0-96aa-b8985fd41394\exec-f9e74772-821e-4c9d-8d2e-9d86e8bc4535.png`
+- Isolated implementation route: `http://127.0.0.1:4174/test-results/knowledge-workspace-preview.html`
+- Primary browser-rendered screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\knowledge-workspace-1487x1058-final.png`
+- Responsive screenshot: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\knowledge-workspace-390x844-final.png`
+- Full-view comparison: `D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\test-results\phase6-knowledge-full-comparison.png`
+- Reference viewport: 1487 × 1058; responsive viewports: 1024 × 768 and 390 × 844.
+- State: isolated light-theme fixture with eight realistic KB papers. Production keeps the authenticated Sidebar as the real folder-management surface and feeds the workspace with the actual `KbTree`.
+
+## Phase 6 findings
+
+No actionable P0, P1, or P2 issues remain after the final iteration.
+
+- Structure: the production screen now uses the existing folder Sidebar plus a dense central paper list and persistent desktop inspector, matching the selected three-column research-library pattern without duplicating folder CRUD.
+- Data behavior: all root and nested-folder papers are flattened with their real folder paths. Selecting a Sidebar folder narrows the list to that folder and its descendants. Search covers title, authors, institution, abstract, ID, and folder path.
+- Research workflow: status filtering, relevance/title/date sorting, select-all, multi-paper comparison, multi-paper deep research, PDF, precision reading, add-to-project, remove-from-library, and read-state cycling connect to existing APIs or application handlers.
+- Detail fidelity: the inspector reuses the structured paper-detail loader and shows recommendation, abstract, research problem, contribution, key thoughts, analysis, memory, and evidence. A failed enrichment request no longer leaks raw Axios errors when summary content is already available.
+- Action hierarchy: authenticated users receive a full-width pink `加入课题` primary action. `从知识库移除` is a restrained danger-outline action instead of a misleading primary CTA.
+- Responsive behavior: below 1280 px the inspector becomes an overlay drawer; below 768 px list metadata collapses to title, score, and read state. The folder control remains available and the 390 px viewport has no horizontal overflow.
+- Accessibility: the workspace is a labelled region, the paper collection is a listbox, each row is an option, checkboxes have paper-specific labels, filters are labelled, and drawer/backdrop close controls have distinct accessible names.
+
+## Phase 6 comparison history
+
+- Iteration 1 finding (P1): the visual fixture inherited the application's dark default tokens, which prevented a valid comparison against the selected light design. Fix: set only the isolated QA fixture to the light theme; production continues to honor the user's theme.
+- Iteration 2 finding (P1): the inspector exposed raw `Request failed with status code 404` copy when enrichment failed, and styled library removal as the primary pink action. Fix: hide low-level enrichment errors when complete summary content exists and introduce a dedicated danger-outline treatment.
+- Iteration 3 finding (P2): `加入课题` remained visually secondary even though the reference treats project organization as the primary next step. Fix: promote it to the first full-width primary action for the knowledge workspace.
+
+## Phase 6 interactions tested
+
+- Verified all-paper and active-folder data states with Vitest.
+- Selected two papers and verified compare and deep-research payloads; verified read-status cycling payloads.
+- At 390 px, opened a paper inspector, closed it with the unique semantic close control, and confirmed `scrollWidth = innerWidth = 390`.
+- Searched for `ReMamba`, then filtered all papers to `待读`; verified the resulting visible papers and labels.
+- Verified zero browser console errors/warnings after the final interaction pass.
+- Final View suite passed: 13 files, 39 tests; TypeScript check passed; production build passed (1221 modules).
+
+## Remaining redesign work
+
+- Phase 7: migrate the comparison workspace into the same research-shell language.
+- Phase 8: migrate the deep-research workspace, then run cross-page regression, source synchronization, and deployment verification.
+
 final result: passed

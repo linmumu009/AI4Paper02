@@ -179,3 +179,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\che
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\folder.svg
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\paper-clip.svg
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\assets\heroicons\plus.svg
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\KnowledgeWorkspace.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\workspace\__tests__\KnowledgeWorkspace.test.ts

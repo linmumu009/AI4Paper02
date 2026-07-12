@@ -18,14 +18,14 @@ import UpgradePrompt from '../components/UpgradePrompt.vue'
 import TodayMissionBar from '../components/TodayMissionBar.vue'
 import type { TasklineItem } from '../components/DailyResearchTaskline.vue'
 import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } from '../composables/usePanelLayout'
-import { fetchDates, fetchDigest, addKbPaper, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperInstitutions, fetchUserPaperDetail, fetchPaperDetail, fetchResearchProject, processUserPaper, userPaperStepLabel, saveResearchSession } from '../api'
+import { fetchDates, fetchDigest, addKbPaper, removeKbPaper, updateKbPaperReadStatus, deleteNote, dismissPaper, fetchUserPapers, fetchUserPaperInstitutions, fetchUserPaperDetail, fetchPaperDetail, fetchResearchProject, processUserPaper, userPaperStepLabel, saveResearchSession } from '../api'
 import { fetchResearchRadar, type ResearchRadarResponse } from '@shared/api/radar'
 import { fetchReviewCards, recordReviewResponse, type ReviewCard } from '@shared/api/recap'
 import { buildPdfViewerUrl, resolvePaperPdfUrl, buildKbPdfViewerUrl, buildKbFileUrl } from '../composables/usePdfUrl'
 import { useAnnotationAdapter } from '../composables/useAnnotationAdapter'
 import { openExternal } from '../utils/openExternal'
 import type { KbScope } from '../api'
-import type { PaperSummary, UserPaper, UserPaperViewMdPayload } from '../types/paper'
+import type { KbPaper, PaperSummary, UserPaper, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useKbSidebarState } from '../composables/useKbSidebarState'
@@ -40,6 +40,7 @@ import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue
 import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
 import PaperInspector from '../components/workspace/PaperInspector.vue'
 import ImmersivePaperReader from '../components/workspace/ImmersivePaperReader.vue'
+import KnowledgeWorkspace from '../components/workspace/KnowledgeWorkspace.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -172,6 +173,7 @@ async function loadRadar(date: string) {
 
 // Knowledge base + sidebar shared state
 const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompareTree, collapseSidebarOnMobile, markPaperReadStatus } = useKbSidebarState()
+const knowledgeWorkspaceActive = ref(false)
 
 const sidebarWasOpenBeforeImmersive = ref(true)
 watch(digestViewMode, (mode, previousMode) => {
@@ -372,6 +374,8 @@ async function applyToolQuery(tool: string | string[] | undefined) {
   if (!t) return
   switch (t) {
     case 'knowledge':
+      await handleGoToDigestClick()
+      knowledgeWorkspaceActive.value = true
       showSidebar.value = true
       nextTick(() => sidebarRef.value?.switchToPapersTab?.())
       break
@@ -1184,7 +1188,18 @@ function _stopMyPapersCenterPoll() {
   }
 }
 
+async function openKnowledgeWorkspace() {
+  await handleGoToDigestClick()
+  knowledgeWorkspaceActive.value = true
+  showSidebar.value = true
+}
+
 function handleTabChanged(tab: string) {
+  if (tab === 'papers') {
+    void openKnowledgeWorkspace()
+    return
+  }
+  knowledgeWorkspaceActive.value = false
   if (tab === 'mypapers') {
     // 切换到其他 Tab 时关闭研究面板（无论是否有活跃论文）
     researchPaperIds.value = null
@@ -1360,6 +1375,7 @@ const researchScope = ref<string>('kb')
 const researchProjectId = ref<number | null>(null)
 
 function handleResearch(paperIds: string[], paperTitles: Record<string, string>, scope?: string) {
+  knowledgeWorkspaceActive.value = false
   editingNote.value = null
   sidebarPaperId.value = null
   viewingPdf.value = null
@@ -1459,6 +1475,7 @@ const comparePaperTitles = computed(() => {
 })
 
 function handleCompare(paperIds: string[], scope?: string, resultIds?: number[]) {
+  knowledgeWorkspaceActive.value = false
   editingNote.value = null
   sidebarPaperId.value = null
   viewingPdf.value = null
@@ -1498,6 +1515,7 @@ function closeCompareResult() {
 }
 
 async function openPaperFromSidebar(paperId: string) {
+  knowledgeWorkspaceActive.value = false
   viewingPdf.value = null
   viewingMd.value = null
   comparingPaperIds.value = null
@@ -1591,6 +1609,7 @@ async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
 }
 
 function openPdfFromSidebar(payload: { paperId: string; filePath: string; title: string }) {
+  knowledgeWorkspaceActive.value = false
   editingNote.value = null
   sidebarPaperId.value = null
   comparingPaperIds.value = null
@@ -1606,6 +1625,39 @@ function openPdfFromSidebar(payload: { paperId: string; filePath: string; title:
   globalChat.applyBrowsingToPaperContext()
   collapseSidebarOnMobile()
   void engagement.record('view', 'daily-digest-sidebar-pdf', payload.paperId)
+}
+
+function openKnowledgePdf(paper: KbPaper) {
+  const title = paper.paper_data.short_title || paper.paper_data['📖标题'] || paper.paper_id
+  if (paper.pdf_static_url) {
+    openPdfFromSidebar({ paperId: paper.paper_id, filePath: paper.pdf_static_url, title })
+    return
+  }
+  openExternal(resolvePaperPdfUrl(paper.paper_id))
+  void engagement.record('view', 'knowledge-workspace-pdf', paper.paper_id)
+}
+
+async function removeKnowledgePaper(paper: KbPaper) {
+  const title = paper.paper_data.short_title || paper.paper_data['📖标题'] || paper.paper_id
+  if (!confirm(`从知识库移除「${title}」？相关笔记不会被自动删除。`)) return
+  try {
+    await removeKbPaper(paper.paper_id, 'kb')
+    await loadKbTree()
+  } catch (err) {
+    showError('从知识库移除论文失败，请稍后重试')
+    console.error('[KnowledgeWorkspace] remove paper failed', err)
+  }
+}
+
+async function updateKnowledgeReadStatus(paper: KbPaper, status: 'unread' | 'reading' | 'read') {
+  markPaperReadStatus(paper.paper_id, status)
+  try {
+    await updateKbPaperReadStatus(paper.paper_id, status, 'kb')
+  } catch (err) {
+    await loadKbTree()
+    showError('阅读状态更新失败，请稍后重试')
+    console.error('[KnowledgeWorkspace] update read status failed', err)
+  }
 }
 
 function openUserPaperViewMd(payload: UserPaperViewMdPayload) {
@@ -2002,6 +2054,7 @@ const userPaperLayoutContext = computed<ContentLayoutContext>(() => {
 
 // 全局“回到推荐”按钮事件处理：应用自动保存/删除规则，并回到推荐卡片视图
 async function handleGoToDigestClick() {
+  knowledgeWorkspaceActive.value = false
   if (editingNote.value && getDigestNoteEditor()) {
     const isEmpty = getDigestNoteEditor().isEffectivelyEmpty()
     if (isEmpty) {
@@ -2156,6 +2209,7 @@ function dismissWelcomeBanner() {
 
 /** 任意详情面板打开时为 true，用于在中央区域顶部显示「回到推荐」入口 */
 const isInPanelView = computed(() =>
+  knowledgeWorkspaceActive.value ||
   editingNote.value !== null ||
   !!comparingPaperIds.value ||
   viewingCompareResultId.value !== null ||
@@ -2349,9 +2403,23 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
     <!-- ===== Default slot: center content area ===== -->
 
+      <KnowledgeWorkspace
+        v-if="knowledgeWorkspaceActive && isAuthenticated"
+        class="flex-1 min-h-0"
+        :kb-tree="kbTree"
+        :active-folder-id="activeFolderId"
+        @open-paper="openPaperFromSidebar"
+        @open-pdf="openKnowledgePdf"
+        @compare="ids => handleCompare(ids, 'kb')"
+        @research="(ids, titles) => handleResearch(ids, titles, 'kb')"
+        @remove-paper="removeKnowledgePaper"
+        @update-read-status="updateKnowledgeReadStatus"
+        @show-sidebar="showSidebar = true"
+      />
+
       <!-- 笔记 + 论文：统一 ContentLayout -->
       <ContentLayout
-        v-if="editingNote !== null"
+        v-else-if="editingNote !== null"
         ref="digestContentLayoutRef"
         class="flex-1 min-h-0 border-l border-border mt-1"
         :context-key="noteEditingLayoutKey"

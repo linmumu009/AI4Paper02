@@ -10,6 +10,9 @@ const props = defineProps<{
   publicationDate?: string
   collected?: boolean
   bookmarked?: boolean
+  collectionActionLabel?: string
+  collectionActionTone?: 'primary' | 'danger' | 'neutral'
+  projectActionPrimary?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -77,8 +80,13 @@ const evidenceItems = computed(() => {
       </header>
 
       <div class="paper-inspector__actions">
-        <button type="button" class="paper-inspector__primary" @click="emit('collect')">
-          {{ collected ? '已收藏到知识库' : '收藏到知识库' }}
+        <button
+          type="button"
+          class="paper-inspector__primary"
+          :class="{ 'paper-inspector__danger-action': collectionActionTone === 'danger', 'paper-inspector__neutral-action': collectionActionTone === 'neutral' }"
+          @click="emit('collect')"
+        >
+          {{ collectionActionLabel || (collected ? '已收藏到知识库' : '收藏到知识库') }}
         </button>
         <button type="button" @click="emit('startResearch')">开始深度研究</button>
         <button type="button" @click="emit('openPdf')">PDF</button>
@@ -86,7 +94,12 @@ const evidenceItems = computed(() => {
         <button type="button" :class="{ 'paper-inspector__active-action': bookmarked }" @click="emit('toggleBookmark')">
           {{ bookmarked ? '已标记稍后读' : '稍后读' }}
         </button>
-        <button v-if="isAuthenticated" type="button" @click="showProjectDialog = true">加入课题</button>
+        <button
+          v-if="isAuthenticated"
+          type="button"
+          :class="{ 'paper-inspector__project-primary': projectActionPrimary }"
+          @click="showProjectDialog = true"
+        >加入课题</button>
       </div>
 
       <div class="paper-inspector__body">
@@ -142,7 +155,7 @@ const evidenceItems = computed(() => {
         </section>
 
         <p v-if="detailLoading" class="paper-inspector__status">正在补充结构化证据…</p>
-        <p v-else-if="detailError" class="paper-inspector__status">{{ detailError }}</p>
+        <p v-else-if="detailError && !summary?.abstract" class="paper-inspector__status">详细证据暂时不可用</p>
       </div>
 
       <AddToProjectDialog
@@ -266,6 +279,26 @@ const evidenceItems = computed(() => {
 }
 
 .paper-inspector__actions .paper-inspector__primary {
+  border-color: transparent;
+  background: var(--color-tinder-pink);
+  color: white;
+}
+
+.paper-inspector__actions .paper-inspector__danger-action {
+  border-color: color-mix(in srgb, #ef4444 35%, var(--color-border));
+  background: color-mix(in srgb, #ef4444 8%, var(--color-bg-card));
+  color: #dc3545;
+}
+
+.paper-inspector__actions .paper-inspector__neutral-action {
+  border-color: var(--color-border);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-secondary);
+}
+
+.paper-inspector__actions .paper-inspector__project-primary {
+  order: -1;
+  grid-column: 1 / -1;
   border-color: transparent;
   background: var(--color-tinder-pink);
   color: white;
