@@ -81,7 +81,11 @@ export const API_ORIGIN: string = import.meta.env.PROD
   ? _normaliseApiBase(import.meta.env.VITE_API_BASE || '')
   : ''
 
-if (import.meta.env.PROD && !API_ORIGIN) {
+const HAS_TAURI_RUNTIME = typeof window !== 'undefined' && Boolean(
+  (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__,
+)
+
+if (import.meta.env.PROD && HAS_TAURI_RUNTIME && !API_ORIGIN) {
   console.error(
     '[AI4Papers] VITE_API_BASE is not configured — all API requests will fail in the ' +
     'desktop app.  Set VITE_API_BASE=https://your-server.com in exe/.env.production and rebuild.',
@@ -89,7 +93,7 @@ if (import.meta.env.PROD && !API_ORIGIN) {
 }
 
 /** True when running inside the Tauri desktop shell. */
-export const IS_TAURI = !!API_ORIGIN
+export const IS_TAURI = HAS_TAURI_RUNTIME && !!API_ORIGIN
 
 if (IS_TAURI) {
   configureTransport(new TauriTransport(API_ORIGIN))
