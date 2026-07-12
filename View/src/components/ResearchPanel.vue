@@ -48,6 +48,7 @@ const emit = defineEmits<{
   close: []
   removePaper: [paperId: string]
   saveToLibrary: [sessionId: number]
+  openPaper: [paperId: string]
 }>()
 
 const { consumeStream } = useResearchStream()
@@ -788,6 +789,8 @@ onBeforeUnmount(() => {
               :title-for="(pid) => titleFor(pid, 1)"
               :can-force-full-read="canForceFullRead"
               @force-full-read="forceFullRead"
+              :paper-ids="paperIds"
+              @open-paper="emit('openPaper', $event)"
             />
           </template>
         </ResearchRoundCard>
@@ -810,6 +813,8 @@ onBeforeUnmount(() => {
               :is-running="rounds[2].status === 'running'"
               :progress-msg="rounds[2].progressMsg || '正在深度阅读论文全文…'"
               :truncation-warning="rounds[2].progressMsg && rounds[2].status !== 'running' ? rounds[2].progressMsg : undefined"
+              :paper-ids="paperIds"
+              @open-paper="emit('openPaper', $event)"
             />
           </template>
         </ResearchRoundCard>
@@ -841,6 +846,7 @@ onBeforeUnmount(() => {
           @back="viewedSession = null"
           @copy="copyResult"
           @save-to-library="onViewerSaveToLibrary"
+          @open-paper="emit('openPaper', $event)"
         />
 
         </div>

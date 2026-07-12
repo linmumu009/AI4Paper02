@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
   canGoNext?: boolean
   returnMode?: 'card' | 'list'
   returnLabel?: string
-  decisionMode?: 'digest' | 'knowledge' | 'mypapers' | 'project'
+  decisionMode?: 'digest' | 'knowledge' | 'mypapers' | 'project' | 'research'
   sourceScope?: string
   canCompare?: boolean
   showCollectionAction?: boolean
@@ -37,6 +37,10 @@ const props = withDefaults(defineProps<{
   projectContext?: {
     name: string
     objective?: string
+    paperCount?: number
+  } | null
+  researchContext?: {
+    question?: string
     paperCount?: number
   } | null
 }>(), {
@@ -64,7 +68,7 @@ const emit = defineEmits<{
 
 const showProjectDialog = ref(false)
 const contextOpen = ref(false)
-const contextTab = ref<'outline' | 'project' | 'related'>(props.decisionMode === 'project' ? 'project' : 'outline')
+const contextTab = ref<'outline' | 'project' | 'related'>(['project', 'research'].includes(props.decisionMode) ? 'project' : 'outline')
 const readingProgress = ref(0)
 const paperRef = computed(() => props.paper)
 const detailOverrideRef = computed(() => props.detailOverride)
@@ -156,7 +160,8 @@ const resolvedReturnLabel = computed(() => props.returnLabel || (props.returnMod
 const isKnowledgeDecision = computed(() => props.decisionMode === 'knowledge')
 const isMyPapersDecision = computed(() => props.decisionMode === 'mypapers')
 const isProjectDecision = computed(() => props.decisionMode === 'project')
-const isSequentialDecision = computed(() => isMyPapersDecision.value || isProjectDecision.value)
+const isResearchDecision = computed(() => props.decisionMode === 'research')
+const isSequentialDecision = computed(() => isMyPapersDecision.value || isProjectDecision.value || isResearchDecision.value)
 
 function openContext(tab: 'outline' | 'project' | 'related' = contextTab.value) {
   contextTab.value = tab
@@ -349,7 +354,7 @@ function scrollToSection(sectionId: string) {
             :aria-selected="contextTab === 'project'"
             :class="{ 'is-active': contextTab === 'project' }"
             @click="contextTab = 'project'"
-          >课题</button>
+          >{{ isResearchDecision ? '研究' : '课题' }}</button>
           <button
             type="button"
             role="tab"
@@ -378,10 +383,14 @@ function scrollToSection(sectionId: string) {
 
         <section v-else-if="contextTab === 'project'" role="tabpanel">
           <div class="immersive-reader__context-heading">
-            <h2>{{ projectContext ? '当前课题' : '研究课题' }}</h2>
-            <span>{{ projectContext ? `${projectContext.paperCount || 0} 篇论文` : isAuthenticated ? '当前论文' : '登录后启用' }}</span>
+            <h2>{{ researchContext ? '当前研究' : projectContext ? '当前课题' : '研究课题' }}</h2>
+            <span>{{ researchContext ? `${researchContext.paperCount || 0} 篇论文` : projectContext ? `${projectContext.paperCount || 0} 篇论文` : isAuthenticated ? '当前论文' : '登录后启用' }}</span>
           </div>
-          <template v-if="projectContext">
+          <template v-if="researchContext">
+            <p class="immersive-reader__context-title">{{ researchContext.question || '深度研究证据集' }}</p>
+            <p class="immersive-reader__context-copy">当前论文来自本次研究资料。返回报告后仍会保留原来的阅读位置和研究状态。</p>
+          </template>
+          <template v-else-if="projectContext">
             <p class="immersive-reader__context-title">{{ projectContext.name }}</p>
             <p class="immersive-reader__context-copy">{{ projectContext.objective || '围绕课题目标继续核验证据。' }}</p>
           </template>
@@ -420,11 +429,11 @@ function scrollToSection(sectionId: string) {
       <div class="immersive-reader__dock" :class="{ 'immersive-reader__dock--three': !showCollectionAction }">
         <button type="button" :disabled="isSequentialDecision && !canGoNext" @click="emit('skip')">
           <span class="immersive-reader__dock-icon"><img :src="isKnowledgeDecision ? checkIcon : isSequentialDecision ? arrowRightIcon : xMarkIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : isProjectDecision ? '下一证据' : isMyPapersDecision ? '下一篇' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : isProjectDecision ? '继续核验课题论文' : isMyPapersDecision ? '继续浏览论文' : '不感兴趣' }}</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '标为已读' : isResearchDecision ? '下一引用' : isProjectDecision ? '下一证据' : isMyPapersDecision ? '下一篇' : '跳过' }}</strong><small>{{ isKnowledgeDecision ? '完成本次阅读' : isResearchDecision ? '继续核验研究资料' : isProjectDecision ? '继续核验课题论文' : isMyPapersDecision ? '继续浏览论文' : '不感兴趣' }}</small></span>
         </button>
         <button type="button" :disabled="canCompare === false" @click="emit('compare')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>对比</strong><small>与相关文章比较</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isResearchDecision ? '原文' : '对比' }}</strong><small>{{ isResearchDecision ? '打开 PDF 核验' : '与相关文章比较' }}</small></span>
         </button>
         <button v-if="showCollectionAction" type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
@@ -432,7 +441,7 @@ function scrollToSection(sectionId: string) {
         </button>
         <button type="button" class="immersive-reader__dock-primary" @click="emit('startResearch')">
           <span class="immersive-reader__dock-icon"><img :src="beakerIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>深度研究</strong><small>深入追踪这条线索</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ isResearchDecision ? '返回报告' : '深度研究' }}</strong><small>{{ isResearchDecision ? '继续查看研究结论' : '深入追踪这条线索' }}</small></span>
         </button>
       </div>
     </template>

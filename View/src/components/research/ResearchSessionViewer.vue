@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import MarkdownIt from 'markdown-it'
 import type { ResearchSession } from '../../types/paper'
 import { downloadResearchResult } from '../../api'
 import { useEntitlements } from '../../composables/useEntitlements'
+import { renderResearchMarkdown, researchPaperIdFromClick } from '../../utils/researchMarkdown'
 
 const props = defineProps<{
   session: ResearchSession
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   back: []
   copy: []
   saveToLibrary: [sessionId: number]
+  openPaper: [paperId: string]
 }>()
 
 const ent = useEntitlements()
@@ -32,8 +33,6 @@ function handleSaveToLibrary() {
   savedLocal.value = true
   emit('saveToLibrary', props.session.id)
 }
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-
 async function handleDownload(format: 'md' | 'docx' | 'pdf') {
   if (!props.session?.id || downloading.value) return
   showDownloadMenu.value = false
@@ -92,7 +91,12 @@ function hasFull(): boolean {
   return !!props.session.rounds?.find(r => r.round_type === 'full_text')
 }
 
-const finalTextHtml = computed(() => md.render(getFinalText()))
+const finalTextHtml = computed(() => renderResearchMarkdown(getFinalText(), props.session.paper_ids || []))
+
+function handleReportClick(event: MouseEvent) {
+  const paperId = researchPaperIdFromClick(event)
+  if (paperId) emit('openPaper', paperId)
+}
 
 async function handleCopy() {
   const text = getFinalText()
@@ -184,11 +188,13 @@ async function handleCopy() {
           </span>
         </div>
         <div class="px-4 pb-3 flex flex-wrap gap-1.5">
-          <span
+          <button
             v-for="pid in getSelectedIds()"
             :key="pid"
+            type="button"
             class="text-[11px] px-2 py-0.5 rounded-full bg-accent-primary/10 border border-accent-primary/20 text-accent-primary"
-          >{{ paperTitles?.[pid] ?? pid }}</span>
+            @click="emit('openPaper', pid)"
+          >{{ paperTitles?.[pid] ?? pid }}</button>
         </div>
       </div>
 
@@ -285,6 +291,7 @@ async function handleCopy() {
             v-if="getFinalText()"
             class="research-prose prose dark:prose-invert max-w-none leading-relaxed text-text-primary"
             v-html="finalTextHtml"
+            @click="handleReportClick"
           />
           <p v-else class="text-sm text-text-muted py-2">无回答内容（此会话可能未成功完成）</p>
         </div>
@@ -319,6 +326,7 @@ async function handleCopy() {
   color: rgb(var(--color-text-muted)); font-style: italic;
 }
 .research-prose :deep(a) { color: rgb(var(--color-tinder-blue)); text-decoration: underline; text-underline-offset: 2px; }
+.research-prose :deep(.research-paper-link) { display: inline; border: 0; padding: 0 .12em; background: transparent; color: rgb(var(--color-tinder-blue)); font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 
 .popover-enter-active, .popover-leave-active {
   transition: opacity 0.12s ease, transform 0.12s ease;

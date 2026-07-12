@@ -11,6 +11,12 @@ const props = defineProps<{
   total: number
   canGoPrevious?: boolean
   canGoNext?: boolean
+  returnLabel?: string
+  decisionMode?: 'mypapers' | 'research'
+  researchContext?: {
+    question?: string
+    paperCount?: number
+  } | null
 }>()
 
 const emit = defineEmits<{
@@ -96,10 +102,10 @@ function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault()
     emit('exit')
-  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'j' || event.key === 'J') {
+  } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp' || event.key === 'k' || event.key === 'K') {
     event.preventDefault()
     emit('previous')
-  } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'k' || event.key === 'K') {
+  } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown' || event.key === 'j' || event.key === 'J') {
     event.preventDefault()
     emit('next')
   }
@@ -122,17 +128,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', handleKeydown))
     :can-compare="relatedPapers.length > 0"
     :show-collection-action="false"
     :show-bookmark-action="false"
-    return-label="返回我的论文"
-    decision-mode="mypapers"
+    :return-label="returnLabel || '返回我的论文'"
+    :decision-mode="decisionMode || 'mypapers'"
+    :research-context="researchContext"
     source-scope="mypapers"
     @exit="emit('exit')"
     @previous="emit('previous')"
     @next="emit('next')"
     @skip="emit('next')"
-    @compare="comparePaper"
+    @compare="decisionMode === 'research' ? emit('openPdf', effectivePaper) : comparePaper()"
     @open-pdf="emit('openPdf', effectivePaper)"
     @open-detail="emit('openDetail', paper.paper_id)"
-    @start-research="startResearch"
+    @start-research="decisionMode === 'research' ? emit('exit') : startResearch()"
     @select-related="emit('selectRelated', $event)"
   />
 </template>

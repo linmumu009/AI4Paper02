@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import MarkdownIt from 'markdown-it'
+import { computed } from 'vue'
+import { renderResearchMarkdown, researchPaperIdFromClick } from '../../utils/researchMarkdown'
 
 const props = defineProps<{
   streamText: string
@@ -17,15 +18,21 @@ const props = defineProps<{
   truncationWarning?: string
   /** For R2: can force full read */
   canForceFullRead?: boolean
+  /** Paper IDs that should become interactive citations in generated Markdown. */
+  paperIds?: string[]
 }>()
 
 const emit = defineEmits<{
   forceFullRead: []
+  openPaper: [paperId: string]
 }>()
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+const renderedHtml = computed(() => renderResearchMarkdown(props.streamText, props.paperIds || []))
 
-const renderedHtml = () => md.render(props.streamText)
+function handleContentClick(event: MouseEvent) {
+  const paperId = researchPaperIdFromClick(event)
+  if (paperId) emit('openPaper', paperId)
+}
 </script>
 
 <template>
@@ -47,7 +54,8 @@ const renderedHtml = () => md.render(props.streamText)
     <div
       v-if="streamText"
       class="prose dark:prose-invert max-w-none research-prose text-text-primary"
-      v-html="renderedHtml()"
+      v-html="renderedHtml"
+      @click="handleContentClick"
     />
 
     <!-- Running state with spinner -->
@@ -73,11 +81,13 @@ const renderedHtml = () => md.render(props.streamText)
         建议阅读全文
       </div>
       <div class="flex flex-wrap gap-1 mb-2">
-        <span
+        <button
           v-for="pid in papersToRead"
           :key="pid"
+          type="button"
           class="text-[11px] px-2 py-0.5 rounded-full border border-border/50 text-text-muted bg-bg-elevated/50"
-        >{{ titleFor ? titleFor(pid) : pid }}</span>
+          @click="emit('openPaper', pid)"
+        >{{ titleFor ? titleFor(pid) : pid }}</button>
       </div>
     </div>
 
@@ -132,4 +142,5 @@ const renderedHtml = () => md.render(props.streamText)
 }
 .research-prose :deep(hr) { border-color: color-mix(in srgb, var(--color-border) 50%, transparent); margin: 1.5em 0; }
 .research-prose :deep(a) { color: var(--color-tinder-blue); text-decoration: underline; text-underline-offset: 2px; }
+.research-prose :deep(.research-paper-link) { display: inline; border: 0; padding: 0 .12em; background: transparent; color: var(--color-tinder-blue); font: inherit; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 </style>
