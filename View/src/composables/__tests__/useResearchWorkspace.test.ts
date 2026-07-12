@@ -65,6 +65,24 @@ describe('useResearchWorkspace', () => {
     expect(workspace.mode.value).toBe('immersive')
   })
 
+  it('returns immersive reading to the presentation that opened it', () => {
+    const workspace = useResearchWorkspace({
+      papers: ref(samplePapers),
+      supportedModes: ['card', 'list', 'immersive'],
+      immersiveFallbackMode: 'list',
+    })
+
+    expect(workspace.enterImmersive()).toBe(true)
+    expect(workspace.immersiveReturnMode.value).toBe('card')
+    expect(workspace.exitImmersive()).toBe(true)
+    expect(workspace.mode.value).toBe('card')
+
+    workspace.setMode('list')
+    expect(workspace.enterImmersive('list')).toBe(true)
+    expect(workspace.exitImmersive()).toBe(true)
+    expect(workspace.mode.value).toBe('list')
+  })
+
   it('does not activate a mode whose presentation has not landed yet', () => {
     const workspace = useResearchWorkspace({
       papers: ref(samplePapers),
@@ -110,6 +128,46 @@ describe('useWorkspaceRouteState', () => {
     await nextTick()
     await vi.waitFor(() => {
       expect(router.currentRoute.value.query).toMatchObject({ view: 'card', paper: 'p2' })
+    })
+    scope.stop()
+  })
+
+  it('restores and serializes the immersive return source', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<div />' } }],
+    })
+    await router.push('/?view=immersive&paper=p2&source=list')
+    await router.isReady()
+
+    const workspace = useResearchWorkspace({
+      papers: ref(samplePapers),
+      supportedModes: ['card', 'list', 'immersive'],
+    })
+    const scope = effectScope()
+    scope.run(() => {
+      useWorkspaceRouteState({
+        query: () => router.currentRoute.value.query,
+        router,
+        mode: workspace.mode,
+        currentPaperId: workspace.currentPaperId,
+        paperIds: computed(() => workspace.displayPapers.value.map(paper => paper.paper_id)),
+        immersiveReturnMode: workspace.immersiveReturnMode,
+        setMode: workspace.setMode,
+        setImmersiveReturnMode: workspace.setImmersiveReturnMode,
+        selectPaperById: workspace.selectPaperById,
+      })
+    })
+    await nextTick()
+
+    expect(workspace.mode.value).toBe('immersive')
+    expect(workspace.immersiveReturnMode.value).toBe('list')
+    expect(workspace.currentPaperId.value).toBe('p2')
+
+    workspace.exitImmersive()
+    await vi.waitFor(() => {
+      expect(router.currentRoute.value.query).toMatchObject({ view: 'list', paper: 'p2' })
+      expect(router.currentRoute.value.query.source).toBeUndefined()
     })
     scope.stop()
   })

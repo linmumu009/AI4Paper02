@@ -3,7 +3,17 @@ import { computed, ref, watch, type Ref } from 'vue'
 export const RESEARCH_WORKSPACE_MODES = ['card', 'list', 'immersive'] as const
 
 export type ResearchWorkspaceMode = typeof RESEARCH_WORKSPACE_MODES[number]
+export type ResearchWorkspaceBaseMode = Exclude<ResearchWorkspaceMode, 'immersive'>
 export type DigestSortMode = 'default' | 'relevance' | 'institution' | 'diversity'
+
+export const RESEARCH_WORKSPACE_MODE_CONTRACTS = {
+  card: { purpose: 'triage', description: '快速判断单篇论文是否值得继续阅读' },
+  list: { purpose: 'manage', description: '批量浏览、筛选和管理论文集合' },
+  immersive: { purpose: 'understand', description: '围绕单篇论文持续阅读、核验证据并推进研究动作' },
+} as const satisfies Record<ResearchWorkspaceMode, {
+  purpose: 'triage' | 'manage' | 'understand'
+  description: string
+}>
 
 export interface ResearchWorkspacePaper {
   paper_id: string
@@ -16,6 +26,7 @@ export interface UseResearchWorkspaceOptions<T extends ResearchWorkspacePaper> {
   papers: Ref<T[]>
   initialMode?: ResearchWorkspaceMode
   supportedModes?: readonly ResearchWorkspaceMode[]
+  immersiveFallbackMode?: ResearchWorkspaceBaseMode
   pageSize?: number
 }
 
@@ -51,6 +62,10 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
   const mode = ref<ResearchWorkspaceMode>(
     supportedModes.includes(requestedMode) ? requestedMode : fallbackMode,
   )
+  const fallbackBaseMode = options.immersiveFallbackMode
+    ?? (supportedModes.includes('list') ? 'list' : supportedModes.find(item => item !== 'immersive'))
+    ?? 'card'
+  const immersiveReturnMode = ref<ResearchWorkspaceBaseMode>(fallbackBaseMode)
   const sortMode = ref<DigestSortMode>('default')
   const topicFilter = ref('')
   const currentIndex = ref(0)
@@ -97,7 +112,36 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
 
   function setMode(nextMode: ResearchWorkspaceMode): boolean {
     if (!supportedModes.includes(nextMode)) return false
+    if (nextMode === 'immersive' && mode.value !== 'immersive') {
+      immersiveReturnMode.value = mode.value as ResearchWorkspaceBaseMode
+    } else if (nextMode !== 'immersive') {
+      immersiveReturnMode.value = nextMode
+    }
     mode.value = nextMode
+    return true
+  }
+
+  function setImmersiveReturnMode(nextMode: ResearchWorkspaceBaseMode): boolean {
+    if (!supportedModes.includes(nextMode)) return false
+    immersiveReturnMode.value = nextMode
+    return true
+  }
+
+  function enterImmersive(sourceMode?: ResearchWorkspaceBaseMode): boolean {
+    if (!supportedModes.includes('immersive')) return false
+    if (sourceMode && !setImmersiveReturnMode(sourceMode)) return false
+    if (!sourceMode && mode.value !== 'immersive') {
+      immersiveReturnMode.value = mode.value as ResearchWorkspaceBaseMode
+    }
+    mode.value = 'immersive'
+    return true
+  }
+
+  function exitImmersive(): boolean {
+    if (mode.value !== 'immersive') return false
+    mode.value = supportedModes.includes(immersiveReturnMode.value)
+      ? immersiveReturnMode.value
+      : fallbackBaseMode
     return true
   }
 
@@ -155,6 +199,7 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
 
   return {
     mode,
+    immersiveReturnMode,
     sortMode,
     topicFilter,
     currentIndex,
@@ -170,6 +215,9 @@ export function useResearchWorkspace<T extends ResearchWorkspacePaper>(
     pagedPapers,
     availableCategories,
     setMode,
+    setImmersiveReturnMode,
+    enterImmersive,
+    exitImmersive,
     selectIndex,
     selectPaperById,
     rememberCurrentIndex,

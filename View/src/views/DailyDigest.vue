@@ -88,10 +88,15 @@ const {
   togglePaperSelection,
   selectPaperIds,
   clearPaperSelection,
+  immersiveReturnMode,
+  setImmersiveReturnMode,
+  enterImmersive,
+  exitImmersive,
 } = useResearchWorkspace({
   papers,
   pageSize: LIST_PAGE_SIZE,
   supportedModes: ['card', 'list', 'immersive'],
+  immersiveFallbackMode: 'list',
 })
 
 useWorkspaceRouteState({
@@ -100,9 +105,12 @@ useWorkspaceRouteState({
   mode: digestViewMode,
   currentPaperId,
   paperIds: computed(() => displayPapers.value.map(paper => paper.paper_id)),
+  immersiveReturnMode,
   setMode: setDigestViewMode,
+  setImmersiveReturnMode,
   selectPaperById: selectDigestPaperById,
   paperQueryKey: 'digest_paper',
+  sourceQueryKey: 'source',
 })
 
 // Digest statistics from API response (used in stats bar)
@@ -176,17 +184,24 @@ const { kbTree, activeFolderId, compareTree, showSidebar, loadKbTree, loadCompar
 const knowledgeWorkspaceActive = ref(false)
 
 const sidebarWasOpenBeforeImmersive = ref(true)
+const listScrollRef = ref<HTMLElement | null>(null)
+const listScrollTopBeforeImmersive = ref(0)
 watch(digestViewMode, (mode, previousMode) => {
   if (mode === 'immersive') {
+    if (previousMode === 'list') {
+      listScrollTopBeforeImmersive.value = listScrollRef.value?.scrollTop ?? 0
+    }
     sidebarWasOpenBeforeImmersive.value = showSidebar.value
     showSidebar.value = false
-  } else if (previousMode === 'immersive' && sidebarWasOpenBeforeImmersive.value) {
-    showSidebar.value = true
+  } else if (previousMode === 'immersive') {
+    if (sidebarWasOpenBeforeImmersive.value) showSidebar.value = true
+    if (mode === 'list') {
+      void nextTick(() => listScrollRef.value?.scrollTo({ top: listScrollTopBeforeImmersive.value }))
+    }
   }
 }, { immediate: true })
 
 // List mode pagination derived state
-const listScrollRef = ref<HTMLElement | null>(null)
 function listGoPage(page: number) {
   listPage.value = page
   listScrollRef.value?.scrollTo({ top: 0, behavior: 'smooth' })
@@ -858,7 +873,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (digestViewMode.value === 'immersive') {
     if (e.key === 'Escape' || e.key === 'l' || e.key === 'L') {
       e.preventDefault()
-      setDigestViewMode('list')
+      exitImmersive()
       return
     }
     if (!currentPaper.value || loading.value) return
@@ -912,7 +927,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (digestViewMode.value === 'list') {
     if (e.key === 'i' || e.key === 'I') {
       e.preventDefault()
-      setDigestViewMode('immersive')
+      enterImmersive('list')
       return
     }
     if (e.key === 'Escape' && listInspectorOpen.value) {
@@ -3236,6 +3251,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             :bookmarked="bookmarkedPaperIds.has(currentPaper.paper_id)"
             :can-go-previous="currentIndex > 0"
             :can-go-next="currentIndex < displayPapers.length - 1"
+            :return-mode="immersiveReturnMode"
             @previous="navigateImmersive(-1)"
             @next="navigateImmersive(1)"
             @skip="skip"
@@ -3246,7 +3262,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             @toggle-bookmark="bookmarkListPaper(currentPaper)"
             @start-research="startListResearch(currentPaper)"
             @select-related="openImmersiveRelated"
-            @change-mode="setDigestViewMode"
+            @exit="exitImmersive"
             @login="router.push({ path: '/login', query: { redirect: route.fullPath } })"
           />
           <!-- ===== CARD VIEW ===== -->

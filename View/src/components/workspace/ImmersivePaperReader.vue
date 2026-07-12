@@ -9,11 +9,9 @@ import arrowRightIcon from '../../assets/heroicons/arrow-right.svg'
 import beakerIcon from '../../assets/heroicons/beaker.svg'
 import bookOpenIcon from '../../assets/heroicons/book-open.svg'
 import bookmarkIcon from '../../assets/heroicons/bookmark.svg'
-import chartIcon from '../../assets/heroicons/chart-bar-square.svg'
 import documentIcon from '../../assets/heroicons/document-text.svg'
 import heartIcon from '../../assets/heroicons/heart.svg'
 import scaleIcon from '../../assets/heroicons/scale.svg'
-import squaresIcon from '../../assets/heroicons/squares-2x2.svg'
 import xMarkIcon from '../../assets/heroicons/x-mark.svg'
 const props = defineProps<{
   paper: PaperSummary
@@ -25,6 +23,7 @@ const props = defineProps<{
   bookmarked?: boolean
   canGoPrevious?: boolean
   canGoNext?: boolean
+  returnMode?: 'card' | 'list'
 }>()
 
 const emit = defineEmits<{
@@ -38,7 +37,7 @@ const emit = defineEmits<{
   toggleBookmark: []
   startResearch: []
   selectRelated: [paperId: string]
-  changeMode: [mode: 'card' | 'list']
+  exit: []
   login: []
 }>()
 
@@ -87,26 +86,15 @@ const evidenceCards = computed(() => {
 })
 
 const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖标题'] || paper.paper_id
+const returnLabel = computed(() => props.returnMode === 'card' ? '返回卡片模式' : '返回列表模式')
 </script>
 
 <template>
   <section class="immersive-reader" aria-label="沉浸论文阅读">
     <nav class="immersive-reader__rail" aria-label="沉浸阅读快捷入口">
-      <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" aria-label="返回论文列表" title="返回论文列表" @click="emit('changeMode', 'list')">
+      <button type="button" class="immersive-reader__rail-button immersive-reader__rail-button--active" :aria-label="returnLabel" :title="returnLabel" @click="emit('exit')">
         <img :src="bookOpenIcon" alt="">
-        <span class="sr-only">返回论文列表</span>
-      </button>
-      <button type="button" class="immersive-reader__rail-button" :class="{ 'immersive-reader__rail-button--marked': collected }" :aria-label="collected ? '已收藏到知识库' : '收藏到知识库'" title="收藏到知识库" @click="emit('collect')">
-        <img :src="bookmarkIcon" alt="">
-        <span class="sr-only">收藏到知识库</span>
-      </button>
-      <button type="button" class="immersive-reader__rail-button" aria-label="与相关文章对比" title="与相关文章对比" @click="emit('compare')">
-        <img :src="squaresIcon" alt="">
-        <span class="sr-only">与相关文章对比</span>
-      </button>
-      <button type="button" class="immersive-reader__rail-button" aria-label="开始深度研究" title="开始深度研究" @click="emit('startResearch')">
-        <img :src="chartIcon" alt="">
-        <span class="sr-only">开始深度研究</span>
+        <span class="immersive-reader__rail-label">返回</span>
       </button>
     </nav>
 
@@ -299,16 +287,17 @@ const relatedTitle = (paper: PaperSummary) => paper.short_title || paper['📖�
   height: 23px;
 }
 
+.immersive-reader__rail-label {
+  font-size: 9px;
+  font-weight: 700;
+}
+
 .immersive-reader__rail-button:hover,
 .immersive-reader__rail-button:focus-visible,
 .immersive-reader__rail-button--active {
   border-color: color-mix(in srgb, var(--color-tinder-pink) 22%, transparent);
   background: color-mix(in srgb, var(--color-tinder-pink) 8%, transparent);
   color: var(--color-tinder-pink);
-}
-
-.immersive-reader__rail-button--marked {
-  color: var(--color-tag-score-high);
 }
 
 .immersive-reader__document,

@@ -96,18 +96,23 @@ describe('ImmersivePaperReader', () => {
         total: 2,
         canGoPrevious: false,
         canGoNext: true,
+        returnMode: 'card',
       },
     })
 
     const buttons = wrapper.findAll('button')
+    await wrapper.find('button[aria-label="返回卡片模式"]').trigger('click')
     await wrapper.find('button[aria-label="下一篇论文"]').trigger('click')
     await buttons.find(button => button.text().includes('深入追踪这条线索'))?.trigger('click')
     await buttons.find(button => button.text().includes('与相关文章比较'))?.trigger('click')
     await wrapper.find('.immersive-reader__related-paper').trigger('click')
 
+    expect(wrapper.emitted('exit')).toHaveLength(1)
     expect(wrapper.emitted('next')).toHaveLength(1)
     expect(wrapper.emitted('startResearch')).toHaveLength(1)
     expect(wrapper.emitted('compare')).toHaveLength(1)
     expect(wrapper.emitted('selectRelated')).toEqual([[related.paper_id]])
+    expect(buttons.filter(button => button.text().includes('与相关文章比较'))).toHaveLength(1)
+    expect(buttons.filter(button => button.text().includes('深入追踪这条线索'))).toHaveLength(1)
   })
 })
