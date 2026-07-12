@@ -111,55 +111,94 @@ function uniqueItems(...groups: unknown[]): string[] {
   return [...new Set(groups.flatMap(textItems))]
 }
 
-const objectiveItems = computed(() => uniqueItems(
-  researchQuestion.value,
-  assetBlocks.value?.objective?.research_questions,
-  mainContribution.value,
-  assetBlocks.value?.objective?.claimed_contributions,
-  keyThoughts.value.slice(0, 3),
-))
-const methodItems = computed(() => uniqueItems(
-  assetBlocks.value?.method?.architecture_or_paradigm,
-  assetBlocks.value?.method?.key_mechanisms,
-  assetBlocks.value?.method?.novelty,
-  assetBlocks.value?.method?.training_or_optimization,
-  assetBlocks.value?.method?.inference_strategy,
-  assetBlocks.value?.method?.text,
-  assetBlocks.value?.method?.bullets,
-))
-const evaluationItems = computed(() => uniqueItems(
-  assetBlocks.value?.data?.datasets_or_materials,
-  assetBlocks.value?.data?.data_scale,
-  assetBlocks.value?.experiment_or_argumentation?.design,
-  assetBlocks.value?.experiment_or_argumentation?.baselines_or_comparators,
-  assetBlocks.value?.experiment?.text,
-  assetBlocks.value?.metrics?.metric_names,
-  assetBlocks.value?.metrics?.evaluation_protocol,
-))
-const resultItems = computed(() => uniqueItems(
-  assetBlocks.value?.results?.numerical_results,
-  assetBlocks.value?.results?.main_findings,
-  assetBlocks.value?.results?.phenomena,
-  assetBlocks.value?.evidence_chain?.strongly_supported_claims,
-  assetBlocks.value?.evidence_chain?.key_evidence_from_figures_tables_appendix,
-))
-const limitationItems = computed(() => uniqueItems(
-  assetBlocks.value?.limitations?.scope_boundaries,
-  assetBlocks.value?.limitations?.threats_to_validity,
-  assetBlocks.value?.limitations?.generalization_limits,
-  assetBlocks.value?.evidence_chain?.unsupported_or_overextended_claims,
-  assetBlocks.value?.critical_analysis?.weakest_argument,
-  assetBlocks.value?.critical_analysis?.needs_more_evidence,
-))
+type ReadingGroupTone = 'neutral' | 'claim' | 'evidence' | 'inference' | 'warning'
+type ReadingGroup = {
+  key: string
+  label: string
+  hint?: string
+  tone: ReadingGroupTone
+  items: string[]
+}
+
+function readingGroup(
+  key: string,
+  label: string,
+  values: unknown[],
+  tone: ReadingGroupTone = 'neutral',
+  hint = '',
+): ReadingGroup {
+  return { key, label, hint, tone, items: uniqueItems(...values) }
+}
+
+function populatedGroups(groups: ReadingGroup[]): ReadingGroup[] {
+  return groups.filter(group => group.items.length > 0)
+}
+
+function withLegacyFallback(groups: ReadingGroup[], label: string, ...fallbackValues: unknown[]): ReadingGroup[] {
+  if (groups.some(group => group.items.length > 0)) return populatedGroups(groups)
+  return populatedGroups([readingGroup('legacy', label, fallbackValues)])
+}
+
+const objectiveGroups = computed(() => populatedGroups([
+  readingGroup('questions', '研究问题', [researchQuestion.value, assetBlocks.value?.objective?.research_questions]),
+  readingGroup(
+    'contributions',
+    '作者声称的贡献',
+    [mainContribution.value, assetBlocks.value?.objective?.claimed_contributions],
+    'claim',
+    '这是作者对新增工作的主张，仍需结合结果与证据核验。',
+  ),
+  readingGroup('reading-clues', '阅读线索', [keyThoughts.value.slice(0, 3)]),
+]))
+const methodGroups = computed(() => withLegacyFallback([
+  readingGroup('architecture', '架构或范式', [assetBlocks.value?.method?.architecture_or_paradigm]),
+  readingGroup('mechanisms', '关键机制', [assetBlocks.value?.method?.key_mechanisms]),
+  readingGroup('training', '训练与优化', [assetBlocks.value?.method?.training_required, assetBlocks.value?.method?.training_or_optimization]),
+  readingGroup('inference', '推理策略', [assetBlocks.value?.method?.inference_strategy]),
+  readingGroup('novelty', '方法创新点', [assetBlocks.value?.method?.novelty], 'claim', '创新性属于论文定位，应与基线和消融结果对照阅读。'),
+], '方法概述', assetBlocks.value?.method?.text, assetBlocks.value?.method?.bullets))
+const evaluationGroups = computed(() => withLegacyFallback([
+  readingGroup('datasets', '数据集或研究材料', [assetBlocks.value?.data?.datasets_or_materials]),
+  readingGroup('data-context', '数据来源、规模与范围', [assetBlocks.value?.data?.data_source, assetBlocks.value?.data?.data_scale, assetBlocks.value?.data?.domain_scope]),
+  readingGroup('design', '实验或论证设计', [assetBlocks.value?.experiment_or_argumentation?.design, assetBlocks.value?.experiment_or_argumentation?.argumentation_structure]),
+  readingGroup('baselines', '基线与对照', [assetBlocks.value?.experiment_or_argumentation?.baselines_or_comparators]),
+  readingGroup('variables', '变量与模块', [assetBlocks.value?.experiment_or_argumentation?.variables_or_modules]),
+  readingGroup('ablation', '消融与反事实', [assetBlocks.value?.experiment_or_argumentation?.ablation_or_counterfactual]),
+  readingGroup('metrics', '评价指标', [assetBlocks.value?.metrics?.metric_names]),
+  readingGroup('protocol', '评估协议', [assetBlocks.value?.metrics?.evaluation_protocol, assetBlocks.value?.metrics?.judge_or_annotation_method]),
+], '评估概述', assetBlocks.value?.data?.text, assetBlocks.value?.experiment?.text, assetBlocks.value?.metrics?.text))
+const resultGroups = computed(() => withLegacyFallback([
+  readingGroup('numbers', '数值证据', [assetBlocks.value?.results?.numerical_results], 'evidence', '优先核对指标、比较对象与原文表格。'),
+  readingGroup('findings', '主要发现', [assetBlocks.value?.results?.main_findings]),
+  readingGroup('phenomena', '观察到的现象', [assetBlocks.value?.results?.phenomena]),
+  readingGroup('mechanism-explanations', '机制解释', [assetBlocks.value?.results?.mechanism_explanations], 'inference', '作者解释或分析推断，不等同于已验证的因果机制。'),
+  readingGroup('supported-claims', '证据支持较强的结论', [assetBlocks.value?.evidence_chain?.strongly_supported_claims], 'evidence'),
+  readingGroup('source-evidence', '关键图表与附录证据', [assetBlocks.value?.evidence_chain?.key_evidence_from_figures_tables_appendix], 'evidence'),
+], '结果概述', assetBlocks.value?.results?.text, assetBlocks.value?.results?.bullets))
+const limitationGroups = computed(() => populatedGroups([
+  readingGroup('scope', '适用范围', [assetBlocks.value?.limitations?.scope_boundaries]),
+  readingGroup('validity', '有效性威胁', [assetBlocks.value?.limitations?.threats_to_validity], 'warning'),
+  readingGroup('generalization', '外推限制', [assetBlocks.value?.limitations?.generalization_limits], 'warning'),
+  readingGroup('weak-evidence', '证据支持较弱', [assetBlocks.value?.evidence_chain?.weakly_supported_claims], 'warning'),
+  readingGroup('unsupported', '未充分支持或可能过度外推', [assetBlocks.value?.evidence_chain?.unsupported_or_overextended_claims], 'warning'),
+  readingGroup('needs-evidence', '仍需补充的证据', [assetBlocks.value?.critical_analysis?.weakest_argument, assetBlocks.value?.critical_analysis?.needs_more_evidence], 'warning'),
+]))
+const analysisGroups = computed(() => populatedGroups([
+  readingGroup('editor-summary', '编辑分析', [analysisSummary.value]),
+  readingGroup('strongest-argument', '最有力的论证', [assetBlocks.value?.critical_analysis?.strongest_argument], 'evidence'),
+  readingGroup('substantive', '实质性贡献', [assetBlocks.value?.critical_analysis?.substantive_contributions]),
+  readingGroup('framing', '包装与表述成分', [assetBlocks.value?.critical_analysis?.packaging_or_framing_elements], 'inference'),
+]))
+const verificationPriorities = computed(() => uniqueItems(assetBlocks.value?.critical_analysis?.reproduction_or_extension_priorities))
 const readingPercent = computed(() => Math.round(readingProgress.value * 100))
 const readingSections = computed(() => [
   { id: 'reader-overview', label: '导读', visible: Boolean(recommendation.value || summary.value?.abstract) },
-  { id: 'reader-objective', label: '研究问题与贡献', visible: objectiveItems.value.length > 0 },
-  { id: 'reader-method', label: '方法与机制', visible: methodItems.value.length > 0 },
-  { id: 'reader-evaluation', label: '数据与评估', visible: evaluationItems.value.length > 0 },
-  { id: 'reader-results', label: '结果与证据', visible: resultItems.value.length > 0 },
-  { id: 'reader-limitations', label: '局限性与边界', visible: limitationItems.value.length > 0 },
-  { id: 'reader-analysis', label: '分析总结', visible: analysisSummary.value.length > 0 },
+  { id: 'reader-objective', label: '研究问题与贡献', visible: objectiveGroups.value.length > 0 },
+  { id: 'reader-method', label: '方法与机制', visible: methodGroups.value.length > 0 },
+  { id: 'reader-evaluation', label: '数据与评估', visible: evaluationGroups.value.length > 0 },
+  { id: 'reader-results', label: '结果与证据', visible: resultGroups.value.length > 0 },
+  { id: 'reader-limitations', label: '局限性与边界', visible: limitationGroups.value.length > 0 },
+  { id: 'reader-analysis', label: '分析总结', visible: analysisGroups.value.length > 0 },
   { id: 'reader-resources', label: '继续核验', visible: true },
 ].filter(section => section.visible))
 
@@ -274,62 +313,79 @@ function scrollToSection(sectionId: string) {
           </div>
         </section>
 
-        <section v-if="objectiveItems.length" id="reader-objective" class="immersive-reader__section">
+        <section v-if="objectiveGroups.length" id="reader-objective" class="immersive-reader__section">
           <div class="immersive-reader__section-heading">
             <h2>研究问题与贡献</h2>
             <span>论文要解决什么，以及新增了什么</span>
           </div>
-          <ol class="immersive-reader__numbered-list">
-            <li v-for="item in objectiveItems" :key="item">{{ item }}</li>
-          </ol>
-        </section>
-
-        <section v-if="methodItems.length" id="reader-method" class="immersive-reader__section">
-          <div class="immersive-reader__section-heading">
-            <h2>方法与机制</h2>
-            <span>架构、关键机制与优化方式</span>
-          </div>
-          <ul>
-            <li v-for="item in methodItems" :key="item">{{ item }}</li>
-          </ul>
-        </section>
-
-        <section v-if="evaluationItems.length" id="reader-evaluation" class="immersive-reader__section">
-          <div class="immersive-reader__section-heading">
-            <h2>数据与评估</h2>
-            <span>数据集、基线和评价协议</span>
-          </div>
-          <ul>
-            <li v-for="item in evaluationItems" :key="item">{{ item }}</li>
-          </ul>
-        </section>
-
-        <section v-if="resultItems.length" id="reader-results" class="immersive-reader__section">
-          <div class="immersive-reader__section-heading">
-            <h2>结果与证据</h2>
-            <span>优先展示数值结果和强支持结论</span>
-          </div>
-          <div class="immersive-reader__evidence-list">
-            <article v-for="(item, index) in resultItems" :key="item">
-              <span>{{ index + 1 }}</span>
-              <p>{{ item }}</p>
+          <div class="immersive-reader__groups">
+            <article v-for="group in objectiveGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
             </article>
           </div>
         </section>
 
-        <section v-if="limitationItems.length" id="reader-limitations" class="immersive-reader__section immersive-reader__limitations">
+        <section v-if="methodGroups.length" id="reader-method" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>方法与机制</h2>
+            <span>架构、关键机制与优化方式</span>
+          </div>
+          <div class="immersive-reader__groups">
+            <article v-for="group in methodGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="evaluationGroups.length" id="reader-evaluation" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>数据与评估</h2>
+            <span>数据集、基线和评价协议</span>
+          </div>
+          <div class="immersive-reader__groups">
+            <article v-for="group in evaluationGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="resultGroups.length" id="reader-results" class="immersive-reader__section">
+          <div class="immersive-reader__section-heading">
+            <h2>结果与证据</h2>
+            <span>优先展示数值结果和强支持结论</span>
+          </div>
+          <div class="immersive-reader__groups">
+            <article v-for="group in resultGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+            </article>
+          </div>
+        </section>
+
+        <section v-if="limitationGroups.length" id="reader-limitations" class="immersive-reader__section immersive-reader__limitations">
           <div class="immersive-reader__section-heading">
             <h2>局限性与适用边界</h2>
             <span>阅读结论时需要保留的条件</span>
           </div>
-          <ul>
-            <li v-for="item in limitationItems" :key="item">{{ item }}</li>
-          </ul>
+          <div class="immersive-reader__groups">
+            <article v-for="group in limitationGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+            </article>
+          </div>
         </section>
 
-        <section v-if="analysisSummary.length" id="reader-analysis" class="immersive-reader__section immersive-reader__analysis">
-          <h2>分析总结</h2>
-          <p v-for="item in analysisSummary" :key="item">{{ item }}</p>
+        <section v-if="analysisGroups.length" id="reader-analysis" class="immersive-reader__section immersive-reader__analysis">
+          <div class="immersive-reader__section-heading"><h2>分析总结</h2><span>区分编辑判断、强论证与表述包装</span></div>
+          <div class="immersive-reader__groups">
+            <article v-for="group in analysisGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+              <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
+              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+            </article>
+          </div>
         </section>
 
         <section id="reader-resources" class="immersive-reader__section immersive-reader__resources">
@@ -338,6 +394,10 @@ function scrollToSection(sectionId: string) {
             <span>回到原文确认关键证据</span>
           </div>
           <p>结构化解读用于快速定位问题，重要结论仍建议结合论文原文、图表和附录核验。</p>
+          <div v-if="verificationPriorities.length" class="immersive-reader__verification-priorities">
+            <h3>优先复现或扩展</h3>
+            <ul><li v-for="item in verificationPriorities" :key="item">{{ item }}</li></ul>
+          </div>
           <div class="immersive-reader__resource-actions">
             <button type="button" @click="emit('openPdf')"><img :src="documentIcon" alt="">打开论文 PDF</button>
             <button type="button" @click="emit('openDetail')"><img :src="bookOpenIcon" alt="">查看完整解析</button>
@@ -744,6 +804,82 @@ function scrollToSection(sectionId: string) {
   left: 0;
   color: var(--color-tinder-pink);
   content: '•';
+}
+
+.immersive-reader__groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.immersive-reader__group {
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
+}
+
+.immersive-reader__group.is-claim {
+  border-color: color-mix(in srgb, #d99a00 28%, var(--color-border));
+  background: color-mix(in srgb, #f2b705 5%, var(--color-bg-card));
+}
+
+.immersive-reader__group.is-evidence {
+  border-color: color-mix(in srgb, var(--color-tinder-blue) 26%, var(--color-border));
+  background: color-mix(in srgb, var(--color-tinder-blue) 4%, var(--color-bg-card));
+}
+
+.immersive-reader__group.is-inference {
+  border-color: color-mix(in srgb, #8657d9 24%, var(--color-border));
+  background: color-mix(in srgb, #8657d9 4%, var(--color-bg-card));
+}
+
+.immersive-reader__group.is-warning {
+  border-color: color-mix(in srgb, var(--color-tinder-pink) 24%, var(--color-border));
+}
+
+.immersive-reader__group-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.immersive-reader__group-heading h3,
+.immersive-reader__verification-priorities h3 {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.immersive-reader__group-heading p {
+  max-width: 62%;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 9px;
+  line-height: 1.55;
+  text-align: right;
+}
+
+.immersive-reader__group ul {
+  margin-top: 7px;
+}
+
+.immersive-reader__group li {
+  margin-top: 5px;
+  font-size: 11px;
+  line-height: 1.72;
+}
+
+.immersive-reader__verification-priorities {
+  margin-top: 13px;
+  padding: 12px 14px;
+  border-left: 3px solid color-mix(in srgb, var(--color-tinder-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--color-tinder-blue) 4%, transparent);
 }
 
 .immersive-reader__numbered-list {
@@ -1156,6 +1292,20 @@ function scrollToSection(sectionId: string) {
 
   .immersive-reader__header h1 {
     font-size: 23px;
+  }
+
+  .immersive-reader__groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .immersive-reader__group-heading {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .immersive-reader__group-heading p {
+    max-width: none;
+    text-align: left;
   }
 
   .immersive-reader__dock {

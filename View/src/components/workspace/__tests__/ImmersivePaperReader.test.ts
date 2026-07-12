@@ -48,14 +48,36 @@ const detail: PaperDetailResponse = {
     url: `https://arxiv.org/abs/${paper.paper_id}`,
     year: 2026,
     blocks: {
-      objective: { text: '', bullets: [], research_questions: ['长期轨迹中哪些状态值得主动重新激活？'] },
-      method: { text: '', bullets: [], architecture_or_paradigm: '主动记忆干预架构', key_mechanisms: ['通过工具调用更新三部分记忆库。'] },
+      objective: {
+        text: '', bullets: [],
+        research_questions: ['长期轨迹中哪些状态值得主动重新激活？'],
+        claimed_contributions: ['提出主动记忆干预框架。'],
+      },
+      method: {
+        text: '', bullets: [], architecture_or_paradigm: '主动记忆干预架构',
+        key_mechanisms: ['通过工具调用更新三部分记忆库。'],
+        inference_strategy: '按固定间隔评估是否干预记忆。',
+      },
       data: { text: '', bullets: [], datasets_or_materials: ['LongBench-Agent'], data_scale: '6 类长期任务' },
-      experiment_or_argumentation: { text: '', bullets: [], design: '比较固定检索与主动干预。', baselines_or_comparators: ['被动 RAG'] },
-      metrics: { text: '', bullets: [], metric_names: ['任务成功率'] },
-      results: { text: '', bullets: [], numerical_results: ['长期任务成功率提升 18–27%。'] },
-      evidence_chain: { text: '', bullets: [], strongly_supported_claims: ['主动干预在长时程任务上更稳定。'] },
+      experiment_or_argumentation: {
+        text: '', bullets: [], design: '比较固定检索与主动干预。',
+        baselines_or_comparators: ['被动 RAG'], ablation_or_counterfactual: '移除主动干预后性能下降。',
+      },
+      metrics: { text: '', bullets: [], metric_names: ['任务成功率'], evaluation_protocol: '在 6 类任务上统一评测。' },
+      results: {
+        text: '', bullets: [], numerical_results: ['长期任务成功率提升 18–27%。'],
+        main_findings: ['主动干预在长时程任务上更稳定。'],
+        mechanism_explanations: ['作者解释：主动更新减少了关键状态遗忘。'],
+      },
+      evidence_chain: {
+        text: '', bullets: [], strongly_supported_claims: ['主动干预在长时程任务上更稳定。'],
+        weakly_supported_claims: ['对开放环境的长期泛化尚缺少充分证据。'],
+      },
       limitations: { text: '', bullets: [], scope_boundaries: ['仅覆盖工具型智能体。'], threats_to_validity: ['仍需在更多真实任务上验证。'] },
+      critical_analysis: {
+        text: '', bullets: [], strongest_argument: '跨六类任务的一致增益最有说服力。',
+        reproduction_or_extension_priorities: ['在真实开放环境中复现长期任务结果。'],
+      },
     },
   },
   date: '2026-07-11',
@@ -88,11 +110,22 @@ describe('ImmersivePaperReader', () => {
     expect(wrapper.text()).toContain('主动记忆干预改善长期记忆智能体')
     expect(wrapper.text()).toContain('Yifan Wu, Lizhu Zhang')
     expect(wrapper.text()).toContain('研究问题与贡献')
+    const groups = wrapper.findAll('.immersive-reader__group')
+    const questionGroup = groups.find(group => group.find('h3').text() === '研究问题')
+    const contributionGroup = groups.find(group => group.find('h3').text() === '作者声称的贡献')
+    expect(questionGroup?.text()).toContain('长期轨迹中哪些状态值得主动重新激活？')
+    expect(questionGroup?.text()).not.toContain('提出主动记忆干预框架。')
+    expect(contributionGroup?.classes()).toContain('is-claim')
+    expect(contributionGroup?.text()).toContain('仍需结合结果与证据核验')
     expect(wrapper.text()).toContain('主动记忆干预架构')
     expect(wrapper.text()).toContain('LongBench-Agent')
     expect(wrapper.text()).toContain('长期任务成功率提升 18–27%')
+    expect(groups.find(group => group.find('h3').text() === '数值证据')?.classes()).toContain('is-evidence')
+    expect(groups.find(group => group.find('h3').text() === '机制解释')?.text()).toContain('不等同于已验证的因果机制')
     expect(wrapper.text()).toContain('局限性与适用边界')
+    expect(wrapper.text()).toContain('证据支持较弱')
     expect(wrapper.text()).toContain('仍需在更多真实任务上验证。')
+    expect(wrapper.text()).toContain('优先复现或扩展')
     expect(wrapper.text()).toContain('2 / 34')
     expect(wrapper.find('[role="progressbar"]').attributes('aria-valuenow')).toBe('0')
 

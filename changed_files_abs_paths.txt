@@ -211,3 +211,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchSessionViewer.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\researchMarkdown.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\researchMarkdown.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\evaluate_paper_assets_prompts.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\immersive_content_prompt_ab.md
