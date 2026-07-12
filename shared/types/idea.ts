@@ -17,6 +17,58 @@ export interface IdeaAtom {
   source_file: string
   created_at: string
   updated_at: string
+  /** Research-memory fields (added via migration) */
+  confidence?: number
+  status?: 'active' | 'archived'
+  source_scope?: string
+}
+
+// ---------------------------------------------------------------------------
+// Research Memory types
+// ---------------------------------------------------------------------------
+
+export interface ResearchMemoryGroup {
+  type: 'claim' | 'method' | 'setup' | 'limitation' | 'tag'
+  label: string
+  atoms: IdeaAtom[]
+  count: number
+}
+
+export interface ResearchMemory {
+  paper_id: string
+  has_atoms: boolean
+  atom_count: number
+  last_extracted_at: string | null
+  groups: ResearchMemoryGroup[]
+}
+
+export interface ResearchMemoryResponse {
+  ok: boolean
+  paper_id: string
+  has_atoms: boolean
+  atom_count: number
+  last_extracted_at: string | null
+  groups: ResearchMemoryGroup[]
+}
+
+export interface ResearchMemoryExtractResponse extends ResearchMemoryResponse {
+  atoms_created: number
+}
+
+export interface ResearchMemoryCluster {
+  cluster_id: string
+  label: string
+  paper_ids: string[]
+  paper_count: number
+  atom_ids: number[]
+  top_tags: string[]
+  summary_snippet: string
+}
+
+export interface ResearchMemoryClustersResponse {
+  ok: boolean
+  clusters: ResearchMemoryCluster[]
+  count: number
 }
 
 export interface IdeaQuestion {
@@ -65,6 +117,26 @@ export interface IdeaCandidate {
   tags: string[]
   created_at: string
   updated_at: string
+  /** 生成来源类型：pipeline / paper_inspiration / question_pipeline / manual */
+  source_type?: string
+  /** 直接来源论文 ID（paper_inspiration 时填写） */
+  source_paper_id?: string
+}
+
+/**
+ * 来源论文的轻量元数据，由 /api/idea/source-papers 接口返回。
+ * 用于在灵感详情面板展示人类可读的论文信息，而不只是 paper_id。
+ */
+export interface IdeaSourcePaper {
+  paper_id: string
+  /** 人类可读标题；无法解析时回退到 paper_id */
+  title: string
+  /** 摘要或推荐理由，可能为空 */
+  abstract?: string
+  /** 机构名称 */
+  institution?: string
+  /** 数据来源：kb = 知识库, user_upload = 上传论文, pipeline = 推荐流水线, unknown */
+  source_type?: 'kb' | 'user_upload' | 'pipeline' | 'unknown'
 }
 
 export interface IdeaPlan {
@@ -211,4 +283,8 @@ export interface IdeaDigestResponse {
   total_available: number
   quota_limit: number | null
   tier: string
+  /** The actual date the candidates come from (may differ from the requested date on fallback). */
+  effective_date: string
+  /** True when the backend fell back to an earlier date because the requested date had no ideas. */
+  is_fallback: boolean
 }

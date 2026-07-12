@@ -1,24 +1,29 @@
 /**
- * Shared API layer — used by mobile_new/ (web browser) and as a reference for shared/api/.
+ * Shared API layer — used by all frontends: mobile_new/, View/ (desktop/Tauri), and web browser.
  *
- * ARCHITECTURE NOTE — Two API implementations:
+ * ARCHITECTURE
  * ─────────────────────────────────────────────
- * This directory (shared/api/) is used by the mobile web app (mobile_new/).
- * View/src/api/index.ts is a second, parallel implementation used by the desktop (View/)
- * and Tauri apps. It adds Tauri-specific IPC transport (tauriFetchText, tauriFetch*) and
- * localStorage session-token support that the mobile browser does not need.
+ * All HTTP traffic goes through the active ApiTransport (see shared/api/client.ts).
  *
- * MIGRATION PATH (TODO):
- *   1. Extract the transport layer from View/src/api/index.ts into an injectable adapter
- *      interface (e.g. ApiTransport with send/stream/download methods).
- *   2. Implement two adapters: AxiosTransport (shared, for web/mobile) and TauriTransport.
- *   3. Replace View/src/api/index.ts with this shared layer + TauriTransport injected at
- *      app startup via the vite VITE_API_BASE env var.
- *   4. This will reduce the codebase by ~1 500 lines and eliminate contract-drift bugs.
+ *   BrowserTransport (default)
+ *     - Axios with withCredentials: true, baseURL: '/api'
+ *     - SSE streaming via browser fetch()
+ *     - Downloads via fetch + Blob + <a> click
+ *     - Session: httpOnly cookie managed by the server
  *
- * Until that migration, every API change MUST be applied in BOTH places:
- *   - shared/api/<module>.ts   (mobile web)
- *   - View/src/api/index.ts    (desktop / Tauri)
+ *   TauriTransport (desktop app, configured at startup in View/src/api/index.ts)
+ *     - Axios with custom adapter → Rust direct_request / direct_upload
+ *     - SSE streaming via Rust Channel (direct_request_stream)
+ *     - Downloads via Rust direct_download_binary
+ *     - Session: localStorage 'ai4papers_session_id' Bearer header
+ *
+ * To configure at app startup:
+ *   import { configureTransport, TauriTransport } from '@shared/api/client'
+ *   configureTransport(new TauriTransport(import.meta.env.VITE_API_BASE))
+ *
+ * The `http` export is a Proxy — always delegates to the current transport's
+ * Axios instance.  Domain modules import `http` from './http' and continue to
+ * work after configureTransport() is called, without re-import.
  */
 
 // HTTP client
@@ -71,3 +76,15 @@ export * from './admin'
 
 // Download utilities (browser-native, no Tauri IPC)
 export * from './download'
+
+// Preference learning closed loop
+export * from './preference'
+
+// Weekly recap & spaced review cards
+export * from './recap'
+
+// Research radar daily summary
+export * from './radar'
+
+// Task center unified task view
+export * from './task-center'

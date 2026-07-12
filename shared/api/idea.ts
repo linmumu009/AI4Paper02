@@ -1,24 +1,27 @@
 import { http } from './http'
-
-function getAuthHeaders(): Record<string, string> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (typeof document !== 'undefined') {
-    const match = document.cookie.match(/(?:^|;\s*)session_id=([^;]*)/)
-    if (match) headers['Authorization'] = `Bearer ${decodeURIComponent(match[1])}`
-  }
-  return headers
-}
-
+import { apiClient } from './client'
 import type {
-  IdeaAtom, IdeaQuestion, IdeaCandidate, IdeaPlan, IdeaFeedback, IdeaExemplar,
+  IdeaAtom, IdeaCandidate, IdeaPlan, IdeaFeedback, IdeaExemplar,
   IdeaPromptVersion, IdeaBenchmark,
-  IdeaAtomsResponse, IdeaAtomResponse, IdeaQuestionsResponse,
+  IdeaAtomsResponse, IdeaAtomResponse,
   IdeaCandidatesResponse, IdeaCandidateResponse, IdeaPlanResponse,
   IdeaFeedbackResponse, IdeaExemplarsResponse, IdeaPromptVersionsResponse,
-  IdeaBenchmarksResponse, IdeaStatsResponse, IdeaLibraryTreeResponse, IdeaDigestResponse,
+  IdeaBenchmarksResponse, IdeaStatsResponse, IdeaDigestResponse,
+  ResearchMemoryResponse, ResearchMemoryExtractResponse, ResearchMemoryClustersResponse,
 } from '../types/idea'
 
-export async function fetchIdeaAtoms(params?: { atom_type?: string; search?: string; limit?: number; offset?: number }): Promise<IdeaAtomsResponse> {
+// ---------------------------------------------------------------------------
+// Atoms
+// ---------------------------------------------------------------------------
+
+export async function fetchIdeaAtoms(params?: {
+  atom_type?: string
+  search?: string
+  paper_id?: string
+  query?: string
+  limit?: number
+  offset?: number
+}): Promise<IdeaAtomsResponse> {
   const { data } = await http.get<IdeaAtomsResponse>('/idea/atoms', { params })
   return data
 }
@@ -38,12 +41,28 @@ export async function deleteIdeaAtom(atomId: number): Promise<{ ok: boolean }> {
   return data
 }
 
-export async function extractIdeaAtoms(paperId: string, dateStr?: string): Promise<{ ok: boolean; atoms_created: number; atoms: IdeaAtom[] }> {
-  const { data } = await http.post<{ ok: boolean; atoms_created: number; atoms: IdeaAtom[] }>('/idea/atoms/extract', { paper_id: paperId, date_str: dateStr })
+export async function extractIdeaAtoms(
+  paperId: string,
+  dateStr?: string,
+): Promise<{ ok: boolean; atoms_created: number; atoms: IdeaAtom[] }> {
+  const { data } = await http.post<{ ok: boolean; atoms_created: number; atoms: IdeaAtom[] }>(
+    '/idea/atoms/extract',
+    { paper_id: paperId, date_str: dateStr },
+  )
   return data
 }
 
-export async function fetchIdeaCandidates(params?: { status?: string; search?: string; folder_id?: number | null; limit?: number; offset?: number }): Promise<IdeaCandidatesResponse> {
+// ---------------------------------------------------------------------------
+// Candidates
+// ---------------------------------------------------------------------------
+
+export async function fetchIdeaCandidates(params?: {
+  status?: string
+  search?: string
+  folder_id?: number | null
+  limit?: number
+  offset?: number
+}): Promise<IdeaCandidatesResponse> {
   const { data } = await http.get<IdeaCandidatesResponse>('/idea/candidates', { params })
   return data
 }
@@ -53,7 +72,10 @@ export async function fetchIdeaCandidate(candidateId: number): Promise<IdeaCandi
   return data
 }
 
-export async function updateIdeaCandidate(candidateId: number, payload: Partial<IdeaCandidate>): Promise<IdeaCandidateResponse> {
+export async function updateIdeaCandidate(
+  candidateId: number,
+  payload: Partial<IdeaCandidate>,
+): Promise<IdeaCandidateResponse> {
   const { data } = await http.patch<IdeaCandidateResponse>(`/idea/candidates/${candidateId}`, payload)
   return data
 }
@@ -63,22 +85,35 @@ export async function deleteIdeaCandidate(candidateId: number): Promise<{ ok: bo
   return data
 }
 
-export async function generateCandidatesForPaper(paperId: string, force = false): Promise<{ ok: boolean; candidates: IdeaCandidate[]; count: number }> {
-  const { data } = await http.post<{ ok: boolean; candidates: IdeaCandidate[]; count: number }>('/idea/candidates/generate-for-paper', { paper_id: paperId, force })
+export async function generateCandidatesForPaper(
+  paperId: string,
+  force = false,
+): Promise<{ ok: boolean; candidates: IdeaCandidate[]; count: number }> {
+  const { data } = await http.post<{ ok: boolean; candidates: IdeaCandidate[]; count: number }>(
+    '/idea/candidates/generate-for-paper',
+    { paper_id: paperId, force },
+  )
   return data
 }
 
+/**
+ * Generate idea candidates via SSE stream.
+ * Returns a Response whose .body is a ReadableStream of SSE lines.
+ * Works identically in browser (native fetch) and Tauri (Rust IPC channel).
+ */
 export async function generateIdeasStream(payload: {
   question_id?: number
   custom_question?: string
   strategies?: string[]
   reward_id?: number
+  signal?: AbortSignal
 }): Promise<Response> {
-  return fetch('/api/idea/candidates/generate', {
+  const { signal, ...body } = payload
+  return apiClient.stream({
     method: 'POST',
-    headers: getAuthHeaders(),
-    credentials: 'include',
-    body: JSON.stringify(payload),
+    path: '/idea/candidates/generate',
+    body,
+    signal,
   })
 }
 
@@ -86,28 +121,46 @@ export async function reviewIdeaCandidate(
   candidateId: number,
   payload: { action: 'approve' | 'reject' | 'revise'; feedback?: string; scores?: Record<string, number> },
 ): Promise<IdeaCandidateResponse> {
-  const { data } = await http.post<IdeaCandidateResponse>(`/idea/candidates/${candidateId}/review`, payload)
+  const { data } = await http.post<IdeaCandidateResponse>(
+    `/idea/candidates/${candidateId}/review`,
+    payload,
+  )
   return data
 }
+
+// ---------------------------------------------------------------------------
+// Plans
+// ---------------------------------------------------------------------------
 
 export async function fetchIdeaPlan(candidateId: number): Promise<IdeaPlanResponse> {
   const { data } = await http.get<IdeaPlanResponse>(`/idea/plans/${candidateId}`)
   return data
 }
 
-export async function createIdeaPlan(candidateId: number, payload: Partial<IdeaPlan>): Promise<IdeaPlanResponse> {
-  const { data } = await http.post<IdeaPlanResponse>(`/idea/plans`, { candidate_id: candidateId, ...payload })
+export async function createIdeaPlan(
+  candidateId: number,
+  payload: Partial<IdeaPlan>,
+): Promise<IdeaPlanResponse> {
+  const { data } = await http.post<IdeaPlanResponse>('/idea/plans', { candidate_id: candidateId, ...payload })
   return data
 }
 
-export async function fetchGeneratePlanStream(candidateId: number, rewardId?: number): Promise<Response> {
+/**
+ * Generate a research plan for a candidate via SSE stream.
+ * Returns a Response — caller reads the stream line by line.
+ */
+export async function fetchGeneratePlanStream(
+  candidateId: number,
+  rewardId?: number,
+  signal?: AbortSignal,
+): Promise<Response> {
   const body: Record<string, unknown> = { candidate_id: candidateId }
   if (rewardId !== undefined) body.reward_id = rewardId
-  return fetch('/api/idea/plans/generate', {
+  return apiClient.stream({
     method: 'POST',
-    headers: getAuthHeaders(),
-    credentials: 'include',
-    body: JSON.stringify(body),
+    path: '/idea/plans/generate',
+    body,
+    signal,
   })
 }
 
@@ -121,33 +174,72 @@ export async function deleteIdeaPlan(planId: number): Promise<{ ok: boolean }> {
   return data
 }
 
-export async function createIdeaFeedback(payload: { candidate_id: number; action: string; context?: Record<string, any> }): Promise<IdeaFeedbackResponse> {
+// ---------------------------------------------------------------------------
+// Feedback
+// ---------------------------------------------------------------------------
+
+export async function createIdeaFeedback(payload: {
+  candidate_id?: number
+  atom_id?: number
+  action: string
+  context?: Record<string, any>
+}): Promise<IdeaFeedbackResponse> {
   const { data } = await http.post<IdeaFeedbackResponse>('/idea/feedback', payload)
   return data
 }
 
-export async function fetchIdeaFeedback(params?: { candidate_id?: number; action?: string; limit?: number }): Promise<IdeaFeedbackResponse> {
+export async function fetchIdeaFeedback(params?: {
+  event_type?: string
+  candidate_id?: number
+  atom_id?: number
+  limit?: number
+  offset?: number
+}): Promise<IdeaFeedbackResponse> {
   const { data } = await http.get<IdeaFeedbackResponse>('/idea/feedback', { params })
   return data
 }
 
-export async function fetchIdeaExemplars(params?: { limit?: number; offset?: number }): Promise<IdeaExemplarsResponse> {
+// ---------------------------------------------------------------------------
+// Exemplars
+// ---------------------------------------------------------------------------
+
+export async function fetchIdeaExemplars(params?: {
+  limit?: number
+  offset?: number
+  query?: string
+}): Promise<IdeaExemplarsResponse> {
   const { data } = await http.get<IdeaExemplarsResponse>('/idea/exemplars', { params })
   return data
 }
 
-export async function fetchIdeaExemplar(exemplarId: number): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
+export async function fetchIdeaExemplar(
+  exemplarId: number,
+): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
   const { data } = await http.get<{ ok: boolean; exemplar: IdeaExemplar }>(`/idea/exemplars/${exemplarId}`)
   return data
 }
 
-export async function createIdeaExemplar(payload: { candidate_id?: number; pattern?: any; score?: number; notes?: string }): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
+export async function createIdeaExemplar(payload: {
+  candidate_id?: number
+  name?: string
+  description?: string
+  tags?: string[]
+  pattern?: any
+  score?: number
+  notes?: string
+}): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
   const { data } = await http.post<{ ok: boolean; exemplar: IdeaExemplar }>('/idea/exemplars', payload)
   return data
 }
 
-export async function updateIdeaExemplar(exemplarId: number, payload: Partial<IdeaExemplar>): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
-  const { data } = await http.patch<{ ok: boolean; exemplar: IdeaExemplar }>(`/idea/exemplars/${exemplarId}`, payload)
+export async function updateIdeaExemplar(
+  exemplarId: number,
+  payload: Partial<IdeaExemplar>,
+): Promise<{ ok: boolean; exemplar: IdeaExemplar }> {
+  const { data } = await http.patch<{ ok: boolean; exemplar: IdeaExemplar }>(
+    `/idea/exemplars/${exemplarId}`,
+    payload,
+  )
   return data
 }
 
@@ -156,23 +248,46 @@ export async function deleteIdeaExemplar(exemplarId: number): Promise<{ ok: bool
   return data
 }
 
-export async function fetchIdeaBenchmarks(params?: { limit?: number }): Promise<IdeaBenchmarksResponse> {
+// ---------------------------------------------------------------------------
+// Benchmarks
+// ---------------------------------------------------------------------------
+
+export async function fetchIdeaBenchmarks(params?: {
+  limit?: number
+  query?: string
+}): Promise<IdeaBenchmarksResponse> {
   const { data } = await http.get<IdeaBenchmarksResponse>('/idea/benchmarks', { params })
   return data
 }
 
-export async function fetchIdeaBenchmark(benchmarkId: number): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
-  const { data } = await http.get<{ ok: boolean; benchmark: IdeaBenchmark }>(`/idea/benchmarks/${benchmarkId}`)
+export async function fetchIdeaBenchmark(
+  benchmarkId: number,
+): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
+  const { data } = await http.get<{ ok: boolean; benchmark: IdeaBenchmark }>(
+    `/idea/benchmarks/${benchmarkId}`,
+  )
   return data
 }
 
-export async function createIdeaBenchmark(payload: { name: string; question_ids?: number[] }): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
+export async function createIdeaBenchmark(payload: {
+  name: string
+  description?: string
+  questions?: string[]
+  expected_outputs?: string[]
+  question_ids?: number[]
+}): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
   const { data } = await http.post<{ ok: boolean; benchmark: IdeaBenchmark }>('/idea/benchmarks', payload)
   return data
 }
 
-export async function updateIdeaBenchmark(benchmarkId: number, payload: Partial<IdeaBenchmark>): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
-  const { data } = await http.patch<{ ok: boolean; benchmark: IdeaBenchmark }>(`/idea/benchmarks/${benchmarkId}`, payload)
+export async function updateIdeaBenchmark(
+  benchmarkId: number,
+  payload: Partial<IdeaBenchmark>,
+): Promise<{ ok: boolean; benchmark: IdeaBenchmark }> {
+  const { data } = await http.patch<{ ok: boolean; benchmark: IdeaBenchmark }>(
+    `/idea/benchmarks/${benchmarkId}`,
+    payload,
+  )
   return data
 }
 
@@ -181,23 +296,54 @@ export async function deleteIdeaBenchmark(benchmarkId: number): Promise<{ ok: bo
   return data
 }
 
-export async function fetchIdeaPromptVersions(params?: { stage?: string; limit?: number }): Promise<IdeaPromptVersionsResponse> {
+// ---------------------------------------------------------------------------
+// Prompt versions / templates
+// ---------------------------------------------------------------------------
+
+export async function fetchIdeaPromptVersions(params?: {
+  stage?: string
+  name?: string
+  is_active?: boolean
+  limit?: number
+  offset?: number
+}): Promise<IdeaPromptVersionsResponse> {
   const { data } = await http.get<IdeaPromptVersionsResponse>('/idea/prompt-versions', { params })
   return data
 }
 
-export async function fetchIdeaPromptVersion(versionId: number): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
-  const { data } = await http.get<{ ok: boolean; version: IdeaPromptVersion }>(`/idea/prompt-versions/${versionId}`)
+export async function fetchIdeaPromptVersion(
+  versionId: number,
+): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
+  const { data } = await http.get<{ ok: boolean; version: IdeaPromptVersion }>(
+    `/idea/prompt-versions/${versionId}`,
+  )
   return data
 }
 
-export async function createIdeaPromptVersion(payload: { stage: string; prompt_text: string; metrics?: any }): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
-  const { data } = await http.post<{ ok: boolean; version: IdeaPromptVersion }>('/idea/prompt-versions', payload)
+export async function createIdeaPromptVersion(payload: {
+  name: string
+  stage: string
+  content: string
+  version?: number
+  is_active?: boolean
+  prompt_text?: string
+  metrics?: any
+}): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
+  const { data } = await http.post<{ ok: boolean; version: IdeaPromptVersion }>(
+    '/idea/prompt-versions',
+    payload,
+  )
   return data
 }
 
-export async function updateIdeaPromptVersion(versionId: number, payload: Partial<IdeaPromptVersion>): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
-  const { data } = await http.patch<{ ok: boolean; version: IdeaPromptVersion }>(`/idea/prompt-versions/${versionId}`, payload)
+export async function updateIdeaPromptVersion(
+  versionId: number,
+  payload: Partial<IdeaPromptVersion>,
+): Promise<{ ok: boolean; version: IdeaPromptVersion }> {
+  const { data } = await http.patch<{ ok: boolean; version: IdeaPromptVersion }>(
+    `/idea/prompt-versions/${versionId}`,
+    payload,
+  )
   return data
 }
 
@@ -206,6 +352,10 @@ export async function deleteIdeaPromptVersion(versionId: number): Promise<{ ok: 
   return data
 }
 
+// ---------------------------------------------------------------------------
+// Stats & Digest
+// ---------------------------------------------------------------------------
+
 export async function fetchIdeaStats(): Promise<IdeaStatsResponse> {
   const { data } = await http.get<IdeaStatsResponse>('/idea/stats')
   return data
@@ -213,5 +363,28 @@ export async function fetchIdeaStats(): Promise<IdeaStatsResponse> {
 
 export async function fetchIdeaDigest(date: string): Promise<IdeaDigestResponse> {
   const { data } = await http.get<IdeaDigestResponse>(`/idea/digest/${date}`)
+  return data
+}
+
+// ---------------------------------------------------------------------------
+// Research Memory
+// ---------------------------------------------------------------------------
+
+export async function fetchPaperResearchMemory(paperId: string): Promise<ResearchMemoryResponse> {
+  const { data } = await http.get<ResearchMemoryResponse>(`/idea/papers/${encodeURIComponent(paperId)}/memory`)
+  return data
+}
+
+export async function extractPaperResearchMemory(paperId: string): Promise<ResearchMemoryExtractResponse> {
+  const { data } = await http.post<ResearchMemoryExtractResponse>(
+    `/idea/papers/${encodeURIComponent(paperId)}/memory/extract`,
+    {},
+    { timeout: 300000 },
+  )
+  return data
+}
+
+export async function fetchResearchMemoryClusters(limit = 20): Promise<ResearchMemoryClustersResponse> {
+  const { data } = await http.get<ResearchMemoryClustersResponse>('/idea/memory/clusters', { params: { limit } })
   return data
 }

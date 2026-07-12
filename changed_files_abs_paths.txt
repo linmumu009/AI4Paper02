@@ -189,3 +189,17 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchInput.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchEmptyState.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\research\ResearchHistoryDrawer.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\client.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\transport\types.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\transport\browser.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\transport\tauri.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\admin.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\idea.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\paper.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\recap.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\preference.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\radar.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\task-center.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\task-center.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\composables\useResearchOutcome.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\idea.ts

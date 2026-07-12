@@ -1,6 +1,34 @@
 import type { AuthUser, UserTier } from './auth'
 
 // ---------------------------------------------------------------------------
+// Pipeline step configuration types
+// ---------------------------------------------------------------------------
+
+export interface PipelineStepDefinition {
+  key: string
+  label: string
+  phase: string
+  group: string
+  default_enabled: boolean
+  requires: string[]
+  cost_level: 'low' | 'medium' | 'high'
+  can_disable: boolean
+  description: string
+}
+
+export interface PipelineStepConfigResponse {
+  ok: boolean
+  definitions: PipelineStepDefinition[]
+  config: Record<string, boolean>
+}
+
+export interface PipelineStepConfigValidateResponse {
+  ok: boolean
+  valid: boolean
+  errors: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline types
 // ---------------------------------------------------------------------------
 
@@ -104,8 +132,35 @@ export interface LlmConfig {
   completion_window?: string
   out_root?: string
   jsonl_root?: string
+  enable_thinking?: boolean
+  use_openrouter_free_pool?: boolean
   created_at: string
   updated_at: string
+}
+
+// ---------------------------------------------------------------------------
+// OpenRouter Key Pool types
+// ---------------------------------------------------------------------------
+
+export interface OpenRouterKeyInfo {
+  id: number
+  masked_key: string
+  enabled: boolean
+  used_today: number
+  remaining_today: number
+}
+
+export interface OpenRouterKeyPoolStatus {
+  daily_limit: number
+  total_keys: number
+  available_keys: number
+  keys: OpenRouterKeyInfo[]
+}
+
+export interface OpenRouterFreeModel {
+  id: string
+  name: string
+  context_length: number | null
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +191,7 @@ export interface UserLlmPreset {
   temperature?: number | null
   input_hard_limit?: number | null
   input_safety_margin?: number | null
+  enable_thinking?: boolean | null
   created_at: string
   updated_at: string
 }

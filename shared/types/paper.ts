@@ -1,3 +1,10 @@
+export interface PaperImage {
+  filename: string
+  url: string
+  caption?: string
+  source?: string
+}
+
 /** 单篇论文摘要（来自 file_collect _limit.md + pdf_info.json） */
 export interface PaperSummary {
   institution: string
@@ -19,8 +26,30 @@ export interface PaperSummary {
   /** Institution tier: 1=T1 顶尖, 2=T2 一流, 3=T3 知名, 4=T4 一般 */
   institution_tier?: number
   abstract?: string
-  images?: string[]
+  images?: PaperImage[]
   image_count?: number
+  /** arXiv category codes, e.g. ["cs.LG", "cs.CL"] */
+  categories?: string[]
+  /** Paper authors list */
+  authors?: string[]
+
+  // ── Preference layer fields (added by preference_service.rerank_papers) ─────
+  /** How well this paper matches the user's learned preference profile (0–1). */
+  preference_score?: number
+  /** True when this paper is in the serendipity / exploration bucket. */
+  is_exploration?: boolean
+  /** Short Chinese explanation of why this paper is recommended to this user. */
+  why_recommended?: string
+
+  // ── Review card fields (added by recap_service.get_review_cards) ─────────
+  /** 'normal' for regular recommendation cards, 'review' for spaced-review cards. */
+  card_kind?: 'normal' | 'review'
+  /** Human-readable reason shown on the review card badge. */
+  review_reason?: string
+  /** Days since this paper was saved to KB. */
+  days_since_saved?: number
+  /** ISO timestamp when this paper was saved to KB. */
+  saved_at?: string
 }
 
 /** 所有 paper_assets block 共有的基础字段 */
@@ -160,7 +189,7 @@ export interface PaperDetailResponse {
   summary: PaperSummary
   paper_assets: PaperAssets | null
   date: string
-  images: string[]
+  images: PaperImage[]
   arxiv_url: string
   pdf_url: string
 }
