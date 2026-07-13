@@ -54,8 +54,11 @@ const detail: PaperDetailResponse = {
         claimed_contributions: ['提出主动记忆干预框架。'],
       },
       method: {
-        text: '', bullets: [], architecture_or_paradigm: '主动记忆干预架构',
+        text: '以工具型智能体为基座，在执行轨迹中周期性判断是否需要主动更新记忆。',
+        bullets: [], input: '智能体执行轨迹', task_or_object: '长期任务中的关键状态保持',
+        architecture_or_paradigm: '主动记忆干预架构',
         key_mechanisms: ['通过工具调用更新三部分记忆库。'],
+        training_required: false,
         inference_strategy: '按固定间隔评估是否干预记忆。',
       },
       data: { text: '', bullets: [], datasets_or_materials: ['LongBench-Agent'], data_scale: '6 类长期任务' },
@@ -117,6 +120,14 @@ describe('ImmersivePaperReader', () => {
     expect(questionGroup?.text()).not.toContain('提出主动记忆干预框架。')
     expect(contributionGroup?.classes()).toContain('is-claim')
     expect(contributionGroup?.text()).toContain('仍需结合结果与证据核验')
+    const methodOverview = groups.find(group => group.find('h3').text() === '方法是什么')
+    const implementationGroup = groups.find(group => group.find('h3').text() === '具体怎么实现')
+    expect(methodOverview?.text()).toContain('在执行轨迹中周期性判断是否需要主动更新记忆')
+    expect(methodOverview?.classes()).toContain('is-wide')
+    expect(groups.find(group => group.find('h3').text() === '输入与任务')?.text()).toContain('输入：智能体执行轨迹')
+    expect(implementationGroup?.findAll('.immersive-reader__implementation-list li')).toHaveLength(1)
+    expect(implementationGroup?.text()).toContain('通过工具调用更新三部分记忆库。')
+    expect(groups.find(group => group.find('h3').text() === '训练与优化')?.text()).toContain('无需训练或参数更新')
     expect(wrapper.text()).toContain('主动记忆干预架构')
     expect(wrapper.text()).toContain('LongBench-Agent')
     expect(wrapper.text()).toContain('长期任务成功率提升 18–27%')

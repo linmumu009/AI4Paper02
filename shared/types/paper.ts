@@ -56,7 +56,7 @@ export interface PaperSummary {
 export interface AssetBlock {
   text: string
   bullets: string[]
-  [key: string]: string | string[] | null | undefined
+  [key: string]: string | string[] | boolean | number | null | undefined
 }
 
 export interface PaperProfileBlock {
@@ -83,7 +83,7 @@ export interface MethodBlock extends AssetBlock {
   task_or_object?: string | null
   architecture_or_paradigm?: string | null
   key_mechanisms?: string[]
-  training_required?: string | null
+  training_required?: boolean | string | null
   training_or_optimization?: string | null
   inference_strategy?: string | null
   novelty?: string[]

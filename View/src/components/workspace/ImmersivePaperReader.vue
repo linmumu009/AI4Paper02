@@ -118,6 +118,8 @@ type ReadingGroup = {
   hint?: string
   tone: ReadingGroupTone
   items: string[]
+  ordered?: boolean
+  wide?: boolean
 }
 
 function readingGroup(
@@ -126,8 +128,10 @@ function readingGroup(
   values: unknown[],
   tone: ReadingGroupTone = 'neutral',
   hint = '',
+  ordered = false,
+  wide = false,
 ): ReadingGroup {
-  return { key, label, hint, tone, items: uniqueItems(...values) }
+  return { key, label, hint, tone, items: uniqueItems(...values), ordered, wide }
 }
 
 function populatedGroups(groups: ReadingGroup[]): ReadingGroup[] {
@@ -137,6 +141,15 @@ function populatedGroups(groups: ReadingGroup[]): ReadingGroup[] {
 function withLegacyFallback(groups: ReadingGroup[], label: string, ...fallbackValues: unknown[]): ReadingGroup[] {
   if (groups.some(group => group.items.length > 0)) return populatedGroups(groups)
   return populatedGroups([readingGroup('legacy', label, fallbackValues)])
+}
+
+function labeledItems(label: string, value: unknown): string[] {
+  return textItems(value).map(item => `${label}：${item}`)
+}
+
+function trainingRequirement(value: unknown): string[] {
+  if (typeof value === 'boolean') return [`训练要求：${value ? '需要训练或参数更新' : '无需训练或参数更新'}`]
+  return labeledItems('训练要求', value)
 }
 
 const objectiveGroups = computed(() => populatedGroups([
@@ -150,13 +163,35 @@ const objectiveGroups = computed(() => populatedGroups([
   ),
   readingGroup('reading-clues', '阅读线索', [keyThoughts.value.slice(0, 3)]),
 ]))
-const methodGroups = computed(() => withLegacyFallback([
-  readingGroup('architecture', '架构或范式', [assetBlocks.value?.method?.architecture_or_paradigm]),
-  readingGroup('mechanisms', '关键机制', [assetBlocks.value?.method?.key_mechanisms]),
-  readingGroup('training', '训练与优化', [assetBlocks.value?.method?.training_required, assetBlocks.value?.method?.training_or_optimization]),
-  readingGroup('inference', '推理策略', [assetBlocks.value?.method?.inference_strategy]),
-  readingGroup('novelty', '方法创新点', [assetBlocks.value?.method?.novelty], 'claim', '创新性属于论文定位，应与基线和消融结果对照阅读。'),
-], '方法概述', assetBlocks.value?.method?.text, assetBlocks.value?.method?.bullets))
+const methodGroups = computed(() => {
+  const method = assetBlocks.value?.method
+  const mechanisms = textItems(method?.key_mechanisms)
+  return withLegacyFallback([
+    readingGroup(
+      'overview',
+      '方法是什么',
+      [method?.text],
+      'neutral',
+      '先用一句完整链路说明该方法解决什么任务、采用什么方案。',
+      false,
+      true,
+    ),
+    readingGroup('input-task', '输入与任务', [labeledItems('输入', method?.input), labeledItems('任务或对象', method?.task_or_object)]),
+    readingGroup('architecture', '方法基座与整体架构', [method?.architecture_or_paradigm]),
+    readingGroup(
+      'mechanisms',
+      '具体怎么实现',
+      [mechanisms.length ? mechanisms : method?.bullets],
+      'neutral',
+      '按关键组件或处理顺序拆开阅读；编号不代表论文声明了严格的时间顺序。',
+      true,
+      true,
+    ),
+    readingGroup('training', '训练与优化', [trainingRequirement(method?.training_required), labeledItems('优化方式', method?.training_or_optimization)]),
+    readingGroup('inference', '推理阶段如何运行', [method?.inference_strategy]),
+    readingGroup('novelty', '方法创新点', [method?.novelty], 'claim', '创新性属于论文定位，应与基线和消融结果对照阅读。'),
+  ], '方法概述', method?.text, method?.bullets)
+})
 const evaluationGroups = computed(() => withLegacyFallback([
   readingGroup('datasets', '数据集或研究材料', [assetBlocks.value?.data?.datasets_or_materials]),
   readingGroup('data-context', '数据来源、规模与范围', [assetBlocks.value?.data?.data_source, assetBlocks.value?.data?.data_scale, assetBlocks.value?.data?.domain_scope]),
@@ -332,9 +367,17 @@ function scrollToSection(sectionId: string) {
             <span>架构、关键机制与优化方式</span>
           </div>
           <div class="immersive-reader__groups">
-            <article v-for="group in methodGroups" :key="group.key" class="immersive-reader__group" :class="`is-${group.tone}`">
+            <article
+              v-for="group in methodGroups"
+              :key="group.key"
+              class="immersive-reader__group"
+              :class="[`is-${group.tone}`, { 'is-wide': group.wide }]"
+            >
               <div class="immersive-reader__group-heading"><h3>{{ group.label }}</h3><p v-if="group.hint">{{ group.hint }}</p></div>
-              <ul><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
+              <ol v-if="group.ordered" class="immersive-reader__implementation-list">
+                <li v-for="item in group.items" :key="item">{{ item }}</li>
+              </ol>
+              <ul v-else><li v-for="item in group.items" :key="item">{{ item }}</li></ul>
             </article>
           </div>
         </section>
@@ -821,6 +864,10 @@ function scrollToSection(sectionId: string) {
   background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
 }
 
+.immersive-reader__group.is-wide {
+  grid-column: 1 / -1;
+}
+
 .immersive-reader__group.is-claim {
   border-color: color-mix(in srgb, #d99a00 28%, var(--color-border));
   background: color-mix(in srgb, #f2b705 5%, var(--color-bg-card));
@@ -867,6 +914,38 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__group ul {
   margin-top: 9px;
+}
+
+.immersive-reader__implementation-list {
+  display: grid;
+  gap: 9px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: implementation-step;
+}
+
+.immersive-reader__implementation-list li {
+  min-height: 30px;
+  margin: 0;
+  padding-left: 42px;
+  counter-increment: implementation-step;
+}
+
+.immersive-reader__implementation-list li::before {
+  top: 0;
+  left: 0;
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-tinder-blue) 11%, transparent);
+  color: var(--color-tinder-blue);
+  content: counter(implementation-step);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .immersive-reader__group li {
