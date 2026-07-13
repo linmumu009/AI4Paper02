@@ -613,7 +613,7 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__document-topline > p {
   margin: 0;
   color: var(--color-tinder-pink);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
 }
 
@@ -632,7 +632,7 @@ function scrollToSection(sectionId: string) {
   background: transparent;
   color: var(--color-text-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -656,7 +656,7 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__pager span {
   min-width: 52px;
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: 12px;
   text-align: center;
 }
 
@@ -676,8 +676,8 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__meta {
   margin: 8px 0 0;
   color: var(--color-text-muted);
-  font-size: 11px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .immersive-reader__original-title {
@@ -704,7 +704,7 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__score span {
   margin-top: 3px;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .immersive-reader__inline-actions {
@@ -744,7 +744,7 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__section h2,
 .immersive-reader__context h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 800;
 }
 
@@ -755,15 +755,15 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__recommendation p,
 .immersive-reader__section p,
 .immersive-reader__section li {
-  margin: 7px 0 0;
+  margin: 9px 0 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.8;
+  font-size: 15px;
+  line-height: 1.85;
 }
 
 .immersive-reader__section {
   scroll-margin-top: 18px;
-  padding: 22px 0;
+  padding: 26px 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border) 72%, transparent);
 }
 
@@ -777,15 +777,15 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__reading-block h2 {
   margin: 0;
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 800;
 }
 
 .immersive-reader__reading-block p {
-  margin: 8px 0 0;
+  margin: 10px 0 0;
   color: var(--color-text-secondary);
-  font-size: 12px;
-  line-height: 1.85;
+  font-size: 15px;
+  line-height: 1.9;
 }
 
 .immersive-reader__section ul {
@@ -809,13 +809,13 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 13px;
+  gap: 12px;
+  margin-top: 16px;
 }
 
 .immersive-reader__group {
   min-width: 0;
-  padding: 13px 14px;
+  padding: 16px 17px;
   border: 1px solid color-mix(in srgb, var(--color-border) 82%, transparent);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-bg-card) 92%, transparent);
@@ -851,7 +851,7 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__verification-priorities h3 {
   margin: 0;
   color: var(--color-text-primary);
-  font-size: 11px;
+  font-size: 14px;
   font-weight: 800;
   line-height: 1.5;
 }
@@ -860,19 +860,19 @@ function scrollToSection(sectionId: string) {
   max-width: 62%;
   margin: 0;
   color: var(--color-text-muted);
-  font-size: 9px;
-  line-height: 1.55;
+  font-size: 12px;
+  line-height: 1.6;
   text-align: right;
 }
 
 .immersive-reader__group ul {
-  margin-top: 7px;
+  margin-top: 9px;
 }
 
 .immersive-reader__group li {
-  margin-top: 5px;
-  font-size: 11px;
-  line-height: 1.72;
+  margin-top: 7px;
+  font-size: 15px;
+  line-height: 1.8;
 }
 
 .immersive-reader__verification-priorities {
@@ -913,7 +913,7 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__section-heading span {
   color: var(--color-text-muted);
-  font-size: 9px;
+  font-size: 12px;
 }
 
 .immersive-reader__evidence-list {
@@ -987,7 +987,7 @@ function scrollToSection(sectionId: string) {
   background: var(--color-bg-card);
   color: var(--color-text-secondary);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1006,7 +1006,7 @@ function scrollToSection(sectionId: string) {
 .immersive-reader__status {
   margin: 16px 0 0;
   color: var(--color-text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .immersive-reader__context section {
@@ -1045,13 +1045,13 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__outline-link > span {
   color: var(--color-tinder-blue);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
 }
 
 .immersive-reader__outline-link strong {
-  font-size: 10px;
-  line-height: 1.4;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .immersive-reader__outline-link:hover,
@@ -1067,7 +1067,7 @@ function scrollToSection(sectionId: string) {
   background: transparent;
   color: var(--color-text-muted);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -1087,15 +1087,15 @@ function scrollToSection(sectionId: string) {
 
 .immersive-reader__context-heading span {
   color: var(--color-text-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .immersive-reader__context-title,
 .immersive-reader__context-copy {
   margin: 12px 0 0;
   color: var(--color-text-secondary);
-  font-size: 11px;
-  line-height: 1.65;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .immersive-reader__context-primary {
@@ -1107,7 +1107,7 @@ function scrollToSection(sectionId: string) {
   background: color-mix(in srgb, var(--color-tinder-pink) 8%, transparent);
   color: var(--color-tinder-pink);
   font: inherit;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }
@@ -1132,16 +1132,16 @@ function scrollToSection(sectionId: string) {
 }
 
 .immersive-reader__related-paper strong {
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .immersive-reader__related-paper span,
 .immersive-reader__related-paper small {
   margin-top: 4px;
   color: var(--color-text-muted);
-  font-size: 9px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.55;
 }
 
 .immersive-reader__related-paper small {
@@ -1222,12 +1222,12 @@ function scrollToSection(sectionId: string) {
 }
 
 .immersive-reader__dock-copy strong {
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .immersive-reader__dock-copy small {
   color: var(--color-text-muted);
-  font-size: 8px;
+  font-size: 10px;
   white-space: nowrap;
 }
 
