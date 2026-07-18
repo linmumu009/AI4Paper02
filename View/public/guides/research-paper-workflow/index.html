@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 科研工作流：从论文发现、精读到研究沉淀的完整方法 | AI4Papers</title>
+    <meta name="description" content="一套可执行的 AI 科研工作流：每日论文发现、相关性初筛、原文精读、多论文对比、知识沉淀与研究问题生成，减少无效阅读和信息丢失。" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://ai4papers.com/guides/research-paper-workflow/" />
+    <link rel="alternate" type="text/plain" href="https://ai4papers.com/guides/llms.txt" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" /><link rel="stylesheet" href="/guides/assets/guide.css" />
+    <meta property="og:type" content="article" /><meta property="og:site_name" content="AI4Papers" />
+    <meta property="og:title" content="AI 科研工作流：从论文发现到研究沉淀" />
+    <meta property="og:description" content="把论文发现、筛选、精读、对比和研究沉淀连接成一条可复用的闭环。" />
+    <meta property="og:url" content="https://ai4papers.com/guides/research-paper-workflow/" /><meta property="og:image" content="https://ai4papers.com/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Article",
+            "headline": "AI 科研工作流：从论文发现、精读到研究沉淀的完整方法",
+            "description": "一套包含发现、初筛、精读、对比、沉淀和研究问题生成的 AI 科研工作流。",
+            "url": "https://ai4papers.com/guides/research-paper-workflow/",
+            "inLanguage": "zh-CN",
+            "datePublished": "2026-07-18",
+            "dateModified": "2026-07-18",
+            "author": { "@type": "Organization", "name": "AI4Papers", "url": "https://ai4papers.com/" },
+            "publisher": { "@type": "Organization", "name": "AI4Papers", "url": "https://ai4papers.com/", "logo": { "@type": "ImageObject", "url": "https://ai4papers.com/logo.svg" } },
+            "mainEntityOfPage": "https://ai4papers.com/guides/research-paper-workflow/"
+          },
+          {
+            "@type": "HowTo",
+            "name": "搭建一条 AI 科研工作流",
+            "step": [
+              { "@type": "HowToStep", "position": 1, "name": "发现", "text": "从目标 arXiv 分类或语义推荐获取稳定的新论文流。" },
+              { "@type": "HowToStep", "position": 2, "name": "初筛", "text": "用结构化摘要判断研究问题、贡献、证据和相关性。" },
+              { "@type": "HowToStep", "position": 3, "name": "精读", "text": "回到原文核对方法、实验、限制和引用上下文。" },
+              { "@type": "HowToStep", "position": 4, "name": "对比", "text": "按问题、方法、数据、指标和限制横向比较多篇论文。" },
+              { "@type": "HowToStep", "position": 5, "name": "沉淀", "text": "把论文、笔记、对比结论和待验证问题组织到课题中。" },
+              { "@type": "HowToStep", "position": 6, "name": "行动", "text": "把知识差距转化为下一轮检索、复现或实验计划。" }
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              { "@type": "Question", "name": "什么是 AI 科研工作流？", "acceptedAnswer": { "@type": "Answer", "text": "AI 科研工作流是把论文发现、筛选、精读、对比、知识沉淀和下一步研究行动连接起来的流程。AI 用于降低检索与整理成本，研究者负责证据核对和最终判断。" } },
+              { "@type": "Question", "name": "怎样避免收藏很多论文却没有真正读完？", "acceptedAnswer": { "@type": "Answer", "text": "为收藏设置明确门槛：论文必须与当前课题相关，并记录收藏原因和下一步动作。每周只精读少量高优先级论文，同时清理没有后续价值的待阅项。" } }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <header class="site-header"><a class="brand" href="/"><img src="/logo.svg" alt="" />AI4Papers</a><nav class="top-nav" aria-label="主导航"><a href="/guides/">科研指南</a><a href="/tutorial">使用教程</a><a href="/register">免费注册</a></nav></header>
+    <main id="main">
+      <nav class="breadcrumb" aria-label="面包屑"><a href="/">首页</a> / <a href="/guides/">科研指南</a> / AI 科研工作流</nav>
+      <article>
+        <header class="hero"><p class="eyebrow">AI research workflow</p><h1>AI 科研工作流：让每一次阅读都有下一步</h1><p class="lede">真正提升效率的不是单个“总结按钮”，而是把发现、筛选、精读、比较和沉淀连接起来，并让每篇论文都对应一个明确决定。</p></header>
+        <div class="answer-box"><strong>简短答案：</strong>建立六步闭环：发现新论文 → 相关性初筛 → 回到原文精读 → 多论文横向对比 → 按课题沉淀 → 形成下一轮检索、复现或实验动作。AI 负责降低整理成本，人负责证据与判断。</div>
+        <section class="section">
+          <h2>六步工作流</h2>
+          <div class="grid">
+            <div class="card"><span class="number">1</span><h3>发现</h3><p class="muted">建立稳定来源，覆盖目标 arXiv 分类、关键作者和相邻主题。</p></div>
+            <div class="card"><span class="number">2</span><h3>初筛</h3><p class="muted">用问题、贡献、方法、结果和限制判断是否值得投入精读时间。</p></div>
+            <div class="card"><span class="number">3</span><h3>精读</h3><p class="muted">回到 PDF 核对技术细节、实验条件、失败场景和引用上下文。</p></div>
+            <div class="card"><span class="number">4</span><h3>对比</h3><p class="muted">按同一组字段比较多篇论文，找出共识、冲突与证据空白。</p></div>
+            <div class="card"><span class="number">5</span><h3>沉淀</h3><p class="muted">把论文、笔记、对比报告和灵感放进对应课题，而不是堆在收藏夹。</p></div>
+            <div class="card"><span class="number">6</span><h3>行动</h3><p class="muted">把阅读结论转成检索式、复现任务、实验假设或需要请教的问题。</p></div>
+          </div>
+        </section>
+        <section class="section">
+          <h2>每篇论文只需要一个明确决定</h2>
+          <div class="table-wrap"><table><thead><tr><th>决定</th><th>判断条件</th><th>下一步</th></tr></thead><tbody>
+            <tr><td>跳过</td><td>问题不相关、证据太弱或只是已知工作的轻微变体</td><td>不收藏，保留必要的排除理由</td></tr>
+            <tr><td>待查</td><td>可能相关，但关键信息不足或需要领域背景</td><td>记录一个具体待核对问题</td></tr>
+            <tr><td>精读</td><td>直接影响当前课题的方法、数据或假设</td><td>阅读原文并产出结构化笔记</td></tr>
+            <tr><td>对比</td><td>与现有方案解决相同问题但方法或结论不同</td><td>加入同一比较矩阵</td></tr>
+            <tr><td>行动</td><td>可以复现、验证、引用或转化为实验</td><td>创建有截止时间的研究任务</td></tr>
+          </tbody></table></div>
+        </section>
+        <section class="section">
+          <h2>AI4Papers 对应的产品闭环</h2>
+          <ol><li><strong>每日推荐：</strong>获取和排序 arXiv 新论文，先解决“今天看什么”。</li><li><strong>中文摘要与结果图：</strong>快速判断问题、贡献和证据，减少无效精读。</li><li><strong>PDF 阅读、翻译与笔记：</strong>回到原文，在上下文中核对细节并记录判断。</li><li><strong>知识库与课题空间：</strong>按研究问题组织论文和笔记，而不是只按文件夹归档。</li><li><strong>对比分析与深度研究：</strong>跨多篇文献寻找差异、共识和可继续追问的空白。</li><li><strong>灵感工作台：</strong>把文献中的方法、痛点和限制组合为待验证的研究想法。</li></ol>
+          <p class="callout">AI 输出应被视为研究辅助材料。任何进入论文、项目决策或实验结论的内容，都需要回到可追溯的原始来源核对。</p>
+          <div class="actions"><a class="button primary" href="/register?utm_source=organic&amp;utm_medium=guide&amp;utm_campaign=research-paper-workflow">免费建立研究工作流</a><a class="button" href="/tutorial">查看产品操作教程</a></div>
+        </section>
+        <section class="section faq"><h2>常见问题</h2><details><summary>什么是 AI 科研工作流？</summary><p>它是把论文发现、筛选、精读、对比、知识沉淀和下一步研究行动连接起来的流程。AI 用于降低检索与整理成本，研究者负责证据核对和最终判断。</p></details><details><summary>怎样避免收藏很多论文却没有真正读完？</summary><p>为收藏设置明确门槛：论文必须与当前课题相关，并记录收藏原因和下一步动作。每周只精读少量高优先级论文，同时清理没有后续价值的待阅项。</p></details></section>
+      </article>
+    </main>
+    <footer class="site-footer"><p>AI4Papers · 免费 AI 论文工作流平台</p><p>发布与更新：2026-07-18 · 内容负责人：AI4Papers</p></footer>
+  </body>
+</html>

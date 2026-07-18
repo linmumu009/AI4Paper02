@@ -213,3 +213,12 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\researchMarkdo
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\researchMarkdown.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\evaluate_paper_assets_prompts.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\immersive_content_prompt_ab.md
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\nginx\arxivpaper4.conf
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_seo_guides.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_seo_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\assets\guide.css
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\index.html
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\llms.txt
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\ai-paper-recommendation\index.html
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\arxiv-chinese-summary\index.html
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\research-paper-workflow\index.html

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>arXiv 中文摘要怎么用？快速筛选英文论文的正确方法 | AI4Papers</title>
+    <meta name="description" content="arXiv 中文摘要使用指南：用研究问题、核心贡献、方法、实验结果和限制五类信息快速筛选英文论文，同时避免把 AI 摘要误当成原文证据。" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://ai4papers.com/guides/arxiv-chinese-summary/" />
+    <link rel="alternate" type="text/plain" href="https://ai4papers.com/guides/llms.txt" />
+    <link rel="icon" type="image/svg+xml" href="/logo.svg" /><link rel="stylesheet" href="/guides/assets/guide.css" />
+    <meta property="og:type" content="article" /><meta property="og:site_name" content="AI4Papers" />
+    <meta property="og:title" content="arXiv 中文摘要怎么用？快速筛选英文论文的正确方法" />
+    <meta property="og:description" content="把中文摘要当作筛选器，用固定字段判断论文是否值得回到原文精读。" />
+    <meta property="og:url" content="https://ai4papers.com/guides/arxiv-chinese-summary/" /><meta property="og:image" content="https://ai4papers.com/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Article",
+            "headline": "arXiv 中文摘要怎么用？快速筛选英文论文的正确方法",
+            "description": "用结构化中文摘要快速筛选英文论文，同时保留原文核对。",
+            "url": "https://ai4papers.com/guides/arxiv-chinese-summary/",
+            "inLanguage": "zh-CN",
+            "datePublished": "2026-07-18",
+            "dateModified": "2026-07-18",
+            "author": { "@type": "Organization", "name": "AI4Papers", "url": "https://ai4papers.com/" },
+            "publisher": { "@type": "Organization", "name": "AI4Papers", "url": "https://ai4papers.com/", "logo": { "@type": "ImageObject", "url": "https://ai4papers.com/logo.svg" } },
+            "mainEntityOfPage": "https://ai4papers.com/guides/arxiv-chinese-summary/"
+          },
+          {
+            "@type": "HowTo",
+            "name": "用中文摘要筛选一篇 arXiv 论文",
+            "totalTime": "PT5M",
+            "step": [
+              { "@type": "HowToStep", "position": 1, "name": "先看研究问题", "text": "判断论文解决的问题是否与当前课题直接相关。" },
+              { "@type": "HowToStep", "position": 2, "name": "再看贡献和方法", "text": "区分真正的新方法、工程组合与已有方法在新场景中的应用。" },
+              { "@type": "HowToStep", "position": 3, "name": "核对实验结果", "text": "记录数据集、指标、基线和提升幅度，并回到原文表格复核。" },
+              { "@type": "HowToStep", "position": 4, "name": "检查限制", "text": "关注作者声明的适用条件、失败场景和未验证部分。" },
+              { "@type": "HowToStep", "position": 5, "name": "决定精读或跳过", "text": "只有与课题相关且证据充分的论文进入精读和知识库。" }
+            ]
+          },
+          {
+            "@type": "FAQPage",
+            "mainEntity": [
+              { "@type": "Question", "name": "AI 生成的论文中文摘要可靠吗？", "acceptedAnswer": { "@type": "Answer", "text": "中文摘要适合快速理解和初筛，但可能遗漏限定条件、错误解释数值或弱化不确定性。重要结论、实验数据和引用必须回到论文原文核对。" } },
+              { "@type": "Question", "name": "中文摘要可以代替阅读论文原文吗？", "acceptedAnswer": { "@type": "Answer", "text": "不能。摘要适合决定是否精读；复现方法、引用结论、比较实验或形成研究判断时，需要阅读原文中的方法、实验、附录和限制。" } }
+            ]
+          }
+        ]
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到正文</a>
+    <header class="site-header"><a class="brand" href="/"><img src="/logo.svg" alt="" />AI4Papers</a><nav class="top-nav" aria-label="主导航"><a href="/guides/">科研指南</a><a href="/tutorial">使用教程</a><a href="/register">免费注册</a></nav></header>
+    <main id="main">
+      <nav class="breadcrumb" aria-label="面包屑"><a href="/">首页</a> / <a href="/guides/">科研指南</a> / arXiv 中文摘要</nav>
+      <article>
+        <header class="hero"><p class="eyebrow">arXiv Chinese summary</p><h1>arXiv 中文摘要的正确用法：先筛选，再回到原文</h1><p class="lede">中文摘要最大的价值不是替你读完论文，而是把初筛成本压低：快速回答“研究什么、怎么做、证据怎样、是否值得精读”。</p></header>
+        <div class="answer-box"><strong>简短答案：</strong>按研究问题、核心贡献、方法、实验结果和限制五类信息阅读摘要。与课题无关的及时跳过；准备引用、复现或据此做研究判断时，必须回到 arXiv 原文核对。</div>
+        <section class="section">
+          <h2>五步完成论文初筛</h2>
+          <div class="grid">
+            <div class="card"><span class="number">1</span><h3>研究问题</h3><p class="muted">解决的具体问题是什么？是否命中当前任务、数据或场景？</p></div>
+            <div class="card"><span class="number">2</span><h3>核心贡献</h3><p class="muted">贡献是新算法、新数据、新结论，还是已有方法的工程组合？</p></div>
+            <div class="card"><span class="number">3</span><h3>方法路径</h3><p class="muted">关键假设和技术路线是什么？与你已有方案有何关系？</p></div>
+            <div class="card"><span class="number">4</span><h3>实验结果</h3><p class="muted">在哪些数据集和指标上优于哪些基线？提升是否具有实际意义？</p></div>
+            <div class="card"><span class="number">5</span><h3>限制与决定</h3><p class="muted">适用边界是什么？决定精读、收藏待查，还是直接跳过。</p></div>
+          </div>
+        </section>
+        <section class="section">
+          <h2>哪些信息一定要回到原文核对</h2>
+          <ul><li><strong>具体数值：</strong>准确率、提升幅度、成本、样本量和统计显著性。</li><li><strong>比较条件：</strong>基线是否公平、训练资源是否一致、是否使用额外数据。</li><li><strong>方法细节：</strong>损失函数、超参数、数据处理、推理过程和消融实验。</li><li><strong>限定表达：</strong>“在某些设置下”“初步结果”“未在真实环境验证”等边界。</li><li><strong>引用关系：</strong>原文到底支持了什么结论，不能从摘要二次转述后直接引用。</li></ul>
+          <p class="callout">实用原则：摘要负责“导航”，论文原文负责“证据”。如果一句话会进入论文、报告或决策文档，就应核对原始段落、图表或附录。</p>
+        </section>
+        <section class="section"><h2>AI4Papers 如何支持这条流程</h2><p>AI4Papers 对每日 arXiv 论文做主题筛选，并把 PDF 解析后的内容整理为结构化中文摘要和结果图摘要。用户可以从摘要进入原始 arXiv 页面或 PDF 阅读，再把值得继续研究的论文收藏到知识库，添加笔记或与其他论文做对比。</p><div class="actions"><a class="button primary" href="/?utm_source=organic&amp;utm_medium=guide&amp;utm_campaign=arxiv-chinese-summary">浏览中文论文摘要</a><a class="button" href="/guides/research-paper-workflow/">下一篇：搭建研究工作流</a></div></section>
+        <section class="section faq"><h2>常见问题</h2><details><summary>AI 生成的论文中文摘要可靠吗？</summary><p>适合快速理解和初筛，但可能遗漏限定条件、错误解释数值或弱化不确定性。重要结论、实验数据和引用必须回到论文原文核对。</p></details><details><summary>中文摘要可以代替阅读论文原文吗？</summary><p>不能。摘要适合决定是否精读；复现方法、引用结论、比较实验或形成研究判断时，需要阅读原文中的方法、实验、附录和限制。</p></details></section>
+      </article>
+    </main>
+    <footer class="site-footer"><p>AI4Papers · 免费 AI 论文工作流平台</p><p>发布与更新：2026-07-18 · 内容负责人：AI4Papers</p></footer>
+  </body>
+</html>

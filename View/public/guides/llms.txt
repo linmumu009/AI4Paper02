@@ -1,0 +1,23 @@
+# AI4Papers Research Guides
+
+AI4Papers publishes concise, human-visible Chinese guides about AI-assisted research workflows. These pages are suitable for retrieval and citation. AI-generated summaries are described as triage aids, not replacements for source papers.
+
+## Guide index
+
+- AI 论文推荐工具怎么选: https://ai4papers.com/guides/ai-paper-recommendation/
+  - Covers five evaluation criteria: relevance, explainability, update frequency, summary quality, and research-asset retention.
+- arXiv 中文摘要怎么用: https://ai4papers.com/guides/arxiv-chinese-summary/
+  - Explains how to use Chinese summaries for triage and which claims must be checked against the original paper.
+- AI 科研工作流: https://ai4papers.com/guides/research-paper-workflow/
+  - Defines a six-step loop: discovery, triage, close reading, comparison, retention, and action.
+
+## Product facts
+
+- Product: AI4Papers
+- Canonical site: https://ai4papers.com/
+- Primary audience: researchers and students tracking AI/ML literature
+- Main source corpus: arXiv papers in AI, machine learning, computer vision, natural language processing, robotics, neural computation, and statistical machine learning
+- Core workflow: daily paper discovery, structured Chinese summaries, PDF reading, notes, knowledge organization, comparison, deep research, and idea development
+- Important limitation: recommendation scores and AI summaries may be incomplete or wrong; users should verify important claims, numbers, methods, and citations against the original paper
+
+Last updated: 2026-07-18
