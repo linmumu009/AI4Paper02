@@ -122,7 +122,28 @@ esac
 
 echo "==== Restarting services ===="
 systemctl restart arxiv-api
-nginx -t
+
+NGINX_SOURCE="${PROJECT_ROOT}/nginx/arxivpaper4.conf"
+NGINX_TARGET="/etc/nginx/conf.d/arxivpaper4.conf"
+NGINX_BACKUP="${NGINX_TARGET}.ai4papers-deploy-backup"
+
+if [[ -f "$NGINX_SOURCE" ]]; then
+  if [[ -f "$NGINX_TARGET" ]]; then
+    cp -f "$NGINX_TARGET" "$NGINX_BACKUP"
+  fi
+  install -m 0644 "$NGINX_SOURCE" "$NGINX_TARGET"
+fi
+
+if ! nginx -t; then
+  echo "Nginx validation failed; restoring the previous AI4Papers config." >&2
+  if [[ -f "$NGINX_BACKUP" ]]; then
+    mv -f "$NGINX_BACKUP" "$NGINX_TARGET"
+    nginx -t || true
+  fi
+  exit 1
+fi
+
+rm -f "$NGINX_BACKUP"
 systemctl reload nginx
 systemctl is-active --quiet arxiv-api
 systemctl is-active --quiet nginx
