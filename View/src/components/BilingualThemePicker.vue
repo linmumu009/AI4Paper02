@@ -42,7 +42,7 @@ function onIntensityInput(e: Event) {
       ref="triggerRef"
       class="picker-trigger"
       :class="{ active: open }"
-      title="自定义双语配色"
+      title="自定义阅读配色"
       @click="toggle"
     >
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

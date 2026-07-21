@@ -222,3 +222,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\llms.txt
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\ai-paper-recommendation\index.html
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\arxiv-chinese-summary\index.html
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\public\guides\research-paper-workflow\index.html
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\BilingualFontSizePicker.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\BilingualThemePicker.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\paperMarkdown.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\paperMarkdown.test.ts

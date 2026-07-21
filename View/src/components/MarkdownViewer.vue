@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import MarkdownIt from 'markdown-it'
-import texmath from 'markdown-it-texmath'
-import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { IS_TAURI, tauriFetchText } from '../api'
+import { renderPaperMarkdown } from '../utils/paperMarkdown'
 import MarkdownToc, { type TocHeading } from './MarkdownToc.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import BilingualThemePicker from './BilingualThemePicker.vue'
@@ -24,15 +22,6 @@ const props = defineProps<{
    */
   autoRefreshMs?: number
 }>()
-
-// Parsed papers and generated translations are untrusted content. Keep raw HTML
-// disabled so event-handler attributes, iframes, and similar payloads cannot be
-// injected through the v-html render target below.
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true }).use(texmath, {
-  engine: katex,
-  delimiters: 'dollars',
-  katexOptions: { throwOnError: false },
-})
 
 const html = ref('')
 const loading = ref(true)
@@ -181,7 +170,7 @@ async function load() {
     }
 
     _lastText = text
-    const raw = md.render(text)
+    const raw = renderPaperMarkdown(text)
     const withIds = injectHeadingIds(raw)
     headings.value = withIds.headings
     html.value = rewriteRelativeAssetUrls(withIds.html, props.url)
@@ -322,7 +311,7 @@ onBeforeUnmount(() => {
       <template v-else>
         <!-- TOC toggle button (only when there are headings) -->
         <div
-          v-if="headings.length > 0 || mode === 'bilingual'"
+          v-if="headings.length > 0 || mode"
           class="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg-elevated/50"
         >
           <button
@@ -347,8 +336,8 @@ onBeforeUnmount(() => {
             <span class="text-text-muted">({{ headings.length }})</span>
           </button>
           <span v-else />
-          <!-- Bilingual controls: color picker + font size picker -->
-          <div v-if="mode === 'bilingual'" class="bilingual-controls">
+          <!-- Reading controls: shared by MinerU, Chinese and bilingual modes -->
+          <div v-if="mode" class="bilingual-controls">
             <BilingualThemePicker />
             <BilingualFontSizePicker />
           </div>
@@ -358,7 +347,10 @@ onBeforeUnmount(() => {
         <div
           ref="bodyRef"
           class="flex-1 overflow-y-auto px-5 sm:px-6 py-4 text-text-primary markdown-viewer-body"
-          :class="mode === 'bilingual' ? 'bilingual-mode' : ''"
+          :class="[
+            mode ? 'reading-mode' : '',
+            mode === 'bilingual' ? 'bilingual-mode' : '',
+          ]"
           v-html="html"
         />
       </template>
@@ -534,26 +526,40 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
-/* Container: set base font size from user preference (CSS var driven by useBilingualTheme) */
-.markdown-viewer-body.bilingual-mode {
+/* Reading modes share the persisted font-size and accent preferences. */
+.markdown-viewer-body.reading-mode {
   font-size: var(--bilingual-font-size);
 }
 
-/* Override all p font-size from the generic 0.9rem so it inherits the container variable.
-   Must be declared before the more specific p:not(...) rule. */
-.markdown-viewer-body.bilingual-mode :deep(p) {
+/* Override rem sizes so the reader's preference scales the whole paper. */
+.markdown-viewer-body.reading-mode :deep(p),
+.markdown-viewer-body.reading-mode :deep(ul),
+.markdown-viewer-body.reading-mode :deep(ol) {
   font-size: 1em;
 }
 
-/* Override heading font-sizes from generic rem to em so they scale proportionally
-   with the user-controlled --bilingual-font-size. Ratios preserved from the
-   general rules: h1/p=1.61, h2/p=1.33, h3/p=1.17, h4-h6/p=1.06. */
-.markdown-viewer-body.bilingual-mode :deep(h1) { font-size: 1.61em; }
-.markdown-viewer-body.bilingual-mode :deep(h2) { font-size: 1.33em; }
-.markdown-viewer-body.bilingual-mode :deep(h3) { font-size: 1.17em; }
-.markdown-viewer-body.bilingual-mode :deep(h4),
-.markdown-viewer-body.bilingual-mode :deep(h5),
-.markdown-viewer-body.bilingual-mode :deep(h6) { font-size: 1.06em; }
+.markdown-viewer-body.reading-mode :deep(h1) {
+  font-size: 1.61em;
+  border-bottom-color: hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, 0.32);
+}
+.markdown-viewer-body.reading-mode :deep(h2) {
+  font-size: 1.33em;
+  color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 38%);
+}
+.markdown-viewer-body.reading-mode :deep(h3) {
+  font-size: 1.17em;
+  color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 42%);
+}
+.markdown-viewer-body.reading-mode :deep(h4),
+.markdown-viewer-body.reading-mode :deep(h5),
+.markdown-viewer-body.reading-mode :deep(h6) { font-size: 1.06em; }
+.markdown-viewer-body.reading-mode :deep(a) {
+  color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 42%);
+}
+.markdown-viewer-body.reading-mode :deep(blockquote) {
+  border-left-color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 45%);
+  background: hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, calc(var(--bilingual-intensity) * 0.01));
+}
 
 /* English source paragraph (rendered as blockquote) */
 .markdown-viewer-body.bilingual-mode :deep(blockquote) {

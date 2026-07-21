@@ -37,7 +37,7 @@ const sizeLabel = computed(() => `${theme.value.fontSize}px`)
       ref="triggerRef"
       class="font-picker-trigger"
       :class="{ active: open }"
-      title="调整双语字号"
+      title="调整阅读字号"
       @click="toggle"
     >
       <span class="font-trigger-label">A</span>
