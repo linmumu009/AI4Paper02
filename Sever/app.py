@@ -286,27 +286,26 @@ STEP_OUTPUT_PATHS = {
 
 def _db_step_done(step: str, user_id: int, date_str: str) -> bool:
     """
-    Return True when the DB already contains output for *step* / *user_id* / *date_str*.
-    Only used when --output-mode db is active.
+    Return True only when the DB contains complete, valid coverage for the step.
+
+    Cheap deterministic filter steps are always recomputed.  Their output has
+    no durable stage marker, so treating old rows as a completion sentinel can
+    otherwise preserve stale or partially updated filter state.
     """
+    if step in {"paper_theme_filter", "instutions_filter"}:
+        return False
     try:
         import sys as _sys
         _sys.path.insert(0, ROOT)
         from services import pipeline_db_service as _pdb
-        if step == "llm_select_theme":
-            return _pdb.has_theme_scores(user_id, date_str)
-        if step in ("paper_theme_filter", "instutions_filter", "selectpaper"):
-            return _pdb.has_final_selections(user_id, date_str)
-        if step == "pdf_info":
-            return _pdb.has_paper_info(user_id, date_str)
-        if step in ("paper_summary",):
-            return _pdb.has_summaries_raw(user_id, date_str)
-        if step in ("summary_limit",):
-            return _pdb.has_summaries_limit(user_id, date_str)
-        if step == "paper_assets":
-            return _pdb.has_paper_assets(user_id, date_str)
-    except Exception:
-        pass
+        coverage = _pdb.get_db_step_coverage(step, user_id, date_str)
+        return bool(coverage.get("complete"))
+    except Exception as exc:
+        print(
+            f"[PIPELINE][WARN] DB completion check failed for step={step} "
+            f"user={user_id} date={date_str}: {exc!r}",
+            flush=True,
+        )
     return False
 
 
@@ -376,10 +375,11 @@ PER_USER_STEPS = [
     "idea_combine",
     "idea_review",
     "idea_compound",
-    # Deep cleanup: remove files now in DB, slim mineru cache, delete unselected PDFs,
-    # and (if idea is done) remove full_mineru_cache entirely.
-    "cleanup",
 ]
+
+# Cleanup must run once, after every per-user pipeline has succeeded.  Running
+# it inside user 0's pipeline can delete inputs still needed by later users.
+POST_USERS_CLEANUP_STEPS = ["cleanup"]
 
 PIPELINES = {
     # ---- New multi-user pipeline ----
@@ -387,6 +387,7 @@ PIPELINES = {
     "shared": SHARED_STEPS,
     # "per_user" phase: run for each user with output-mode=db.
     "per_user": PER_USER_STEPS,
+    "post_users_cleanup": POST_USERS_CLEANUP_STEPS,
 
     # ---- Legacy single-user pipelines (kept for manual runs / backward compat) ----
     # NOTE: "selectpaper" and "file_collect" are DEPRECATED.
@@ -488,9 +489,9 @@ ARXIV_EXIT_RATE_LIMIT_PARTIAL = 3
 #   - intermediate: delete preview_pdf/{date}/ (no longer needed after pdfsplite_to_minerU)
 #   - deprecated:   delete file_collect, selectedpaper, selectedpaper_to_mineru (legacy)
 #   NOTE: preview_pdf_to_mineru is intentionally NOT deleted here because the
-#   per_user pdf_info step still needs it.  Use 'preview-mineru' in per_user (uid=0).
+#   per_user pdf_info step still needs it.  Use 'preview-mineru' only after all users.
 #
-# per_user pipeline (uid=0 only — runs last, after all users' pdf_info is done):
+# post_users_cleanup pipeline (runs once after every user succeeds):
 #   - db-replaced:   delete small JSON files now stored in DB
 #   - preview-mineru: delete preview_pdf_to_mineru now that all pdf_info is done in DB
 #   - raw-pdf:       delete unselected PDFs from raw_pdf
@@ -498,12 +499,9 @@ ARXIV_EXIT_RATE_LIMIT_PARTIAL = 3
 #   - post-idea:     disabled for now to preserve full_mineru_cache for KB reuse
 #   - select-image:  delete summary JSON now that image list is in DB
 #
-# per_user pipeline (non-zero uid):
-#   - db-replaced only (lightweight, data check before deletion)
 _CLEANUP_MODES = {
-    "shared":          "intermediate,deprecated",
-    "per_user_uid0":   "db-replaced,preview-mineru,raw-pdf,select-image",
-    "per_user_nonzero": "db-replaced",
+    "shared":     "intermediate,deprecated",
+    "post_users": "db-replaced,preview-mineru,raw-pdf,select-image",
 }
 
 
@@ -860,11 +858,8 @@ def main(argv=None):
             if step == "cleanup":
                 if pipeline == "shared":
                     cleanup_mode = _CLEANUP_MODES["shared"]
-                elif pipeline == "per_user":
-                    if uid_int == 0:
-                        cleanup_mode = _CLEANUP_MODES["per_user_uid0"]
-                    else:
-                        cleanup_mode = _CLEANUP_MODES["per_user_nonzero"]
+                elif pipeline == "post_users_cleanup":
+                    cleanup_mode = _CLEANUP_MODES["post_users"]
                 else:
                     cleanup_mode = "intermediate,deprecated"
                 step_args.extend(["--mode", cleanup_mode])
@@ -895,6 +890,40 @@ def main(argv=None):
             print(f"RUN step: {step}", flush=True)
             recorder.emit(f"RUN step: {step}", event_type="custom")
             run_step(step, step_args, env=env, recorder=recorder)
+
+            # A subprocess exit code of zero only proves that the controller
+            # returned normally.  DB-producing steps must also prove that every
+            # expected paper has a valid output before the run may succeed.
+            if output_mode == "db" and step in _DB_OUTPUT_STEPS:
+                try:
+                    from services import pipeline_db_service as _pdb
+                    coverage = _pdb.get_db_step_coverage(step, uid_int, run_date)
+                except Exception as exc:
+                    coverage = {
+                        "complete": False,
+                        "reason": "coverage_check_failed",
+                        "error": repr(exc),
+                    }
+                if not coverage.get("complete"):
+                    message = (
+                        f"DB output incomplete after step={step} user={uid_int} "
+                        f"date={run_date}: {coverage}"
+                    )
+                    recorder.finish_step(
+                        step,
+                        status="failed",
+                        exit_code=1,
+                        error_type="incomplete_coverage",
+                        error_message=message[:500],
+                        metrics=coverage,
+                    )
+                    recorder.emit(
+                        message,
+                        level="error",
+                        event_type="paper_count",
+                        payload=coverage,
+                    )
+                    raise RuntimeError(message)
 
             if step == "arxiv_search":
                 selected = detect_selected_count()

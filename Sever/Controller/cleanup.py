@@ -139,11 +139,25 @@ def cleanup_preview_mineru(date_str: str, dry_run: bool = False) -> int:
     Run this via migrate_and_cleanup.py after all pipelines have finished.
     """
     try:
-        from services.pipeline_db_service import has_paper_info
-        if not has_paper_info(0, date_str):
+        from services.pipeline_db_service import get_db_step_coverage
+        from services.user_settings_service import list_users_with_custom_configs
+
+        user_ids = [0] + [
+            uid for uid in list_users_with_custom_configs() if int(uid) != 0
+        ]
+        incomplete_users = []
+        for user_id in user_ids:
+            coverage = get_db_step_coverage("pdf_info", int(user_id), date_str)
+            if not coverage.get("complete"):
+                incomplete_users.append({
+                    "user_id": int(user_id),
+                    "expected": coverage.get("expected_count", 0),
+                    "valid": coverage.get("valid_count", 0),
+                })
+        if incomplete_users:
             _log(
-                f"SKIP preview-mineru for {date_str}: pdf_info not yet in DB "
-                f"(run after all users' pdf_info steps complete)",
+                f"SKIP preview-mineru for {date_str}: pdf_info incomplete for "
+                f"users={incomplete_users}",
                 dry_run=False,
             )
             return 0
@@ -245,6 +259,67 @@ def cleanup_slim_mineru(date_str: str, dry_run: bool = False) -> int:
     return freed
 
 
+def _pre_copy_kb_mineru_for_date(date_str: str, dry_run: bool = False) -> None:
+    """
+    Before deleting full_mineru_cache/<date>/, copy MinerU files into kb_files/ for
+    any KB paper whose MinerU markdown has not yet been copied.
+
+    This prevents the race condition where a user adds a paper to the KB *after*
+    the post-idea cleanup has removed the cache — without this step, auto_attach_pdf
+    would find no MinerU data and be forced to re-run MinerU via API.
+    """
+    try:
+        import sqlite3
+        import services.kb_service as kbs
+
+        cache_date_dir = _DATA_ROOT / "full_mineru_cache" / date_str
+        if not cache_date_dir.is_dir():
+            return
+
+        # Collect all paper_ids that have a MinerU md in the cache for this date
+        cached_paper_ids: set[str] = set()
+        for paper_dir in cache_date_dir.iterdir():
+            if paper_dir.is_dir():
+                cached_paper_ids.add(paper_dir.name)
+
+        if not cached_paper_ids:
+            return
+
+        # Query all KB papers whose paper_id is in the cached set and whose MinerU
+        # file has not yet been written to kb_files/
+        try:
+            db_path = kbs._DB_PATH
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            placeholders = ",".join("?" for _ in cached_paper_ids)
+            rows = conn.execute(
+                f"SELECT DISTINCT user_id, paper_id, scope FROM kb_papers "
+                f"WHERE paper_id IN ({placeholders})",
+                list(cached_paper_ids),
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            _log(f"pre-copy: DB query failed: {exc}", dry_run=False)
+            return
+
+        for row in rows:
+            uid, pid, scope = row["user_id"], row["paper_id"], row["scope"]
+            paper_dir = Path(kbs._KB_FILES_DIR) / str(uid) / pid
+            mineru_dest = paper_dir / f"{pid}_mineru.md"
+            if mineru_dest.is_file():
+                continue  # already copied
+            if dry_run:
+                _log(f"pre-copy [DRY-RUN]: would auto_attach_pdf for user={uid} paper={pid}", dry_run)
+                continue
+            try:
+                kbs.auto_attach_pdf(uid, pid, scope=scope)
+                _log(f"pre-copy: copied MinerU for user={uid} paper={pid}", dry_run)
+            except Exception as exc:
+                _log(f"pre-copy: auto_attach_pdf failed for user={uid} paper={pid}: {exc}", dry_run=False)
+    except Exception as exc:
+        _log(f"pre-copy: unexpected error: {exc}", dry_run=False)
+
+
 def cleanup_post_idea(date_str: str, dry_run: bool = False) -> int:
     """
     Delete the entire full_mineru_cache/<date>/ directory.
@@ -268,6 +343,11 @@ def cleanup_post_idea(date_str: str, dry_run: bool = False) -> int:
         )
         return 0
 
+    # Pre-copy MinerU files into kb_files/ for all KB papers that haven't been copied yet.
+    # This ensures that papers added to the KB after cleanup still have MinerU data.
+    _log(f"pre-copy: ensuring MinerU files are copied to kb_files before deleting cache for {date_str}", dry_run)
+    _pre_copy_kb_mineru_for_date(date_str, dry_run=dry_run)
+
     freed = _remove_path(_DATA_ROOT / "full_mineru_cache" / date_str, dry_run)
 
     # Reset the selectedpaper_to_mineru sentinel so the next run regenerates the cache
@@ -290,14 +370,14 @@ def cleanup_raw_pdf(date_str: str, dry_run: bool = False) -> int:
     Only runs if DB has final selections for that date.
     """
     try:
-        from services.pipeline_db_service import has_final_selections, get_final_arxiv_ids
-        if not has_final_selections(0, date_str):
+        from services.pipeline_db_service import get_all_final_arxiv_ids
+        selected_ids = set(get_all_final_arxiv_ids(date_str))
+        if not selected_ids:
             _log(
                 f"SKIP raw-pdf for {date_str}: no final selections in DB",
                 dry_run=False,
             )
             return 0
-        selected_ids = set(get_final_arxiv_ids(0, date_str))
     except Exception as exc:
         _log(f"SKIP raw-pdf for {date_str}: DB check failed: {exc}", dry_run=False)
         return 0

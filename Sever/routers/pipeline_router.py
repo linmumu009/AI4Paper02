@@ -44,6 +44,14 @@ class RunPipelineBody(BaseModel):
     anchor_tz: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9_/+-]+$")
 
 
+class RerunPipelineBody(BaseModel):
+    """Request body for targeted rerun (single step or resume-from)."""
+    run_id: int = Field(description="DB run_id to rerun from")
+    from_step: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9_-]+$", description="Resume from this step (inclusive)")
+    only_step: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9_-]+$", description="Run only this single step")
+    force: bool = Field(default=True, description="Force re-execution even if output exists")
+
+
 class ScheduleConfigBody(BaseModel):
     enabled: bool
     hour: int = Field(default=6, ge=0, le=23)
@@ -54,6 +62,10 @@ class ScheduleConfigBody(BaseModel):
     user_id: Optional[int] = Field(default=None)
     multi_user: bool = Field(default=True)
     max_concurrent_user_pipelines: int = Field(default=3, ge=1, le=20)
+
+
+class StepConfigBody(BaseModel):
+    config: dict = Field(..., description="步骤启用/禁用映射 {step_key: bool}")
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +119,8 @@ _scheduler_stop_event = threading.Event()
 _scheduler_retry_counts: dict = {}
 _SCHEDULER_MAX_RETRIES = 3
 _SCHEDULER_RETRY_WINDOW_SECONDS = 1800
+_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 900
+_arxiv_rate_limit_last_at: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +212,44 @@ def _get_log_tail(log_file: str, n: int = 300) -> list:
 # Pipeline thread functions
 # ---------------------------------------------------------------------------
 
+def _phase_for_pipeline(pipeline: str) -> str:
+    if pipeline == "shared":
+        return "shared"
+    if pipeline == "per_user":
+        return "per_user"
+    return pipeline
+
+
+def _create_db_run(
+    pipeline: str,
+    date_str: str,
+    user_id: int = 0,
+    phase: str = "",
+    trigger: str = "manual",
+    parent_run_id: int = 0,
+    requested_by: Optional[int] = None,
+    config: Optional[dict] = None,
+) -> int:
+    """Create a pipeline_runs row and return its id (0 on error)."""
+    try:
+        from services import pipeline_db_service as _pdb
+        run_id = _pdb.create_run(
+            run_type=phase or pipeline,
+            user_id=user_id,
+            date_str=date_str,
+            pipeline=pipeline,
+            config=config or {},
+            parent_run_id=parent_run_id or None,
+            trigger=trigger,
+            phase=phase,
+            requested_by=requested_by,
+        )
+        _pdb.update_run_status(run_id, "running")
+        return run_id
+    except Exception:
+        return 0
+
+
 def _run_pipeline_thread(
     pipeline: str,
     date_str: str,
@@ -211,8 +263,25 @@ def _run_pipeline_thread(
     max_papers: Optional[int] = None,
     anchor_tz: Optional[str] = None,
     output_mode_override: Optional[str] = None,
+    trigger: str = "manual",
+    parent_run_id: int = 0,
+    requested_by: Optional[int] = None,
 ):
     global _pipeline_state
+    # Create DB run record before building the cmd so we can pass --run-id
+    uid_int = int(user_id) if user_id is not None else 0
+    phase = _phase_for_pipeline(pipeline)
+    db_run_id = _create_db_run(
+        pipeline=pipeline,
+        date_str=date_str,
+        user_id=uid_int,
+        phase=phase,
+        trigger=trigger,
+        parent_run_id=parent_run_id,
+        requested_by=requested_by,
+        config={"sllm": sllm, "zo": zo, "force": force},
+    )
+
     cmd = [sys.executable, "-u", _APP_PY_PATH, pipeline, "--date", date_str, "--Zo", zo]
     if force:
         cmd.append("--force")
@@ -232,6 +301,10 @@ def _run_pipeline_thread(
         cmd.extend(["--max-papers", str(max_papers)])
     if anchor_tz:
         cmd.extend(["--anchor-tz", anchor_tz])
+    if db_run_id:
+        cmd.extend(["--run-id", str(db_run_id)])
+    if phase:
+        cmd.extend(["--phase", phase])
 
     env = {**os.environ, "RUN_DATE": date_str, "PYTHONIOENCODING": "utf-8"}
     if sllm is not None:
@@ -244,6 +317,12 @@ def _run_pipeline_thread(
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(_ADMIN_LOG_DIR, exist_ok=True)
     log_file = os.path.join(_ADMIN_LOG_DIR, f"{run_id}.log")
+    if db_run_id:
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.update_run_log_file(db_run_id, log_file)
+        except Exception:
+            pass
 
     params = {
         "pipeline": pipeline,
@@ -516,6 +595,25 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
     exit_code = 0
     user_ids_to_run: list = []
     trigger = cfg.get("trigger", "scheduled")
+    db_parent_run_id = 0
+    try:
+        db_parent_run_id = _create_db_run(
+            pipeline="multi_user",
+            date_str=today,
+            user_id=0,
+            phase="orchestrator",
+            trigger=trigger,
+            config={"sllm": sllm, "zo": zo, "force": force},
+        )
+        if db_parent_run_id:
+            try:
+                from services import pipeline_db_service as _pdb
+                _pdb.update_run_log_file(db_parent_run_id, orch_log_file)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     try:
         _orch_log(f"[SCHEDULER] 开始共享阶段 (shared) for {today}")
         with _pipeline_lock:
@@ -527,11 +625,49 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
         })
 
         shared_log = os.path.join(_ADMIN_LOG_DIR, f"{run_id}_shared.log")
-        shared_cmd = [sys.executable, "-u", _APP_PY_PATH, "shared", "--date", today, "--Zo", zo]
+        shared_db_run_id = _create_db_run(
+            pipeline="shared",
+            date_str=today,
+            user_id=0,
+            phase="shared",
+            trigger=trigger,
+            parent_run_id=db_parent_run_id,
+        )
+        if shared_db_run_id:
+            try:
+                from services import pipeline_db_service as _pdb
+                _pdb.update_run_log_file(shared_db_run_id, shared_log)
+            except Exception:
+                pass
+        shared_cmd = [sys.executable, "-u", _APP_PY_PATH, "shared", "--date", today, "--Zo", zo,
+                      "--phase", "shared"]
+        if shared_db_run_id:
+            shared_cmd.extend(["--run-id", str(shared_db_run_id)])
         if sllm is not None:
             shared_cmd.extend(["--SLLM", str(sllm)])
         if force:
             shared_cmd.append("--force")
+        if cfg.get("days") is not None:
+            shared_cmd.extend(["--days", str(cfg["days"])])
+        if cfg.get("extra_query"):
+            shared_cmd.extend(["--query", str(cfg["extra_query"])])
+        if cfg.get("max_papers") is not None:
+            shared_cmd.extend(["--max-papers", str(cfg["max_papers"])])
+            _orch_log(f"[SCHEDULER] 最大论文数: {cfg['max_papers']}")
+        if cfg.get("anchor_tz"):
+            shared_cmd.extend(["--anchor-tz", str(cfg["anchor_tz"])])
+        if cfg.get("categories"):
+            shared_cmd.extend(["--categories", str(cfg["categories"])])
+            _orch_log(f"[SCHEDULER] 使用管理端指定检索分类: {cfg['categories']}")
+        else:
+            try:
+                from services.user_settings_service import collect_all_search_categories
+                all_cats = collect_all_search_categories()
+                if all_cats:
+                    shared_cmd.extend(["--categories", ",".join(all_cats)])
+                    _orch_log(f"[SCHEDULER] 合并检索分类: {','.join(all_cats)}")
+            except Exception as _cat_exc:
+                _orch_log(f"[SCHEDULER] 无法收集检索分类，使用系统默认: {_cat_exc!r}")
         shared_env = {
             **os.environ,
             "RUN_DATE": today,
@@ -543,10 +679,60 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
 
         shared_exit = _run_pipeline_subprocess(shared_cmd, shared_env, shared_log)
         _orch_log(f"[SCHEDULER] 共享阶段完成 exit={shared_exit}  详细日志: {os.path.basename(shared_log)}")
+        try:
+            from services import pipeline_db_service as _pdb
+            if shared_db_run_id:
+                if shared_exit == 0:
+                    status = "completed"
+                elif shared_exit == 3:
+                    status = "partial"
+                else:
+                    status = "failed"
+                _pdb.update_run_status(shared_db_run_id, status)
+        except Exception:
+            pass
+
+        if shared_exit == 3:
+            global _arxiv_rate_limit_last_at
+            import time as _time
+            _arxiv_rate_limit_last_at = _time.time()
+            _orch_log(
+                "[SCHEDULER] arxiv_search 因限流仅部分拉取 (exit=3)，"
+                "已保存部分列表；后续步骤继续。建议 15–30 分钟后再重跑 arxiv_search。"
+            )
+            shared_exit = 0
 
         if shared_exit != 0:
             _orch_log(f"[SCHEDULER] 共享阶段失败 (exit={shared_exit})，终止多用户编排")
             exit_code = shared_exit
+            return
+
+        # Short-circuit: if shared phase found 0 papers for today, skip per_user entirely.
+        # arxiv_search writes 0 rows to pipeline_arxiv_list when empty, so count=0 is the signal.
+        try:
+            from services import pipeline_db_service as _pdb
+            _arxiv_count = len(_pdb.get_arxiv_list_ids(today))
+        except Exception as _cnt_exc:
+            _orch_log(f"[SCHEDULER] 无法查询今日论文数量: {_cnt_exc!r}，继续执行每用户阶段")
+            _arxiv_count = -1  # unknown; err on side of continuing
+
+        if _arxiv_count == 0:
+            _orch_log(f"[SCHEDULER] 今日 arxiv 论文为 0 篇，跳过每用户阶段 (per_user)")
+            # Ensure all custom users also see a date notice so the frontend shows the right card
+            try:
+                from services.user_settings_service import list_users_with_custom_configs as _luc
+                _all_uids = [0] + [u for u in _luc() if u != 0]
+            except Exception:
+                _all_uids = [0]
+            try:
+                _notice = _pdb.get_date_notice(0, today)
+                _notice_type = _notice["type"] if _notice else "no_papers_empty"
+                _notice_msg = _notice["message"] if _notice else "今天 ArXiv 在您关注的领域暂无新论文（搜索窗口内无结果）。"
+                for _uid in _all_uids:
+                    if _uid != 0:
+                        _pdb.upsert_date_notice(_uid, today, _notice_type, _notice_msg)
+            except Exception as _ne:
+                _orch_log(f"[SCHEDULER] 无法写入每用户 date_notice: {_ne!r}")
             return
 
         try:
@@ -569,12 +755,29 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
 
         def run_per_user(uid: int) -> tuple:
             per_user_log = os.path.join(_ADMIN_LOG_DIR, f"{run_id}_user{uid}.log")
+            per_user_db_run_id = _create_db_run(
+                pipeline="per_user",
+                date_str=today,
+                user_id=uid,
+                phase="per_user",
+                trigger=trigger,
+                parent_run_id=db_parent_run_id,
+            )
+            if per_user_db_run_id:
+                try:
+                    from services import pipeline_db_service as _pdb2
+                    _pdb2.update_run_log_file(per_user_db_run_id, per_user_log)
+                except Exception:
+                    pass
             per_user_cmd = [
                 sys.executable, "-u", _APP_PY_PATH, "per_user",
                 "--date", today, "--Zo", zo,
                 "--user-id", str(uid),
                 "--output-mode", "db",
+                "--phase", "per_user",
             ]
+            if per_user_db_run_id:
+                per_user_cmd.extend(["--run-id", str(per_user_db_run_id)])
             if sllm is not None:
                 per_user_cmd.extend(["--SLLM", str(sllm)])
             if force:
@@ -591,6 +794,12 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
             _orch_log(f"[SCHEDULER] user={uid} 开始  详细日志: {os.path.basename(per_user_log)}")
             ec = _run_pipeline_subprocess(per_user_cmd, per_user_env, per_user_log)
             _orch_log(f"[SCHEDULER] user={uid} 完成 exit={ec}")
+            try:
+                from services import pipeline_db_service as _pdb
+                if per_user_db_run_id:
+                    _pdb.update_run_status(per_user_db_run_id, "completed" if ec == 0 else "failed")
+            except Exception:
+                pass
             return uid, ec
 
         with _cf.ThreadPoolExecutor(max_workers=max_concurrent) as pool:
@@ -607,11 +816,67 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
 
         _orch_log(f"[SCHEDULER] 所有每用户管线已完成 for {today}")
 
+        # Destructive cleanup is an orchestrator concern, not a per-user step.
+        # Run it exactly once and only after every user pipeline has succeeded.
+        if exit_code == 0:
+            cleanup_log = os.path.join(_ADMIN_LOG_DIR, f"{run_id}_cleanup.log")
+            cleanup_db_run_id = _create_db_run(
+                pipeline="post_users_cleanup",
+                date_str=today,
+                user_id=0,
+                phase="cleanup",
+                trigger=trigger,
+                parent_run_id=db_parent_run_id,
+            )
+            if cleanup_db_run_id:
+                try:
+                    from services import pipeline_db_service as _pdb3
+                    _pdb3.update_run_log_file(cleanup_db_run_id, cleanup_log)
+                except Exception:
+                    pass
+            cleanup_cmd = [
+                sys.executable, "-u", _APP_PY_PATH, "post_users_cleanup",
+                "--date", today,
+                "--phase", "cleanup",
+            ]
+            if cleanup_db_run_id:
+                cleanup_cmd.extend(["--run-id", str(cleanup_db_run_id)])
+            cleanup_env = {
+                **os.environ,
+                "RUN_DATE": today,
+                "PYTHONIOENCODING": "utf-8",
+                "PIPELINE_PHASE": "cleanup",
+            }
+            _orch_log(f"[SCHEDULER] 开始全用户完成后清理  详细日志: {os.path.basename(cleanup_log)}")
+            cleanup_exit = _run_pipeline_subprocess(cleanup_cmd, cleanup_env, cleanup_log)
+            _orch_log(f"[SCHEDULER] 全用户完成后清理结束 exit={cleanup_exit}")
+            try:
+                from services import pipeline_db_service as _pdb4
+                if cleanup_db_run_id:
+                    _pdb4.update_run_status(
+                        cleanup_db_run_id,
+                        "completed" if cleanup_exit == 0 else "failed",
+                    )
+            except Exception:
+                pass
+            if cleanup_exit != 0:
+                exit_code = cleanup_exit
+        else:
+            _orch_log("[SCHEDULER] 至少一个用户管线失败，跳过清理以保留可重试输入")
+
     except Exception as exc:
         _orch_log(f"[SCHEDULER] 编排异常: {exc!r}")
         exit_code = -1
 
     finally:
+        # Update parent DB run status
+        try:
+            if db_parent_run_id:
+                from services import pipeline_db_service as _pdb
+                _pdb.update_run_status(db_parent_run_id, "completed" if exit_code == 0 else "failed")
+        except Exception:
+            pass
+
         finished_at = datetime.now(timezone.utc).isoformat()
         final_step = "已完成" if exit_code == 0 else f"异常退出 (code={exit_code})"
         with _pipeline_lock:
@@ -745,12 +1010,23 @@ def _scheduler_loop():
 
             retry_count_today = _scheduler_retry_counts.get(today, 0)
 
+            import time as _time
+            rate_limit_cooldown = False
+            if _arxiv_rate_limit_last_at is not None:
+                since_rl = _time.time() - _arxiv_rate_limit_last_at
+                if since_rl < _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS:
+                    rate_limit_cooldown = True
+
             if (
                 cfg.get("enabled")
                 and within_retry_window
                 and cfg.get("last_run_date") != today
                 and retry_count_today < _SCHEDULER_MAX_RETRIES
             ):
+                if rate_limit_cooldown:
+                    _scheduler_stop_event.wait(30)
+                    continue
+
                 lock_path = f"{_SCHEDULER_LOCK_PATH}.{today}"
                 os.makedirs(os.path.dirname(_SCHEDULER_LOCK_PATH), exist_ok=True)
                 try:
@@ -843,6 +1119,11 @@ def api_admin_run_pipeline(
             "max_concurrent_user_pipelines": body.max_concurrent_user_pipelines,
             "trigger": "manual",
             "force": body.force,
+            "days": body.days,
+            "categories": body.categories,
+            "extra_query": body.extra_query,
+            "max_papers": body.max_papers,
+            "anchor_tz": body.anchor_tz,
         }
         t = threading.Thread(
             target=_run_multiuser_scheduler_thread,
@@ -885,7 +1166,7 @@ def api_admin_pipeline_run_status(
     if disk_state:
         log_file = disk_state.get("log_file")
         logs = _get_log_tail(log_file, n=300)
-        return {
+        base = {
             "running": disk_state.get("running", False),
             "current_step": disk_state.get("current_step"),
             "logs": logs,
@@ -895,16 +1176,44 @@ def api_admin_pipeline_run_status(
             "params": disk_state.get("params", {}),
             "run_id": disk_state.get("run_id"),
         }
-    with _pipeline_lock:
-        return {
-            "running": _pipeline_state["running"],
-            "current_step": _pipeline_state["current_step"],
-            "logs": list(_pipeline_state["logs"]),
-            "started_at": _pipeline_state["started_at"],
-            "finished_at": _pipeline_state["finished_at"],
-            "exit_code": _pipeline_state["exit_code"],
-            "params": _pipeline_state["params"],
-        }
+    else:
+        with _pipeline_lock:
+            base = {
+                "running": _pipeline_state["running"],
+                "current_step": _pipeline_state["current_step"],
+                "logs": list(_pipeline_state["logs"]),
+                "started_at": _pipeline_state["started_at"],
+                "finished_at": _pipeline_state["finished_at"],
+                "exit_code": _pipeline_state["exit_code"],
+                "params": _pipeline_state["params"],
+                "run_id": None,
+            }
+
+    # Enrich with DB-sourced step summary when a numeric run_id is available
+    try:
+        from services import pipeline_db_service as _pdb
+        db_runs = _pdb.get_runs_recent(limit=5)
+        if db_runs:
+            latest = db_runs[0]
+            base["db_run"] = {
+                "id": latest.get("id"),
+                "status": latest.get("status"),
+                "phase": latest.get("phase"),
+                "user_id": latest.get("user_id"),
+                "date_str": latest.get("date_str"),
+                "started_at": latest.get("started_at"),
+                "finished_at": latest.get("finished_at"),
+            }
+            step_counts_row = _pdb.get_run_summary(latest["id"])
+            if step_counts_row:
+                base["db_run"]["step_counts"] = step_counts_row.get("step_counts", {})
+                base["db_run"]["step_failed"] = step_counts_row.get("step_failed", 0)
+                base["db_run"]["step_completed"] = step_counts_row.get("step_completed", 0)
+                base["db_run"]["step_skipped"] = step_counts_row.get("step_skipped", 0)
+    except Exception:
+        pass
+
+    return base
 
 
 @router.post("/pipeline/stop", summary="Stop running pipeline")
@@ -1103,3 +1412,306 @@ def api_admin_schedule_history(
 ):
     records = _load_schedule_history(limit=min(limit, 200))
     return {"records": records, "total": len(records)}
+
+
+# ===========================================================================
+# Observability API – runs / steps / events / artifacts
+# ===========================================================================
+
+@router.get("/pipeline/runs", summary="List recent pipeline runs")
+def api_pipeline_runs(
+    limit: int = Query(default=20, ge=1, le=100),
+    date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    user_id: Optional[int] = Query(default=None),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        from services import pipeline_db_service as _pdb
+        runs = _pdb.get_runs_recent_with_summary(limit=limit, date_str=date, user_id=user_id)
+        return {"runs": runs, "total": len(runs)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/pipeline/runs/{run_id}", summary="Get pipeline run detail with steps")
+def api_pipeline_run_detail(
+    run_id: int,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        from services import pipeline_db_service as _pdb
+        run = _pdb.get_run_summary(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        return run
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/pipeline/runs/{run_id}/steps", summary="Get step timeline for a run")
+def api_pipeline_run_steps(
+    run_id: int,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        from services import pipeline_db_service as _pdb
+        run = _pdb.get_run_summary(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        steps = _pdb.get_step_runs_for_run(run_id)
+        return {"run_id": run_id, "steps": steps, "total": len(steps)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/pipeline/runs/{run_id}/events", summary="Get structured events for a run")
+def api_pipeline_run_events(
+    run_id: int,
+    step_run_id: Optional[int] = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        from services import pipeline_db_service as _pdb
+        run = _pdb.get_run_summary(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        events = _pdb.get_events_for_run(run_id, step_run_id=step_run_id, limit=limit)
+        return {"run_id": run_id, "events": events, "total": len(events)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/pipeline/runs/{run_id}/artifacts", summary="Get artifacts for a run")
+def api_pipeline_run_artifacts(
+    run_id: int,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        from services import pipeline_db_service as _pdb
+        run = _pdb.get_run_summary(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        artifacts = _pdb.get_artifacts_for_run(run_id)
+        return {"run_id": run_id, "artifacts": artifacts, "total": len(artifacts)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/pipeline/runs/{run_id}/log", summary="Get log content for a pipeline run")
+def api_pipeline_run_log(
+    run_id: int,
+    tail: int = Query(default=300, ge=1, le=5000),
+    full: bool = Query(default=False),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """Read the stdout/stderr log for a pipeline run. Only logs inside _ADMIN_LOG_DIR are served."""
+    try:
+        from services import pipeline_db_service as _pdb
+        run = _pdb.get_run_summary(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        log_file = (run.get("log_file") or "").strip()
+        if not log_file:
+            return {"run_id": run_id, "has_file": False, "lines": [], "total_lines": 0, "log_file": ""}
+        # Security: ensure path is strictly inside the admin log directory
+        log_norm = os.path.normpath(os.path.abspath(log_file))
+        dir_norm = os.path.normpath(os.path.abspath(_ADMIN_LOG_DIR))
+        if not (log_norm.startswith(dir_norm + os.sep) or log_norm == dir_norm):
+            raise HTTPException(status_code=403, detail="日志路径不在允许范围内")
+        if not os.path.isfile(log_file):
+            return {
+                "run_id": run_id, "has_file": False, "lines": [], "total_lines": 0,
+                "log_file": os.path.basename(log_file),
+            }
+        n_lines = 999999 if full else tail
+        lines = _get_log_tail(log_file, n=n_lines)
+        try:
+            with open(log_file, "r", encoding="utf-8", errors="replace") as _lf:
+                total = sum(1 for _ in _lf)
+        except OSError:
+            total = len(lines)
+        return {
+            "run_id": run_id,
+            "has_file": True,
+            "lines": lines,
+            "total_lines": total,
+            "log_file": os.path.basename(log_file),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/pipeline/rerun", summary="Rerun a pipeline from a specific step")
+def api_pipeline_rerun(
+    body: RerunPipelineBody,
+    admin=Depends(auth_service.require_admin_user),
+):
+    """
+    Restart a previously recorded run from a specific step (from_step) or
+    run only a single step (only_step), without re-running the entire pipeline.
+    """
+    try:
+        from services import pipeline_db_service as _pdb
+
+        parent_run = _pdb.get_run_summary(body.run_id)
+        if not parent_run:
+            raise HTTPException(status_code=404, detail=f"Run {body.run_id} not found")
+
+        pipeline = parent_run.get("pipeline", "default")
+        date_str = parent_run.get("date_str", datetime.now().date().isoformat())
+        user_id = parent_run.get("user_id", 0)
+        phase = parent_run.get("phase", "")
+        config = parent_run.get("config") or {}
+        sllm = config.get("sllm")
+        zo = config.get("zo", "F") or "F"
+        output_mode = "db"  # rerun always uses DB mode
+
+        with _pipeline_lock:
+            if _pipeline_state.get("running"):
+                raise HTTPException(status_code=409, detail="Pipeline is already running")
+
+        new_run_id = _create_db_run(
+            pipeline=pipeline,
+            date_str=date_str,
+            user_id=user_id,
+            phase=phase,
+            trigger="manual_rerun",
+            parent_run_id=body.run_id,
+            requested_by=getattr(admin, "id", None),
+            config={"sllm": sllm, "zo": zo, "force": body.force,
+                    "from_step": body.from_step, "only_step": body.only_step},
+        )
+
+        cmd = [sys.executable, "-u", _APP_PY_PATH, pipeline,
+               "--date", date_str, "--Zo", zo,
+               "--output-mode", output_mode,
+               "--phase", phase,
+               "--trigger", "manual_rerun",
+               "--run-id", str(new_run_id)]
+        if user_id:
+            cmd.extend(["--user-id", str(user_id)])
+        if sllm is not None:
+            cmd.extend(["--SLLM", str(sllm)])
+        if body.force:
+            cmd.append("--force")
+        if body.from_step:
+            cmd.extend(["--from-step", body.from_step])
+        if body.only_step:
+            cmd.extend(["--only-step", body.only_step])
+
+        run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(_ADMIN_LOG_DIR, f"{run_ts}_rerun{new_run_id}.log")
+        os.makedirs(_ADMIN_LOG_DIR, exist_ok=True)
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.update_run_log_file(new_run_id, log_file)
+        except Exception:
+            pass
+
+        env = {**os.environ, "RUN_DATE": date_str, "PYTHONIOENCODING": "utf-8",
+               "PIPELINE_OUTPUT_MODE": output_mode}
+        if sllm is not None:
+            env["SLLM"] = str(sllm)
+        if user_id:
+            env["PIPELINE_USER_ID"] = str(user_id)
+
+        def _do_rerun():
+            try:
+                _run_pipeline_subprocess(cmd, env, log_file)
+            except Exception as exc:
+                print(f"[RERUN] error: {exc!r}", flush=True)
+
+        started_at = datetime.now(timezone.utc).isoformat()
+        with _pipeline_lock:
+            _pipeline_state["running"] = True
+            _pipeline_state["current_step"] = f"重跑 run_id={body.run_id}"
+            _pipeline_state["logs"] = [f"[{datetime.now().strftime('%H:%M:%S')}] 重跑 run_id={body.run_id}"]
+            _pipeline_state["started_at"] = started_at
+            _pipeline_state["finished_at"] = None
+            _pipeline_state["exit_code"] = None
+            _pipeline_state["run_id"] = f"rerun_{new_run_id}"
+            _pipeline_state["log_file"] = log_file
+
+        t = threading.Thread(target=_do_rerun, daemon=True)
+        t.start()
+
+        return {
+            "ok": True,
+            "message": f"Rerun started (new run_id={new_run_id})",
+            "new_run_id": new_run_id,
+            "log_file": log_file,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Pipeline Step Configuration
+# ---------------------------------------------------------------------------
+
+@router.get("/pipeline/step-config", summary="Get pipeline step definitions and current config")
+def api_get_pipeline_step_config(_admin=Depends(auth_service.require_admin_user)):
+    """Return all step definitions plus the current enabled/disabled state."""
+    try:
+        from services.pipeline_step_config_service import get_step_definitions, get_step_config
+        definitions = get_step_definitions()
+        config = get_step_config()
+        return {"ok": True, "definitions": definitions, "config": config}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/pipeline/step-config/validate", summary="Validate a proposed step config")
+def api_validate_pipeline_step_config(
+    body: StepConfigBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """Check whether the proposed config has dependency violations."""
+    try:
+        from services.pipeline_step_config_service import validate_step_config
+        errors = validate_step_config(body.config)
+        return {"ok": True, "valid": len(errors) == 0, "errors": errors}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/pipeline/step-config", summary="Save pipeline step config")
+def api_save_pipeline_step_config(
+    body: StepConfigBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """Validate and persist the step enable/disable configuration."""
+    try:
+        from services.pipeline_step_config_service import save_step_config
+        errors = save_step_config(body.config)
+        if errors:
+            raise HTTPException(status_code=422, detail={"errors": errors})
+        return {"ok": True, "message": "步骤配置已保存"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/pipeline/step-config/reset", summary="Reset step config to defaults")
+def api_reset_pipeline_step_config(_admin=Depends(auth_service.require_admin_user)):
+    """Delete the saved config file, reverting all steps to their default state."""
+    try:
+        from services.pipeline_step_config_service import reset_step_config
+        reset_step_config()
+        return {"ok": True, "message": "步骤配置已恢复默认"}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

@@ -235,3 +235,6 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\llm_summary_re
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\pipeline_db_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\data_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_summary_response_guard.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\cleanup.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\pipeline_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pipeline_completion_contract.py

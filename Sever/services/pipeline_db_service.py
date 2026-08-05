@@ -10,12 +10,18 @@ user_id=0 is reserved for the default/system pipeline run.
 
 Tables
 ------
+Output / data tables:
     pipeline_runs           -- tracks each pipeline execution
     pipeline_theme_scores   -- replaces llm_select_theme/<date>.json
     pipeline_selected_papers-- replaces paper_theme_filter+instutions_filter+selectpaper outputs
     pipeline_paper_info     -- replaces pdf_info/<date>.json
     pipeline_summaries      -- replaces paper_summary + summary_limit .md files
     pipeline_paper_assets   -- replaces paper_assets/<date>.jsonl
+
+Observability tables (作业账本):
+    pipeline_step_runs      -- step-level lifecycle: status, timing, errors
+    pipeline_artifacts      -- artifact registry: files and DB records produced per step
+    pipeline_events         -- structured event stream: progress, warnings, diagnostics
 """
 
 from __future__ import annotations
@@ -66,7 +72,8 @@ def init_db() -> None:
                 started_at   TEXT,
                 finished_at  TEXT,
                 error        TEXT,
-                created_at   TEXT    NOT NULL
+                created_at   TEXT    NOT NULL,
+                log_file     TEXT    NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_pipeline_runs_date
                 ON pipeline_runs(date_str);
@@ -232,6 +239,9 @@ def init_db() -> None:
         conn.close()
     _migrate_pipeline_paper_info()
     _migrate_add_new_tables()
+    _migrate_add_observability_tables()
+    _migrate_pipeline_runs_extend()
+    _migrate_pipeline_runs_add_log_file()
 
 
 def _migrate_pipeline_paper_info() -> None:
@@ -286,6 +296,165 @@ def _migrate_add_new_tables() -> None:
         conn.commit()
     finally:
         conn.close()
+    _migrate_arxiv_list_paper_categories()
+
+
+def _migrate_arxiv_list_paper_categories() -> None:
+    """Add paper_categories_json column to pipeline_arxiv_list if it does not exist."""
+    conn = _connect()
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(pipeline_arxiv_list)").fetchall()}
+        if "paper_categories_json" not in existing:
+            conn.execute(
+                "ALTER TABLE pipeline_arxiv_list ADD COLUMN paper_categories_json TEXT NOT NULL DEFAULT '[]'"
+            )
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_add_observability_tables() -> None:
+    """Create pipeline_step_runs, pipeline_artifacts, pipeline_events tables (observability layer)."""
+    conn = _connect()
+    try:
+        conn.executescript("""
+            -- ----------------------------------------------------------------
+            -- pipeline_step_runs: one row per step execution attempt
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS pipeline_step_runs (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id       INTEGER NOT NULL DEFAULT 0,  -- FK to pipeline_runs.id (0 = no parent)
+                step_name    TEXT    NOT NULL,
+                phase        TEXT    NOT NULL DEFAULT '',  -- 'shared' | 'per_user' | 'legacy' | ''
+                user_id      INTEGER NOT NULL DEFAULT 0,
+                date_str     TEXT    NOT NULL DEFAULT '',
+                status       TEXT    NOT NULL DEFAULT 'running',
+                -- pending / running / skipped / soft_failed / failed / completed / cancelled
+                attempt      INTEGER NOT NULL DEFAULT 1,
+                skip_reason  TEXT    NOT NULL DEFAULT '',
+                error_type   TEXT    NOT NULL DEFAULT '',
+                error_message TEXT   NOT NULL DEFAULT '',
+                log_file     TEXT    NOT NULL DEFAULT '',
+                input_json   TEXT    NOT NULL DEFAULT '{}',
+                metrics_json TEXT    NOT NULL DEFAULT '{}',
+                started_at   TEXT,
+                finished_at  TEXT,
+                duration_ms  INTEGER,
+                exit_code    INTEGER,
+                created_at   TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_psr_run_id ON pipeline_step_runs(run_id);
+            CREATE INDEX IF NOT EXISTS idx_psr_user_date ON pipeline_step_runs(user_id, date_str);
+            CREATE INDEX IF NOT EXISTS idx_psr_step_status ON pipeline_step_runs(step_name, status);
+
+            -- ----------------------------------------------------------------
+            -- pipeline_artifacts: files and DB records produced by each step
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS pipeline_artifacts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id        INTEGER NOT NULL DEFAULT 0,
+                step_run_id   INTEGER NOT NULL DEFAULT 0,
+                artifact_type TEXT    NOT NULL DEFAULT '',
+                -- 'file' | 'db_table' | 'db_rows' | 'directory'
+                storage       TEXT    NOT NULL DEFAULT '',
+                -- 'file' | 'sqlite'
+                path_or_table TEXT    NOT NULL DEFAULT '',
+                record_count  INTEGER,
+                byte_size     INTEGER,
+                created_at    TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pa_run_id ON pipeline_artifacts(run_id);
+            CREATE INDEX IF NOT EXISTS idx_pa_step_run ON pipeline_artifacts(step_run_id);
+
+            -- ----------------------------------------------------------------
+            -- pipeline_events: structured event stream per run / step
+            -- ----------------------------------------------------------------
+            CREATE TABLE IF NOT EXISTS pipeline_events (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id       INTEGER NOT NULL DEFAULT 0,
+                step_run_id  INTEGER NOT NULL DEFAULT 0,
+                level        TEXT    NOT NULL DEFAULT 'info',
+                -- 'debug' | 'info' | 'warning' | 'error'
+                event_type   TEXT    NOT NULL DEFAULT '',
+                -- 'progress' | 'skip' | 'soft_fail' | 'retry' | 'cleanup' | 'paper_count' | 'llm_call' | 'custom'
+                message      TEXT    NOT NULL DEFAULT '',
+                payload_json TEXT    NOT NULL DEFAULT '{}',
+                created_at   TEXT    NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_pe_run_id ON pipeline_events(run_id);
+            CREATE INDEX IF NOT EXISTS idx_pe_step_run ON pipeline_events(step_run_id);
+            CREATE INDEX IF NOT EXISTS idx_pe_created ON pipeline_events(created_at);
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_pipeline_runs_extend() -> None:
+    """Add observability columns to pipeline_runs if they don't exist yet."""
+    conn = _connect()
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(pipeline_runs)").fetchall()}
+        additions = [
+            ("parent_run_id", "INTEGER"),
+            ("trigger",       "TEXT NOT NULL DEFAULT ''"),
+            ("phase",         "TEXT NOT NULL DEFAULT ''"),
+            ("requested_by",  "INTEGER"),
+            ("cancelled_at",  "TEXT"),
+        ]
+        for col_name, col_def in additions:
+            if col_name not in existing:
+                conn.execute(f"ALTER TABLE pipeline_runs ADD COLUMN {col_name} {col_def}")
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _migrate_pipeline_runs_add_log_file() -> None:
+    """Add log_file column to pipeline_runs if it does not exist."""
+    conn = _connect()
+    try:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(pipeline_runs)").fetchall()}
+        if "log_file" not in existing:
+            conn.execute("ALTER TABLE pipeline_runs ADD COLUMN log_file TEXT NOT NULL DEFAULT ''")
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def update_run_log_file(run_id: int, log_file: str) -> None:
+    """Store the log file path for a pipeline run."""
+    if not run_id:
+        return
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE pipeline_runs SET log_file=? WHERE id=?",
+            (log_file or "", run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _get_user_display_map(user_ids: list) -> dict:
+    """Return {user_id: {'username': ..., 'nickname': ...}} for the given non-zero IDs."""
+    ids = [uid for uid in user_ids if uid]
+    if not ids:
+        return {}
+    conn = _connect()
+    try:
+        placeholders = ",".join("?" for _ in ids)
+        rows = conn.execute(
+            f"SELECT id, username, COALESCE(nickname, '') AS nickname "
+            f"FROM auth_users WHERE id IN ({placeholders})",
+            ids,
+        ).fetchall()
+        return {r["id"]: {"username": r["username"], "nickname": r["nickname"]} for r in rows}
+    except Exception:
+        return {}
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -298,6 +467,10 @@ def create_run(
     date_str: str,
     pipeline: str = "daily",
     config: Optional[dict] = None,
+    parent_run_id: Optional[int] = None,
+    trigger: str = "",
+    phase: str = "",
+    requested_by: Optional[int] = None,
 ) -> int:
     """Insert a new pipeline run record; return its id."""
     now = _now_iso()
@@ -306,11 +479,13 @@ def create_run(
         cur = conn.execute(
             """
             INSERT INTO pipeline_runs
-                (run_type, user_id, date_str, pipeline, status, config_json, created_at)
-            VALUES (?, ?, ?, ?, 'pending', ?, ?)
+                (run_type, user_id, date_str, pipeline, status, config_json,
+                 parent_run_id, trigger, phase, requested_by, created_at)
+            VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
             """,
             (run_type, user_id, date_str, pipeline,
-             json.dumps(config or {}, ensure_ascii=False), now),
+             json.dumps(config or {}, ensure_ascii=False),
+             parent_run_id, trigger, phase, requested_by, now),
         )
         conn.commit()
         return cur.lastrowid
@@ -1055,12 +1230,33 @@ def get_digest_papers(
             f"WHERE user_id=? AND date_str=? AND paper_arxiv_id IN ({placeholders})",
             [effective_uid, date_str] + selected_ids,
         ).fetchall()
-        meta_rows = conn.execute(
-            f"SELECT paper_arxiv_id, title, abstract_text FROM pipeline_arxiv_list "
-            f"WHERE date_str=? AND paper_arxiv_id IN ({placeholders})",
-            [date_str] + selected_ids,
-        ).fetchall()
-        arxiv_meta = {row["paper_arxiv_id"]: dict(row) for row in meta_rows}
+
+        # Load authors and categories from shared arxiv list table
+        arxiv_meta: dict[str, dict] = {}
+        try:
+            meta_rows = conn.execute(
+                f"SELECT paper_arxiv_id, title, abstract_text, authors_json, categories_json "
+                f"FROM pipeline_arxiv_list "
+                f"WHERE date_str=? AND paper_arxiv_id IN ({placeholders})",
+                [date_str] + selected_ids,
+            ).fetchall()
+            for mr in meta_rows:
+                try:
+                    authors = json.loads(mr["authors_json"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    authors = []
+                try:
+                    categories = json.loads(mr["categories_json"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    categories = []
+                arxiv_meta[mr["paper_arxiv_id"]] = {
+                    "title": mr["title"] or "",
+                    "abstract": mr["abstract_text"] or "",
+                    "authors": authors,
+                    "categories": categories,
+                }
+        except Exception:
+            pass
     finally:
         conn.close()
 
@@ -1070,7 +1266,6 @@ def get_digest_papers(
         info   = info_map.get(arxiv_id, {})
         summ   = sum_map.get(arxiv_id, {})
         assets = asset_map.get(arxiv_id, {})
-        meta   = arxiv_meta.get(arxiv_id, {})
 
         raw_tier = int(info.get("institution_tier") or 0)
         is_large = bool(info.get("is_large", 0))
@@ -1078,17 +1273,20 @@ def get_digest_papers(
         effective_tier = (
             raw_tier if 1 <= raw_tier <= 4 else (3 if is_large else 4)
         )
+        meta = arxiv_meta.get(arxiv_id, {})
         paper = {
             "paper_id": arxiv_id,
             "institution": info.get("institution", ""),
             "is_large_institution": is_large,
             "institution_tier": effective_tier,
-            "abstract": info.get("abstract") or meta.get("abstract_text", ""),
+            "abstract": info.get("abstract") or meta.get("abstract", ""),
             "title": info.get("title") or meta.get("title") or arxiv_id,
             "summary_raw": summ.get("summary_raw", ""),
             "summary_limit": summ.get("summary_limit", ""),
             "headline": summ.get("headline", ""),
             "relevance_score": scores.get(arxiv_id),
+            "authors": meta.get("authors", []),
+            "categories": meta.get("categories", []),
             "paper_assets": {
                 "paper_id": arxiv_id,
                 "title": assets.get("title", ""),
@@ -1284,7 +1482,7 @@ def bulk_upsert_arxiv_list(date_str: str, papers: list) -> None:
     """
     Store arxiv search results for a date.
     Each paper dict should have: paper_arxiv_id, title, abstract_text,
-    authors (list), published_utc, link, categories (list).
+    authors (list), published_utc, link, categories (list), paper_categories (list).
     """
     now = _now_iso()
     conn = _connect()
@@ -1293,16 +1491,17 @@ def bulk_upsert_arxiv_list(date_str: str, papers: list) -> None:
             """
             INSERT INTO pipeline_arxiv_list
                 (date_str, paper_arxiv_id, title, abstract_text,
-                 authors_json, published_utc, link, categories_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 authors_json, published_utc, link, categories_json, paper_categories_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(date_str, paper_arxiv_id) DO UPDATE SET
-                title           = excluded.title,
-                abstract_text   = excluded.abstract_text,
-                authors_json    = excluded.authors_json,
-                published_utc   = excluded.published_utc,
-                link            = excluded.link,
-                categories_json = excluded.categories_json,
-                created_at      = excluded.created_at
+                title                  = excluded.title,
+                abstract_text          = excluded.abstract_text,
+                authors_json           = excluded.authors_json,
+                published_utc          = excluded.published_utc,
+                link                   = excluded.link,
+                categories_json        = excluded.categories_json,
+                paper_categories_json  = excluded.paper_categories_json,
+                created_at             = excluded.created_at
             """,
             [
                 (
@@ -1314,6 +1513,7 @@ def bulk_upsert_arxiv_list(date_str: str, papers: list) -> None:
                     p.get("published_utc", ""),
                     p.get("link", ""),
                     json.dumps(p.get("categories", []), ensure_ascii=False),
+                    json.dumps(p.get("paper_categories", []), ensure_ascii=False),
                     now,
                 )
                 for p in papers
@@ -1343,6 +1543,10 @@ def get_arxiv_list(date_str: str) -> list:
                 d["categories"] = json.loads(d.get("categories_json") or "[]")
             except (json.JSONDecodeError, TypeError):
                 d["categories"] = []
+            try:
+                d["paper_categories"] = json.loads(d.get("paper_categories_json") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                d["paper_categories"] = []
             result.append(d)
         return result
     finally:
@@ -1371,6 +1575,154 @@ def get_arxiv_list_ids(date_str: str) -> list:
             (date_str,),
         ).fetchall()
         return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def _blocks_have_meaningful_text(value: Any) -> bool:
+    """Return True when a paper-assets payload contains real textual content."""
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, dict):
+        return any(_blocks_have_meaningful_text(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return any(_blocks_have_meaningful_text(item) for item in value)
+    return False
+
+
+def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
+    """Return the expected/valid output coverage for one DB pipeline step.
+
+    Completion is deliberately based on the full expected paper-id set, not on
+    whether the table happens to contain at least one row.  Extra rows are
+    reported for diagnostics but do not block recovery of older runs yet.
+    """
+    conn = _connect()
+    try:
+        def _ids(query: str, params: tuple) -> set[str]:
+            rows = conn.execute(query, params).fetchall()
+            return {str(row[0]) for row in rows if row[0]}
+
+        arxiv_ids = _ids(
+            "SELECT paper_arxiv_id FROM pipeline_arxiv_list WHERE date_str=?",
+            (date_str,),
+        )
+        score_ids = _ids(
+            "SELECT paper_arxiv_id FROM pipeline_theme_scores WHERE user_id=? AND date_str=?",
+            (user_id, date_str),
+        )
+        selected_row_ids = _ids(
+            "SELECT paper_arxiv_id FROM pipeline_selected_papers "
+            "WHERE user_id=? AND date_str=?",
+            (user_id, date_str),
+        )
+        final_ids = _ids(
+            "SELECT paper_arxiv_id FROM pipeline_selected_papers "
+            "WHERE user_id=? AND date_str=? AND is_final_selected=1",
+            (user_id, date_str),
+        )
+
+        invalid_ids: set[str] = set()
+        if step == "llm_select_theme":
+            expected_ids = arxiv_ids
+            valid_ids = score_ids
+        elif step == "paper_theme_filter":
+            expected_ids = score_ids
+            valid_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_selected_papers "
+                "WHERE user_id=? AND date_str=? AND theme_score IS NOT NULL",
+                (user_id, date_str),
+            )
+        elif step == "pdf_info":
+            expected_ids = arxiv_ids
+            all_output_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_paper_info "
+                "WHERE user_id=? AND date_str=?",
+                (user_id, date_str),
+            )
+            valid_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_paper_info "
+                "WHERE user_id=? AND date_str=? AND TRIM(abstract) != ''",
+                (user_id, date_str),
+            )
+            invalid_ids = all_output_ids - valid_ids
+        elif step == "instutions_filter":
+            expected_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_paper_info "
+                "WHERE user_id=? AND date_str=? AND TRIM(abstract) != ''",
+                (user_id, date_str),
+            )
+            valid_ids = selected_row_ids
+        elif step == "paper_summary":
+            expected_ids = final_ids
+            valid_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_summaries "
+                "WHERE user_id=? AND date_str=? AND TRIM(summary_raw) != ''",
+                (user_id, date_str),
+            )
+        elif step == "summary_limit":
+            expected_ids = final_ids
+            valid_ids = _ids(
+                "SELECT paper_arxiv_id FROM pipeline_summaries "
+                "WHERE user_id=? AND date_str=? AND TRIM(summary_limit) != ''",
+                (user_id, date_str),
+            )
+        elif step == "paper_assets":
+            expected_ids = final_ids
+            rows = conn.execute(
+                "SELECT paper_arxiv_id, blocks_json FROM pipeline_paper_assets "
+                "WHERE user_id=? AND date_str=?",
+                (user_id, date_str),
+            ).fetchall()
+            all_output_ids = {str(row["paper_arxiv_id"]) for row in rows if row["paper_arxiv_id"]}
+            valid_ids: set[str] = set()
+            for row in rows:
+                paper_id = str(row["paper_arxiv_id"] or "")
+                try:
+                    blocks = json.loads(row["blocks_json"] or "{}")
+                except (json.JSONDecodeError, TypeError):
+                    blocks = {}
+                if paper_id and _blocks_have_meaningful_text(blocks):
+                    valid_ids.add(paper_id)
+            invalid_ids = all_output_ids - valid_ids
+        else:
+            return {
+                "step": step,
+                "complete": False,
+                "reason": "unsupported_step",
+                "expected_count": 0,
+                "valid_count": 0,
+                "missing_ids": [],
+                "invalid_ids": [],
+                "unexpected_ids": [],
+            }
+
+        missing_ids = expected_ids - valid_ids
+        relevant_invalid_ids = invalid_ids & expected_ids
+        return {
+            "step": step,
+            "complete": not missing_ids and not relevant_invalid_ids,
+            "reason": "complete" if not missing_ids and not relevant_invalid_ids else "incomplete_coverage",
+            "expected_count": len(expected_ids),
+            "valid_count": len(expected_ids & valid_ids),
+            "missing_ids": sorted(missing_ids),
+            "invalid_ids": sorted(relevant_invalid_ids),
+            "unexpected_ids": sorted(valid_ids - expected_ids),
+        }
+    finally:
+        conn.close()
+
+
+def get_all_final_arxiv_ids(date_str: str) -> list[str]:
+    """Return the union of final paper selections across every user for a date."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT paper_arxiv_id FROM pipeline_selected_papers "
+            "WHERE date_str=? AND is_final_selected=1 ORDER BY paper_arxiv_id",
+            (date_str,),
+        ).fetchall()
+        return [str(row[0]) for row in rows if row[0]]
     finally:
         conn.close()
 
@@ -1509,6 +1861,429 @@ def get_pipeline_data_tracking_range(user_id: int, days: int = 30) -> list[dict]
         conn.close()
 
     return [get_pipeline_data_tracking(user_id, d) for d in date_strs]
+
+
+# ===========================================================================
+# Observability layer — pipeline_step_runs / pipeline_artifacts / pipeline_events
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# pipeline_step_runs CRUD
+# ---------------------------------------------------------------------------
+
+def create_step_run(
+    run_id: int,
+    step_name: str,
+    *,
+    phase: str = "",
+    user_id: int = 0,
+    date_str: str = "",
+    input_params: Optional[dict] = None,
+    log_file: str = "",
+    attempt: int = 1,
+) -> int:
+    """Insert a step-run record with status=running; return its id."""
+    now = _now_iso()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO pipeline_step_runs
+                (run_id, step_name, phase, user_id, date_str, status, attempt,
+                 input_json, log_file, started_at, created_at)
+            VALUES (?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?)
+            """,
+            (run_id, step_name, phase, user_id, date_str, attempt,
+             json.dumps(input_params or {}, ensure_ascii=False),
+             log_file, now, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def finish_step_run(
+    step_run_id: int,
+    status: str,
+    *,
+    exit_code: Optional[int] = None,
+    error_type: str = "",
+    error_message: str = "",
+    skip_reason: str = "",
+    metrics: Optional[dict] = None,
+) -> None:
+    """Mark a step-run as finished with the given status and metadata."""
+    now = _now_iso()
+    conn = _connect()
+    try:
+        started_row = conn.execute(
+            "SELECT started_at FROM pipeline_step_runs WHERE id=?", (step_run_id,)
+        ).fetchone()
+        duration_ms: Optional[int] = None
+        if started_row and started_row["started_at"]:
+            try:
+                from datetime import datetime as _dt
+                started = _dt.fromisoformat(started_row["started_at"])
+                finished = _dt.fromisoformat(now)
+                duration_ms = int((finished - started).total_seconds() * 1000)
+            except Exception:
+                pass
+
+        conn.execute(
+            """
+            UPDATE pipeline_step_runs SET
+                status=?, finished_at=?, duration_ms=?, exit_code=?,
+                error_type=?, error_message=?, skip_reason=?, metrics_json=?
+            WHERE id=?
+            """,
+            (status, now, duration_ms, exit_code,
+             error_type, error_message, skip_reason,
+             json.dumps(metrics or {}, ensure_ascii=False),
+             step_run_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_step_runs_for_run(run_id: int) -> list[dict]:
+    """Return all step-run rows for a given run, ordered by creation time."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM pipeline_step_runs WHERE run_id=? ORDER BY id",
+            (run_id,),
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["input_params"] = json.loads(d.get("input_json") or "{}")
+            except Exception:
+                d["input_params"] = {}
+            try:
+                d["metrics"] = json.loads(d.get("metrics_json") or "{}")
+            except Exception:
+                d["metrics"] = {}
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_step_run_by_id(step_run_id: int) -> Optional[dict]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM pipeline_step_runs WHERE id=?", (step_run_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# pipeline_artifacts CRUD
+# ---------------------------------------------------------------------------
+
+def record_artifact(
+    run_id: int,
+    step_run_id: int,
+    *,
+    artifact_type: str,
+    storage: str,
+    path_or_table: str,
+    record_count: Optional[int] = None,
+    byte_size: Optional[int] = None,
+) -> int:
+    """Log a produced artifact; return its id."""
+    now = _now_iso()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO pipeline_artifacts
+                (run_id, step_run_id, artifact_type, storage,
+                 path_or_table, record_count, byte_size, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (run_id, step_run_id, artifact_type, storage,
+             path_or_table, record_count, byte_size, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_artifacts_for_run(run_id: int) -> list[dict]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM pipeline_artifacts WHERE run_id=? ORDER BY id",
+            (run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_artifacts_for_step(step_run_id: int) -> list[dict]:
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM pipeline_artifacts WHERE step_run_id=? ORDER BY id",
+            (step_run_id,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# pipeline_events CRUD
+# ---------------------------------------------------------------------------
+
+def emit_event(
+    run_id: int,
+    message: str,
+    *,
+    step_run_id: int = 0,
+    level: str = "info",
+    event_type: str = "custom",
+    payload: Optional[dict] = None,
+) -> None:
+    """Append a structured event to the pipeline event log (non-blocking; swallows errors)."""
+    try:
+        now = _now_iso()
+        conn = _connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO pipeline_events
+                    (run_id, step_run_id, level, event_type, message, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (run_id, step_run_id, level, event_type, message,
+                 json.dumps(payload or {}, ensure_ascii=False), now),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass  # Never let observability writes crash the pipeline
+
+
+def get_events_for_run(
+    run_id: int,
+    step_run_id: Optional[int] = None,
+    limit: int = 500,
+) -> list[dict]:
+    conn = _connect()
+    try:
+        if step_run_id is not None:
+            rows = conn.execute(
+                "SELECT * FROM pipeline_events WHERE run_id=? AND step_run_id=? ORDER BY id DESC LIMIT ?",
+                (run_id, step_run_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM pipeline_events WHERE run_id=? ORDER BY id DESC LIMIT ?",
+                (run_id, limit),
+            ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["payload"] = json.loads(d.get("payload_json") or "{}")
+            except Exception:
+                d["payload"] = {}
+            result.append(d)
+        return list(reversed(result))
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Run summary helpers (for the status API)
+# ---------------------------------------------------------------------------
+
+def get_run_with_steps(run_id: int) -> Optional[dict]:
+    """Return a run dict with its steps embedded (used by status API)."""
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT * FROM pipeline_runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            return None
+        run = dict(row)
+        try:
+            run["config"] = json.loads(run.get("config_json") or "{}")
+        except Exception:
+            run["config"] = {}
+    finally:
+        conn.close()
+
+    run["steps"] = get_step_runs_for_run(run_id)
+    return run
+
+
+def get_runs_recent(
+    limit: int = 20,
+    date_str: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> list[dict]:
+    """Return recent pipeline runs, newest first."""
+    conn = _connect()
+    try:
+        conditions = []
+        params: list = []
+        if date_str:
+            conditions.append("date_str=?")
+            params.append(date_str)
+        if user_id is not None:
+            conditions.append("user_id=?")
+            params.append(user_id)
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT * FROM pipeline_runs {where} ORDER BY id DESC LIMIT ?",
+            params,
+        ).fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["config"] = json.loads(d.get("config_json") or "{}")
+            except Exception:
+                d["config"] = {}
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_runs_recent_with_summary(
+    limit: int = 20,
+    date_str: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> list[dict]:
+    """Like get_runs_recent but enriches each run with step counts and child runs in two bulk queries."""
+    runs = get_runs_recent(limit=limit, date_str=date_str, user_id=user_id)
+    if not runs:
+        return runs
+
+    run_ids = [r["id"] for r in runs]
+    placeholders = ",".join("?" for _ in run_ids)
+
+    conn = _connect()
+    try:
+        # Bulk step counts grouped by (run_id, status)
+        step_rows = conn.execute(
+            f"SELECT run_id, status, COUNT(*) as cnt FROM pipeline_step_runs "
+            f"WHERE run_id IN ({placeholders}) GROUP BY run_id, status",
+            run_ids,
+        ).fetchall()
+        counts_by_run: dict[int, dict[str, int]] = {}
+        for r in step_rows:
+            rid = r["run_id"]
+            if rid not in counts_by_run:
+                counts_by_run[rid] = {}
+            counts_by_run[rid][r["status"]] = r["cnt"]
+
+        # Bulk child runs
+        child_rows = conn.execute(
+            f"SELECT id, parent_run_id, user_id, phase, status "
+            f"FROM pipeline_runs WHERE parent_run_id IN ({placeholders}) ORDER BY id",
+            run_ids,
+        ).fetchall()
+        children_by_parent: dict[int, list[dict]] = {}
+        for r in child_rows:
+            pid = r["parent_run_id"]
+            if pid not in children_by_parent:
+                children_by_parent[pid] = []
+            children_by_parent[pid].append(
+                {"id": r["id"], "user_id": r["user_id"], "phase": r["phase"], "status": r["status"]}
+            )
+
+        # Bulk user display info (username / nickname)
+        all_user_ids = list(
+            {r.get("user_id", 0) for r in runs} | {r["user_id"] for r in child_rows}
+        )
+        user_display: dict[int, dict] = {}
+        uid_non_zero = [uid for uid in all_user_ids if uid]
+        if uid_non_zero:
+            uid_ph = ",".join("?" for _ in uid_non_zero)
+            try:
+                u_rows = conn.execute(
+                    f"SELECT id, username, COALESCE(nickname, '') AS nickname "
+                    f"FROM auth_users WHERE id IN ({uid_ph})",
+                    uid_non_zero,
+                ).fetchall()
+                user_display = {r["id"]: {"username": r["username"], "nickname": r["nickname"]} for r in u_rows}
+            except Exception:
+                pass
+    finally:
+        conn.close()
+
+    for run in runs:
+        rid = run["id"]
+        counts = counts_by_run.get(rid, {})
+        run["step_counts"] = counts
+        run["step_total"] = sum(counts.values())
+        run["step_failed"] = counts.get("failed", 0)
+        run["step_completed"] = counts.get("completed", 0)
+        run["step_skipped"] = counts.get("skipped", 0)
+        run["step_soft_failed"] = counts.get("soft_failed", 0)
+        # Enrich child_runs with user display info
+        children = []
+        for child in children_by_parent.get(rid, []):
+            cuid = child.get("user_id", 0)
+            cinfo = user_display.get(cuid, {})
+            children.append({**child, "username": cinfo.get("username", ""), "nickname": cinfo.get("nickname", "")})
+        run["child_runs"] = children
+        # Enrich run with user display info
+        uid = run.get("user_id", 0)
+        uinfo = user_display.get(uid, {})
+        run["username"] = uinfo.get("username", "")
+        run["nickname"] = uinfo.get("nickname", "")
+
+    return runs
+
+
+def get_run_summary(run_id: int) -> Optional[dict]:
+    """Return a run with step counts and health indicators (lightweight summary)."""
+    conn = _connect()
+    try:
+        row = conn.execute("SELECT * FROM pipeline_runs WHERE id=?", (run_id,)).fetchone()
+        if not row:
+            return None
+        run = dict(row)
+        try:
+            run["config"] = json.loads(run.get("config_json") or "{}")
+        except Exception:
+            run["config"] = {}
+
+        step_rows = conn.execute(
+            "SELECT status, COUNT(*) as cnt FROM pipeline_step_runs WHERE run_id=? GROUP BY status",
+            (run_id,),
+        ).fetchall()
+        counts = {r["status"]: r["cnt"] for r in step_rows}
+        run["step_counts"] = counts
+        run["step_total"] = sum(counts.values())
+        run["step_failed"] = counts.get("failed", 0)
+        run["step_completed"] = counts.get("completed", 0)
+        run["step_skipped"] = counts.get("skipped", 0)
+        run["step_soft_failed"] = counts.get("soft_failed", 0)
+
+        child_rows = conn.execute(
+            "SELECT id, user_id, phase, status FROM pipeline_runs WHERE parent_run_id=? ORDER BY id",
+            (run_id,),
+        ).fetchall()
+        run["child_runs"] = [dict(r) for r in child_rows]
+        return run
+    finally:
+        conn.close()
 
 
 # Ensure tables exist on first import
