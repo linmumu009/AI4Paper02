@@ -94,6 +94,13 @@ def run(args: argparse.Namespace) -> None:
                 })
             _pdb.bulk_upsert_selected_papers(uid, date_str, rows_to_update)
             kept_count = sum(1 for r in rows_to_update if r["is_final_selected"])
+            if kept_count == 0:
+                _pdb.upsert_date_notice(
+                    uid,
+                    date_str,
+                    "no_matching_papers",
+                    "今天没有同时满足相关性与机构筛选条件的论文。",
+                )
             print(f"[FILTER] total={len(rows_to_update)} kept={kept_count} dropped={len(rows_to_update)-kept_count}", flush=True)
             print("============结束筛选大机构论文==============", flush=True)
             return
