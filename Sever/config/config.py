@@ -58,6 +58,12 @@ PAGE_SIZE_DEFAULT = 200
 MAX_PAPERS_DEFAULT = 500
 SLEEP_DEFAULT = 3.1
 
+# [services/openrouter_rate_limit.py] OpenRouter free-tier global rate limiting
+OPENROUTER_FREE_RPM = 18
+OPENROUTER_429_BASE_WAIT = 5
+OPENROUTER_429_MAX_WAIT = 60
+OPENROUTER_429_MAX_RETRIES = 5
+
 # [Controller/arxiv_search.py] 代理与重试配置
 USE_PROXY_DEFAULT = False
 RETRY_COUNT = 5
