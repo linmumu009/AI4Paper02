@@ -68,6 +68,10 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn('setfacl -m "d:u:${SERVICE_USER}:rwx"', script)
         self.assertIn('setfacl -m "u:${SERVICE_USER}:rw" "$paper_list"', script)
         self.assertNotIn('chown -R "$SERVICE_USER:$SERVICE_GROUP"', script)
+        self.assertIn('"${server_root}/database/.secret_storage_key"', script)
+        self.assertIn('"${server_root}/database/kb_file_signing.key"', script)
+        self.assertIn('chown "$SERVICE_USER:$SERVICE_GROUP" "$key_file"', script)
+        self.assertIn('chmod 0600 "$key_file"', script)
 
     def test_deploy_rolls_back_api_unit_when_restart_fails(self) -> None:
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")

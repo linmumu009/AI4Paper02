@@ -50,6 +50,10 @@ prepare_api_runtime_permissions() {
     "${server_root}/logs"
   )
   local paper_list="${server_root}/config/paperList.json"
+  local service_key_files=(
+    "${server_root}/database/.secret_storage_key"
+    "${server_root}/database/kb_file_signing.key"
+  )
 
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir /nonexistent --shell /sbin/nologin "$SERVICE_USER"
@@ -64,6 +68,13 @@ prepare_api_runtime_permissions() {
 
   touch "$paper_list"
   setfacl -m "u:${SERVICE_USER}:rw" "$paper_list"
+
+  for key_file in "${service_key_files[@]}"; do
+    if [[ -f "$key_file" ]]; then
+      chown "$SERVICE_USER:$SERVICE_GROUP" "$key_file"
+      chmod 0600 "$key_file"
+    fi
+  done
 }
 
 api_is_ready() {
