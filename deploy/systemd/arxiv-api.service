@@ -18,6 +18,20 @@ RestartSec=3
 TimeoutStopSec=45
 KillMode=mixed
 UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=full
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 Environment=PYTHONUNBUFFERED=1
 Environment=SITE_BASE_URL=https://ai4papers.com
 Environment=CORS_ORIGINS=https://ai4papers.com,https://www.ai4papers.com

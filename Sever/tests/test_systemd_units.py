@@ -18,6 +18,18 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn("UMask=0077", unit)
         self.assertIn("Environment=COOKIE_SECURE=true", unit)
         self.assertIn("Environment=COOKIE_SAMESITE=lax", unit)
+        self.assertIn("NoNewPrivileges=true", unit)
+        self.assertIn("PrivateTmp=true", unit)
+        self.assertIn("PrivateDevices=true", unit)
+        self.assertIn("ProtectSystem=full", unit)
+        self.assertIn("ProtectHome=true", unit)
+        self.assertIn("ProtectKernelTunables=true", unit)
+        self.assertIn("ProtectKernelModules=true", unit)
+        self.assertIn("ProtectControlGroups=true", unit)
+        self.assertIn("RestrictSUIDSGID=true", unit)
+        self.assertIn("LockPersonality=true", unit)
+        self.assertIn("RestrictNamespaces=true", unit)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6", unit)
 
     def test_deploy_installs_api_unit_before_restart(self) -> None:
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")
