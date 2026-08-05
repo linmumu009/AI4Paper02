@@ -76,6 +76,7 @@ _SEVER_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__fil
 _APP_PY_PATH = os.path.join(_SEVER_DIR, "app.py")
 _SCHEDULE_CONFIG_PATH = os.path.join(_SEVER_DIR, "database", "schedule_config.json")
 _SCHEDULER_LOCK_PATH = os.path.join(_SEVER_DIR, "database", "scheduler.lock")
+_PIPELINE_EXECUTION_LOCK_PATH = os.path.join(_SEVER_DIR, "database", "pipeline_execution.lock")
 _RUNTIME_STATE_PATH = os.path.join(_SEVER_DIR, "database", "pipeline_runtime_state.json")
 _ADMIN_LOG_DIR = os.path.join(_SEVER_DIR, "logs", "admin_pipeline")
 _SCHEDULE_HISTORY_PATH = os.path.join(_SEVER_DIR, "database", "schedule_history.jsonl")
@@ -97,6 +98,7 @@ _pipeline_state: dict = {
     "log_file": None,
 }
 _pipeline_lock = threading.Lock()
+_pipeline_start_lock = threading.Lock()
 
 _active_per_user_procs: list = []
 _active_per_user_procs_lock = threading.Lock()
@@ -139,8 +141,12 @@ def _load_schedule_config() -> dict:
 
 def _save_schedule_config(cfg: dict) -> None:
     os.makedirs(os.path.dirname(_SCHEDULE_CONFIG_PATH), exist_ok=True)
-    with open(_SCHEDULE_CONFIG_PATH, "w", encoding="utf-8") as f:
+    tmp = _SCHEDULE_CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, _SCHEDULE_CONFIG_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +272,7 @@ def _run_pipeline_thread(
     trigger: str = "manual",
     parent_run_id: int = 0,
     requested_by: Optional[int] = None,
+    lease_token: Optional[str] = None,
 ):
     global _pipeline_state
     # Create DB run record before building the cmd so we can pass --run-id
@@ -377,6 +384,7 @@ def _run_pipeline_thread(
             errors="replace",
             cwd=_SEVER_DIR,
             env=env,
+            start_new_session=(sys.platform != "win32"),
         )
         with _pipeline_lock:
             _pipeline_state["process"] = proc
@@ -485,7 +493,7 @@ def _run_pipeline_thread(
             pass
         _append_schedule_history({
             "run_id": run_id,
-            "trigger": "manual",
+            "trigger": trigger,
             "date_str": date_str,
             "started_at": started_at,
             "finished_at": finished_at,
@@ -495,6 +503,21 @@ def _run_pipeline_thread(
             "success": exit_code == 0,
             "pipeline": pipeline,
         })
+        if trigger == "scheduled":
+            lock_path = f"{_SCHEDULER_LOCK_PATH}.{date_str}"
+            if exit_code == 0:
+                try:
+                    new_cfg = {**_load_schedule_config(), "last_run_date": date_str}
+                    _save_schedule_config(new_cfg)
+                    _scheduler_state["last_run_date"] = date_str
+                except OSError:
+                    pass
+            else:
+                try:
+                    os.remove(lock_path)
+                except OSError:
+                    pass
+        _release_execution_lease(lease_token)
 
 
 def _run_pipeline_subprocess(cmd: list, env: dict, log_file: str) -> int:
@@ -513,6 +536,7 @@ def _run_pipeline_subprocess(cmd: list, env: dict, log_file: str) -> int:
             errors="replace",
             cwd=_SEVER_DIR,
             env=env,
+            start_new_session=(sys.platform != "win32"),
         )
         with _active_per_user_procs_lock:
             _active_per_user_procs.append(proc)
@@ -540,7 +564,11 @@ def _run_pipeline_subprocess(cmd: list, env: dict, log_file: str) -> int:
     return exit_code
 
 
-def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
+def _run_multiuser_scheduler_thread(
+    cfg: dict,
+    today: str,
+    lease_token: Optional[str] = None,
+) -> None:
     import concurrent.futures as _cf
 
     sllm = cfg.get("sllm")
@@ -589,7 +617,7 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
         "params": params,
         "run_id": run_id,
         "log_file": orch_log_file,
-        "pid": os.getpid(),
+        "pid": None,
     })
 
     exit_code = 0
@@ -934,6 +962,7 @@ def _run_multiuser_scheduler_thread(cfg: dict, today: str) -> None:
                     )
                 except OSError:
                     pass
+        _release_execution_lease(lease_token)
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -965,6 +994,29 @@ def _maybe_clear_stale_runtime_state() -> bool:
                 _pipeline_state["running"] = False
             return True
 
+    # Multi-user orchestration and targeted reruns are owned by an API thread,
+    # not by one stable child PID.  Their cross-process lease is the reliable
+    # liveness record.  If the API died, the lease owner is dead and the old
+    # runtime JSON must not block the next request for six hours.
+    if not pid:
+        try:
+            from services.pipeline_lease_service import read_lease
+
+            lease = read_lease(_PIPELINE_EXECUTION_LOCK_PATH)
+            lease_pid = int(lease.get("pid") or 0)
+        except (OSError, TypeError, ValueError):
+            lease_pid = 0
+        if lease_pid <= 0 or not _is_pid_alive(lease_pid):
+            _save_runtime_state({
+                **disk_rt,
+                "running": False,
+                "current_step": "异常退出（执行租约已失效）",
+                "exit_code": -1,
+            })
+            with _pipeline_lock:
+                _pipeline_state["running"] = False
+            return True
+
     started_at_str = disk_rt.get("started_at")
     if started_at_str:
         try:
@@ -986,6 +1038,78 @@ def _maybe_clear_stale_runtime_state() -> bool:
             pass
 
     return False
+
+
+def _try_acquire_execution_lease(
+    pipeline: str,
+    date_str: str,
+    trigger: str,
+) -> Optional[dict]:
+    """Atomically reserve the single host-wide pipeline execution slot."""
+    from services.pipeline_lease_service import (
+        acquire_pipeline_lease,
+        release_pipeline_lease,
+    )
+
+    with _pipeline_start_lock:
+        _maybe_clear_stale_runtime_state()
+        lease = acquire_pipeline_lease(
+            _PIPELINE_EXECUTION_LOCK_PATH,
+            pipeline=pipeline,
+            date_str=date_str,
+            trigger=trigger,
+        )
+        if lease is None:
+            return None
+
+        disk_rt = _load_runtime_state()
+        with _pipeline_lock:
+            memory_running = bool(_pipeline_state.get("running"))
+        if disk_rt.get("running") or memory_running:
+            release_pipeline_lease(_PIPELINE_EXECUTION_LOCK_PATH, lease["token"])
+            return None
+        return lease
+
+
+def _release_execution_lease(token: Optional[str]) -> None:
+    try:
+        from services.pipeline_lease_service import release_pipeline_lease
+
+        release_pipeline_lease(_PIPELINE_EXECUTION_LOCK_PATH, token)
+    except OSError:
+        pass
+
+
+def _run_with_execution_lease(target, lease_token: str, *args, **kwargs) -> None:
+    """Guarantee lease release even if a worker fails before its own ``try``."""
+    try:
+        target(*args, lease_token=lease_token, **kwargs)
+    finally:
+        _release_execution_lease(lease_token)
+
+
+def _release_current_execution_lease() -> None:
+    try:
+        from services.pipeline_lease_service import read_lease
+
+        lease = read_lease(_PIPELINE_EXECUTION_LOCK_PATH)
+        _release_execution_lease(lease.get("token"))
+    except OSError:
+        pass
+
+
+def _scheduler_lock_is_stale(lock_path: str) -> bool:
+    """Return true only when a crashed scheduled attempt left its day lock."""
+    try:
+        with open(lock_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        pid = int(payload.get("pid") or 0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        try:
+            return time.time() - os.path.getmtime(lock_path) > 30
+        except OSError:
+            return True
+    return pid <= 0 or not _is_pid_alive(pid)
 
 
 def _scheduler_loop():
@@ -1031,30 +1155,62 @@ def _scheduler_loop():
                 os.makedirs(os.path.dirname(_SCHEDULER_LOCK_PATH), exist_ok=True)
                 try:
                     fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                    os.close(fd)
+                    try:
+                        os.write(fd, json.dumps({
+                            "pid": os.getpid(),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                        }).encode("utf-8"))
+                        os.fsync(fd)
+                    finally:
+                        os.close(fd)
                 except FileExistsError:
+                    if _scheduler_lock_is_stale(lock_path):
+                        try:
+                            os.remove(lock_path)
+                        except OSError:
+                            pass
                     _scheduler_stop_event.wait(30)
                     continue
 
-                _maybe_clear_stale_runtime_state()
-
-                disk_rt = _load_runtime_state()
-                if not disk_rt.get("running") and not _pipeline_state["running"]:
+                lease = _try_acquire_execution_lease(
+                    "multi_user" if cfg.get("multi_user", True) else cfg.get("pipeline", "daily"),
+                    today,
+                    "scheduled",
+                )
+                if lease is not None:
                     use_multi_user = cfg.get("multi_user", True)
                     if use_multi_user:
                         t = threading.Thread(
-                            target=_run_multiuser_scheduler_thread,
-                            args=(cfg, today),
+                            target=_run_with_execution_lease,
+                            args=(_run_multiuser_scheduler_thread, lease["token"], cfg, today),
                             daemon=True,
                         )
                     else:
                         t = threading.Thread(
-                            target=_run_pipeline_thread,
-                            args=(cfg.get("pipeline", "daily"), today, cfg.get("sllm"), cfg.get("zo", "F")),
-                            kwargs={"user_id": cfg.get("user_id")},
+                            target=_run_with_execution_lease,
+                            args=(
+                                _run_pipeline_thread,
+                                lease["token"],
+                                cfg.get("pipeline", "daily"),
+                                today,
+                                cfg.get("sllm"),
+                                cfg.get("zo", "F"),
+                            ),
+                            kwargs={
+                                "user_id": cfg.get("user_id"),
+                                "trigger": "scheduled",
+                            },
                             daemon=True,
                         )
-                    t.start()
+                    try:
+                        t.start()
+                    except Exception:
+                        _release_execution_lease(lease["token"])
+                        try:
+                            os.remove(lock_path)
+                        except OSError:
+                            pass
+                        raise
 
                     _scheduler_retry_counts[today] = retry_count_today + 1
                     print(
@@ -1111,6 +1267,13 @@ def api_admin_run_pipeline(
 
     date_str = body.date or datetime.now().date().isoformat()
     force_hint = "（强制模式）" if body.force else ""
+    lease = _try_acquire_execution_lease(
+        "multi_user" if body.multi_user else body.pipeline,
+        date_str,
+        "manual",
+    )
+    if lease is None:
+        raise HTTPException(status_code=409, detail="Pipeline 正在运行中，请等待完成")
 
     if body.multi_user:
         cfg = {
@@ -1126,16 +1289,21 @@ def api_admin_run_pipeline(
             "anchor_tz": body.anchor_tz,
         }
         t = threading.Thread(
-            target=_run_multiuser_scheduler_thread,
-            args=(cfg, date_str),
+            target=_run_with_execution_lease,
+            args=(_run_multiuser_scheduler_thread, lease["token"], cfg, date_str),
             daemon=True,
         )
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            _release_execution_lease(lease["token"])
+            raise
         return {"ok": True, "message": f"多用户 Pipeline 已启动{force_hint}，日期: {date_str}（shared + per_user × 所有自定义用户）"}
     else:
         pipeline_user_id = body.user_id if body.user_id is not None else _admin.get("id")
         t = threading.Thread(
-            target=_run_pipeline_thread,
+            target=_run_with_execution_lease,
+            args=(_run_pipeline_thread, lease["token"]),
             kwargs={
                 "pipeline": body.pipeline,
                 "date_str": date_str,
@@ -1152,7 +1320,11 @@ def api_admin_run_pipeline(
             },
             daemon=True,
         )
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            _release_execution_lease(lease["token"])
+            raise
         return {"ok": True, "message": f"Pipeline '{body.pipeline}' 已启动{force_hint}，日期: {date_str}"}
 
 
@@ -1265,6 +1437,7 @@ def api_admin_stop_pipeline(
                 _pipeline_state["process"] = None
                 _pipeline_state["current_step"] = "已手动终止（残留状态已重置）"
                 _pipeline_state["exit_code"] = -9
+            _release_current_execution_lease()
             return {"ok": True, "message": "已重置残留运行状态（进程已不存在）"}
         raise HTTPException(status_code=400, detail="当前没有正在运行的 Pipeline")
 
@@ -1329,6 +1502,7 @@ def api_admin_stop_pipeline(
         _pipeline_state["current_step"] = "已手动终止"
         _pipeline_state["exit_code"] = -9
 
+    _release_current_execution_lease()
     return {"ok": True, "message": "已发送终止信号（进程树已强制结束）"}
 
 
@@ -1572,6 +1746,8 @@ def api_pipeline_rerun(
     Restart a previously recorded run from a specific step (from_step) or
     run only a single step (only_step), without re-running the entire pipeline.
     """
+    lease_token: Optional[str] = None
+    thread_started = False
     try:
         from services import pipeline_db_service as _pdb
 
@@ -1592,6 +1768,11 @@ def api_pipeline_rerun(
             if _pipeline_state.get("running"):
                 raise HTTPException(status_code=409, detail="Pipeline is already running")
 
+        lease = _try_acquire_execution_lease(pipeline, date_str, "manual_rerun")
+        if lease is None:
+            raise HTTPException(status_code=409, detail="Pipeline is already running")
+        lease_token = lease["token"]
+
         new_run_id = _create_db_run(
             pipeline=pipeline,
             date_str=date_str,
@@ -1599,7 +1780,7 @@ def api_pipeline_rerun(
             phase=phase,
             trigger="manual_rerun",
             parent_run_id=body.run_id,
-            requested_by=getattr(admin, "id", None),
+            requested_by=admin.get("id") if isinstance(admin, dict) else getattr(admin, "id", None),
             config={"sllm": sllm, "zo": zo, "force": body.force,
                     "from_step": body.from_step, "only_step": body.only_step},
         )
@@ -1638,10 +1819,47 @@ def api_pipeline_rerun(
             env["PIPELINE_USER_ID"] = str(user_id)
 
         def _do_rerun():
+            exit_code = -1
             try:
-                _run_pipeline_subprocess(cmd, env, log_file)
+                exit_code = _run_pipeline_subprocess(cmd, env, log_file)
             except Exception as exc:
                 print(f"[RERUN] error: {exc!r}", flush=True)
+            finally:
+                try:
+                    _pdb.update_run_status(
+                        new_run_id,
+                        "completed" if exit_code == 0 else "failed",
+                    )
+                except Exception:
+                    pass
+                finished_at = datetime.now(timezone.utc).isoformat()
+                final_step = "重跑已完成" if exit_code == 0 else f"重跑异常退出 (code={exit_code})"
+                with _pipeline_lock:
+                    _pipeline_state["running"] = False
+                    _pipeline_state["process"] = None
+                    _pipeline_state["current_step"] = final_step
+                    _pipeline_state["finished_at"] = finished_at
+                    _pipeline_state["exit_code"] = exit_code
+                try:
+                    _save_runtime_state({
+                        "running": False,
+                        "pid": None,
+                        "current_step": final_step,
+                        "started_at": started_at,
+                        "finished_at": finished_at,
+                        "exit_code": exit_code,
+                        "params": {
+                            "pipeline": pipeline,
+                            "date": date_str,
+                            "user_id": user_id,
+                            "rerun_of": body.run_id,
+                        },
+                        "run_id": f"rerun_{new_run_id}",
+                        "log_file": log_file,
+                    })
+                except OSError:
+                    pass
+                _release_execution_lease(lease_token)
 
         started_at = datetime.now(timezone.utc).isoformat()
         with _pipeline_lock:
@@ -1654,8 +1872,26 @@ def api_pipeline_rerun(
             _pipeline_state["run_id"] = f"rerun_{new_run_id}"
             _pipeline_state["log_file"] = log_file
 
+        _save_runtime_state({
+            "running": True,
+            "pid": None,
+            "current_step": f"重跑 run_id={body.run_id}",
+            "started_at": started_at,
+            "finished_at": None,
+            "exit_code": None,
+            "params": {
+                "pipeline": pipeline,
+                "date": date_str,
+                "user_id": user_id,
+                "rerun_of": body.run_id,
+            },
+            "run_id": f"rerun_{new_run_id}",
+            "log_file": log_file,
+        })
+
         t = threading.Thread(target=_do_rerun, daemon=True)
         t.start()
+        thread_started = True
 
         return {
             "ok": True,
@@ -1664,8 +1900,12 @@ def api_pipeline_rerun(
             "log_file": log_file,
         }
     except HTTPException:
+        if lease_token and not thread_started:
+            _release_execution_lease(lease_token)
         raise
     except Exception as exc:
+        if lease_token and not thread_started:
+            _release_execution_lease(lease_token)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

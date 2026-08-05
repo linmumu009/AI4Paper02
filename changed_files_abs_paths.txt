@@ -244,3 +244,6 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_backup_datab
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_storage_health_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\ai4papers-db-backup.service
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\ai4papers-db-backup.timer
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\pipeline_lease_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pipeline_lease_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_digest_publication_gate.py

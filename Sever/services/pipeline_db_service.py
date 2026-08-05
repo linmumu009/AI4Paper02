@@ -1813,6 +1813,36 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
         conn.close()
 
 
+def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
+    """Return whether one user's digest is safe to expose as a complete batch."""
+    if not has_final_selections(user_id, date_str):
+        notice = get_date_notice(user_id, date_str)
+        return {
+            "ready": notice is not None,
+            "user_id": user_id,
+            "date_str": date_str,
+            "reason": "empty_result_notice" if notice is not None else "no_result",
+            "coverage": {},
+        }
+
+    coverage = {
+        step: get_db_step_coverage(step, user_id, date_str)
+        for step in ("paper_summary", "summary_limit", "paper_assets")
+    }
+    ready = all(item.get("complete") for item in coverage.values())
+    return {
+        "ready": ready,
+        "user_id": user_id,
+        "date_str": date_str,
+        "reason": "complete" if ready else "incomplete_coverage",
+        "coverage": coverage,
+    }
+
+
+def is_digest_ready_for_publication(user_id: int, date_str: str) -> bool:
+    return bool(get_digest_publication_readiness(user_id, date_str).get("ready"))
+
+
 def get_all_final_arxiv_ids(date_str: str) -> list[str]:
     """Return the union of final paper selections across every user for a date."""
     conn = _connect()

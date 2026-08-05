@@ -188,6 +188,50 @@ class TestPipelineCompletionContract(unittest.TestCase):
         self.assertTrue(assets_coverage["complete"])
         self.assertEqual(assets_coverage["expected_count"], 0)
 
+    def test_digest_is_not_publishable_until_every_user_facing_output_is_complete(self) -> None:
+        self._select_final(3, ["2608.00001"])
+        pipeline_db_service.upsert_summary_raw(
+            3, self.date_str, "2608.00001", "complete raw summary"
+        )
+        pipeline_db_service.upsert_summary_limit(
+            3, self.date_str, "2608.00001", "complete limited summary"
+        )
+
+        incomplete = pipeline_db_service.get_digest_publication_readiness(
+            3, self.date_str
+        )
+        self.assertFalse(incomplete["ready"])
+        self.assertEqual(incomplete["reason"], "incomplete_coverage")
+        self.assertFalse(incomplete["coverage"]["paper_assets"]["complete"])
+
+        pipeline_db_service.upsert_paper_assets(
+            3,
+            self.date_str,
+            "2608.00001",
+            blocks={"summary": {"one_sentence_summary": "A real finding"}},
+        )
+        complete = pipeline_db_service.get_digest_publication_readiness(
+            3, self.date_str
+        )
+        self.assertTrue(complete["ready"])
+        self.assertEqual(complete["reason"], "complete")
+
+    def test_empty_digest_requires_an_explicit_date_notice_to_publish(self) -> None:
+        self.assertFalse(
+            pipeline_db_service.is_digest_ready_for_publication(3, self.date_str)
+        )
+
+        pipeline_db_service.upsert_date_notice(
+            3,
+            self.date_str,
+            "no_papers_empty",
+            "今天暂无符合条件的论文。",
+        )
+
+        self.assertTrue(
+            pipeline_db_service.is_digest_ready_for_publication(3, self.date_str)
+        )
+
     def test_per_user_pipeline_never_runs_destructive_cleanup(self) -> None:
         self.assertNotIn("cleanup", app.PER_USER_STEPS)
         self.assertEqual(app.POST_USERS_CLEANUP_STEPS, ["cleanup"])

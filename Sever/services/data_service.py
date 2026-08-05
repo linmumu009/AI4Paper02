@@ -271,15 +271,21 @@ def list_dates(user_id: int = 0) -> list[str]:
     """
     # Try DB first
     try:
-        from services.pipeline_db_service import list_dates_with_data
-        db_dates = list_dates_with_data(user_id)
-        if db_dates:
-            return db_dates
-        # Try default user dates as fallback
+        from services.pipeline_db_service import (
+            is_digest_ready_for_publication,
+            list_dates_with_data,
+        )
+        candidate_dates = set(list_dates_with_data(user_id))
         if user_id != 0:
-            default_dates = list_dates_with_data(0)
-            if default_dates:
-                return default_dates
+            candidate_dates.update(list_dates_with_data(0))
+        ready_dates = [
+            date_str
+            for date_str in candidate_dates
+            if is_digest_ready_for_publication(user_id, date_str)
+            or (user_id != 0 and is_digest_ready_for_publication(0, date_str))
+        ]
+        if ready_dates:
+            return sorted(ready_dates, reverse=True)
     except Exception:
         pass
     # Legacy file-collect fallback
@@ -343,14 +349,30 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
     """
     try:
         from services.pipeline_db_service import (
-            get_digest_papers, has_final_selections,
+            get_digest_papers,
+            get_date_notice,
+            has_final_selections,
+            is_digest_ready_for_publication,
         )
-        # Check if DB has data (for user or default)
-        if not has_final_selections(user_id, date) and not has_final_selections(0, date):
+        user_has_final = has_final_selections(user_id, date)
+        default_has_final = has_final_selections(0, date)
+        user_notice = get_date_notice(user_id, date)
+        default_notice = get_date_notice(0, date)
+        if not user_has_final and not default_has_final and not user_notice and not default_notice:
             return None
-        db_papers = get_digest_papers(user_id, date, fallback_user_id=0)
+        if user_has_final and is_digest_ready_for_publication(user_id, date):
+            source_uid = user_id
+        elif not user_has_final and user_notice is not None:
+            return []
+        elif user_id != 0 and default_has_final and is_digest_ready_for_publication(0, date):
+            source_uid = 0
+        else:
+            # DB rows exist, but the batch is still being assembled.  Returning
+            # [] deliberately prevents fallback to partially written files.
+            return []
+        db_papers = get_digest_papers(source_uid, date, fallback_user_id=0)
         if not db_papers:
-            return None
+            return []
 
         # Convert DB format to the expected frontend format
         result = []
@@ -473,12 +495,18 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
     try:
         from services.pipeline_db_service import (
             get_summaries, get_paper_info, get_paper_assets, get_theme_scores,
-            has_final_selections, list_dates_with_data,
+            has_final_selections, is_digest_ready_for_publication,
+            list_dates_with_data,
         )
         # Find dates that have this paper
         for candidate_uid in ([user_id, 0] if user_id != 0 else [0]):
             dates = list_dates_with_data(candidate_uid)
             for date_str in dates:
+                if (
+                    not has_final_selections(candidate_uid, date_str)
+                    or not is_digest_ready_for_publication(candidate_uid, date_str)
+                ):
+                    continue
                 info_rows = get_paper_info(candidate_uid, date_str, paper_id)
                 if not info_rows:
                     info_rows = get_paper_info(0, date_str, paper_id)
