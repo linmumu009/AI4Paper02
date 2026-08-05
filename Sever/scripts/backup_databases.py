@@ -56,6 +56,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _remove_sqlite_sidecars(db_path: Path) -> None:
+    for suffix in ("-wal", "-shm"):
+        Path(f"{db_path}{suffix}").unlink(missing_ok=True)
+
+
 def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
     plain_path = staging_dir / source.name
     compressed_path = staging_dir / f"{source.name}.gz"
@@ -70,6 +75,7 @@ def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
         source_conn.close()
 
     _quick_check(plain_path)
+    _remove_sqlite_sidecars(plain_path)
     with plain_path.open("rb") as source_handle, gzip.open(
         compressed_path, "wb", compresslevel=6
     ) as compressed_handle:
@@ -220,6 +226,7 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
             _quick_check(temp_path)
         finally:
             temp_path.unlink(missing_ok=True)
+            _remove_sqlite_sidecars(temp_path)
         verified.append(name)
 
     verified_recovery_secrets: list[str] = []

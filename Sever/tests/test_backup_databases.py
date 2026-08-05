@@ -55,6 +55,8 @@ class TestBackupDatabases(unittest.TestCase):
         self.assertFalse((backup_dir / "paper_analysis.db").exists())
         self.assertTrue((backup_dir / ".secret_storage_key").is_file())
         self.assertTrue((backup_dir / "kb_file_signing.key").is_file())
+        self.assertEqual(list(backup_dir.glob("*-wal")), [])
+        self.assertEqual(list(backup_dir.glob("*-shm")), [])
         if os.name != "nt":
             self.assertEqual(backup_dir.stat().st_mode & 0o777, 0o700)
             self.assertEqual(
@@ -75,6 +77,8 @@ class TestBackupDatabases(unittest.TestCase):
             verification["verified_recovery_secrets"],
             [".secret_storage_key", "kb_file_signing.key"],
         )
+        self.assertEqual(list(backup_dir.glob("*-wal")), [])
+        self.assertEqual(list(backup_dir.glob("*-shm")), [])
 
     def test_retention_removes_only_completed_old_backups(self) -> None:
         for day in (1, 2, 3):
