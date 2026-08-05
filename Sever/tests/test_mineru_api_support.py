@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 
 SERVER_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -46,6 +47,22 @@ class _Session:
 
 
 class MinerUApiSupportTests(unittest.TestCase):
+    def test_from_step_without_run_id_does_not_crash(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            missing_path = str(Path(temp_dir) / "missing.json")
+            with (
+                mock.patch.object(pipeline_app, "PIPELINES", {"test": ["dependency", "target"]}),
+                mock.patch.object(pipeline_app, "STEP_OUTPUT_PATHS", {"dependency": lambda _date: missing_path}),
+                mock.patch.object(pipeline_app, "run_step", return_value=0) as run_step,
+                mock.patch.object(
+                    sys,
+                    "argv",
+                    ["app.py", "test", "--date", "2026-08-05", "--from-step", "target"],
+                ),
+            ):
+                pipeline_app.main()
+        run_step.assert_called_once()
+
     def test_zero_output_mineru_failures_abort_pipeline(self):
         self.assertNotIn("pdfsplite_to_minerU", pipeline_app.SOFT_FAIL_STEPS)
         self.assertNotIn("selectedpaper_to_mineru", pipeline_app.SOFT_FAIL_STEPS)

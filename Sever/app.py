@@ -754,6 +754,24 @@ def main(argv=None):
     if output_mode:
         env["PIPELINE_OUTPUT_MODE"] = output_mode
 
+    # Resolve identifiers before --from-step dependency checks. Targeted CLI
+    # reruns commonly omit --run-id; they must still work with observability
+    # disabled instead of referencing an uninitialized local variable.
+    try:
+        uid_int = int(user_id_value) if user_id_value else 0
+    except (ValueError, TypeError):
+        uid_int = 0
+    try:
+        run_id_int = int(run_id_str) if run_id_str else 0
+    except (ValueError, TypeError):
+        run_id_int = 0
+    recorder = PipelineRecorder(
+        run_id=run_id_int,
+        phase=phase_value,
+        user_id=uid_int,
+        date_str=run_date,
+    )
+
     steps = PIPELINES.get(pipeline)
     if not steps:
         raise SystemExit(f"Unknown pipeline: {pipeline}")
@@ -799,26 +817,6 @@ def main(argv=None):
         f"RUN_DATE={run_date} Zo={zo_value} force={force} "
         f"output_mode={output_mode} user_id={user_id_value}",
         flush=True,
-    )
-
-    # Resolve user_id integer for DB checks
-    try:
-        uid_int = int(user_id_value) if user_id_value else 0
-    except (ValueError, TypeError):
-        uid_int = 0
-
-    # Resolve DB run_id for observability
-    try:
-        run_id_int = int(run_id_str) if run_id_str else 0
-    except (ValueError, TypeError):
-        run_id_int = 0
-
-    # Build recorder (disabled when run_id=0 or DB unavailable)
-    recorder = PipelineRecorder(
-        run_id=run_id_int,
-        phase=phase_value,
-        user_id=uid_int,
-        date_str=run_date,
     )
 
     # Apply step config filter.
