@@ -23,6 +23,11 @@ class AuthRateLimitWiringTests(unittest.TestCase):
         self.assertIn("_sms_verify_limiter.check(client_ip)", source)
         self.assertIn("_sms_verify_phone_limiter.check(body.phone)", source)
 
+    def test_user_llm_urls_are_validated_before_storage(self) -> None:
+        source = (_SEVER / "routers" / "auth_router.py").read_text(encoding="utf-8")
+        self.assertIn('if "llm_base_url" in body.settings:', source)
+        self.assertEqual(source.count("_validate_user_llm_url(body.base_url)"), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

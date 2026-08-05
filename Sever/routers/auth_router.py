@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from services import announcement_service, auth_service, entitlement_service, sms_service, user_presets_service, user_settings_service
+from services.network_target_guard import OutboundURLRejected, validate_user_llm_base_url
 from routers._deps import (
     _clear_session_cookie,
     _login_account_limiter,
@@ -23,6 +24,13 @@ from routers._deps import (
 )
 
 router = APIRouter(prefix="/api", tags=["auth"])
+
+
+def _validate_user_llm_url(value: str) -> str:
+    try:
+        return validate_user_llm_base_url(value)
+    except OutboundURLRejected as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +416,10 @@ def api_get_user_settings(feature: str, _user=Depends(auth_service.require_user)
 
 @router.put("/user/settings/{feature}", summary="Save user settings for a feature")
 def api_save_user_settings(feature: str, body: UserSettingsBody, _user=Depends(auth_service.require_user)):
+    if "llm_base_url" in body.settings:
+        body.settings["llm_base_url"] = _validate_user_llm_url(
+            str(body.settings.get("llm_base_url") or "")
+        )
     merged = user_settings_service.save_settings(_user["id"], feature, body.settings)
     defaults = user_settings_service.get_defaults(feature)
     return {"ok": True, "feature": feature, "settings": merged, "defaults": defaults}
@@ -427,7 +439,9 @@ def api_user_list_llm_presets(_user=Depends(auth_service.require_user)):
 def api_user_create_llm_preset(body: UserLlmPresetBody, _user=Depends(auth_service.require_user)):
     if not entitlement_service.check_boolean_gate(_user["id"], "llm_preset"):
         raise HTTPException(status_code=403, detail="自定义模型预设仅 Pro 及以上套餐可用，请升级以继续使用")
-    preset = user_presets_service.create_llm_preset(_user["id"], body.dict())
+    data = body.dict()
+    data["base_url"] = _validate_user_llm_url(body.base_url)
+    preset = user_presets_service.create_llm_preset(_user["id"], data)
     return {"ok": True, "preset": preset}
 
 
@@ -435,7 +449,9 @@ def api_user_create_llm_preset(body: UserLlmPresetBody, _user=Depends(auth_servi
 def api_user_update_llm_preset(preset_id: int, body: UserLlmPresetBody, _user=Depends(auth_service.require_user)):
     if not entitlement_service.check_boolean_gate(_user["id"], "llm_preset"):
         raise HTTPException(status_code=403, detail="自定义模型预设仅 Pro 及以上套餐可用，请升级以继续使用")
-    preset = user_presets_service.update_llm_preset(_user["id"], preset_id, body.dict())
+    data = body.dict()
+    data["base_url"] = _validate_user_llm_url(body.base_url)
+    preset = user_presets_service.update_llm_preset(_user["id"], preset_id, data)
     if preset is None:
         raise HTTPException(status_code=404, detail="预设不存在")
     return {"ok": True, "preset": preset}
