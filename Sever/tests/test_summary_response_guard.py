@@ -31,9 +31,11 @@ class _Completions:
     def __init__(self, outcomes):
         self.outcomes = iter(outcomes)
         self.calls = 0
+        self.requests = []
 
-    def create(self, **_kwargs):
+    def create(self, **kwargs):
         self.calls += 1
+        self.requests.append(kwargs)
         outcome = next(self.outcomes)
         if isinstance(outcome, Exception):
             raise outcome
@@ -77,6 +79,34 @@ class TestSummaryResponseGuard(unittest.TestCase):
                 logger=lambda _message: None,
                 content_validator=lambda text: "🛎️文章简介" in text,
             )
+
+    def test_length_limit_expands_output_budget_and_shortens_input(self):
+        long_input = "A" * 1000
+        client = _client(
+            _response(None, finish_reason="length"),
+            _response("🛎️文章简介\n🔸研究问题：测试"),
+        )
+
+        result = create_nonempty_completion(
+            client,
+            request_kwargs={
+                "model": "test",
+                "max_tokens": 4096,
+                "messages": [{"role": "user", "content": long_input}],
+            },
+            max_attempts=2,
+            sleep=lambda _seconds: None,
+            logger=lambda _message: None,
+        )
+
+        self.assertIn("文章简介", result)
+        first_request, second_request = client.completions_spy.requests
+        self.assertEqual(first_request["max_tokens"], 4096)
+        self.assertEqual(second_request["max_tokens"], 8192)
+        self.assertLess(
+            len(second_request["messages"][0]["content"]),
+            len(first_request["messages"][0]["content"]),
+        )
 
 
 class TestDigestPublicationGuard(unittest.TestCase):
