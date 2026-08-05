@@ -18,10 +18,15 @@ This service is stateless; all persistence goes through idea_service.py.
 """
 
 import json
+import logging
 import os
 from typing import Any, Generator, Optional
 
 from openai import OpenAI
+from services.safe_logging_service import safe_failure_detail
+
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +391,13 @@ def _sse_stream_llm(client: OpenAI, cfg: dict, system_prompt: str, user_content:
                 text = chunk.choices[0].delta.content
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
     except Exception as exc:
-        yield f"data: {json.dumps(f'生成失败: {exc}', ensure_ascii=False)}\n\n"
+        message = safe_failure_detail(
+            _logger,
+            "生成失败，请稍后重试",
+            exc,
+            operation="idea_stream_generation",
+        )
+        yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
     yield "data: [DONE]\n\n"
 
 

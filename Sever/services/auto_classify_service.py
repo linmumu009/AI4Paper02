@@ -31,6 +31,8 @@ import logging
 import threading
 from typing import Optional
 
+from services.safe_logging_service import safe_failure_detail
+
 logger = logging.getLogger(__name__)
 
 _running_jobs: set[str] = set()  # "user_id:paper_id:scope"
@@ -448,12 +450,17 @@ def _do_classify(user_id: int, paper_id: str, scope: str = "kb") -> None:
         _set("done", folder_id=target_folder_id, confidence=confidence, reason=reason)
 
     except Exception as exc:
-        logger.exception("auto_classify: unhandled error for user=%s paper=%s: %s", user_id, paper_id, exc)
+        public_error = safe_failure_detail(
+            logger,
+            "自动分类失败，请稍后重试",
+            exc,
+            operation="auto_classify",
+        )
         try:
             import services.kb_service as kbs2
             kbs2.set_classify_status(
                 user_id, paper_id,
-                status="failed", error=str(exc)[:500],
+                status="failed", error=public_error,
                 scope=scope,
             )
         except Exception:

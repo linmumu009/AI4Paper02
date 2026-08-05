@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
+from services.safe_logging_service import safe_stored_error
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 
@@ -451,7 +452,9 @@ def api_user_paper_process_status(
         "paper_id": paper_id,
         "process_status": paper.get("process_status", "none"),
         "process_step": paper.get("process_step", ""),
-        "process_error": paper.get("process_error", ""),
+        "process_error": safe_stored_error(
+            paper.get("process_error"), "论文处理失败，请重试"
+        ),
         "process_started_at": paper.get("process_started_at"),
         "process_finished_at": paper.get("process_finished_at"),
     }
@@ -531,7 +534,9 @@ def api_user_paper_translate_status(
     return {
         "paper_id": paper_id,
         "translate_status": paper.get("translate_status", "none"),
-        "translate_error": paper.get("translate_error", ""),
+        "translate_error": safe_stored_error(
+            paper.get("translate_error"), "论文翻译失败，请重试"
+        ),
         "translate_progress": int(paper.get("translate_progress") or 0),
         "translate_started_at": paper.get("translate_started_at"),
         "translate_finished_at": paper.get("translate_finished_at"),

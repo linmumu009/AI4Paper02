@@ -15,6 +15,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Tuple
 
+from services.safe_logging_service import safe_failure_detail
+
 logger = logging.getLogger(__name__)
 
 _translate_jobs: set[str] = set()
@@ -853,14 +855,19 @@ def run_translation(user_id: int, paper_id: str) -> None:
         )
         logger.info("Translation completed for %s", paper_id)
     except Exception as exc:
-        logger.exception("Translation failed for %s: %s", paper_id, exc)
+        public_error = safe_failure_detail(
+            logger,
+            "论文翻译失败，请稍后重试",
+            exc,
+            operation="user_paper_translation",
+        )
         try:
             import services.user_paper_service as svc2
 
             svc2.set_translate_status(
                 paper_id,
                 status="failed",
-                error=str(exc)[:500],
+                error=public_error,
                 finished=True,
                 progress=0,
             )
@@ -1073,13 +1080,18 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
         )
         logger.info("KB translation completed for %s", paper_id)
     except Exception as exc:
-        logger.exception("KB translation failed for %s: %s", paper_id, exc)
+        public_error = safe_failure_detail(
+            logger,
+            "知识库论文翻译失败，请稍后重试",
+            exc,
+            operation="kb_paper_translation",
+        )
         try:
             import services.kb_service as kbs2
             kbs2.set_kb_paper_translate_status(
                 user_id, paper_id,
                 status="failed",
-                error=str(exc)[:500],
+                error=public_error,
                 scope=scope,
             )
         except Exception:

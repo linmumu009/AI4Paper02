@@ -26,6 +26,7 @@ Context strategies
 """
 
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -33,6 +34,10 @@ from datetime import datetime, timezone
 from typing import Generator, Optional
 
 from openai import OpenAI
+from services.safe_logging_service import safe_failure_detail
+
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Lazy service imports (avoid circular imports)
@@ -800,7 +805,12 @@ def stream_chat(
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
 
     except Exception as exc:
-        error_msg = f"问答失败: {exc}"
+        error_msg = safe_failure_detail(
+            _logger,
+            "问答失败，请稍后重试",
+            exc,
+            operation="paper_chat_stream",
+        )
         yield f"data: {json.dumps(error_msg, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
         return

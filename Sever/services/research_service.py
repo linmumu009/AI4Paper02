@@ -34,6 +34,7 @@ if no model is configured for "deep_research").
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sqlite3
 import threading
@@ -45,6 +46,10 @@ from openai import OpenAI
 from openai import APIConnectionError, AuthenticationError, RateLimitError, APIStatusError
 from services.llm_utils import approx_tokens as _approx_tokens, crop as _crop
 from services import paper_data_utils as _pdu
+from services.safe_logging_service import safe_failure_detail
+
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Lazy service imports (avoid circular imports)
@@ -576,21 +581,28 @@ def _sse_error(msg: str) -> Generator[str, None, None]:
 def _friendly_llm_error(exc: Exception) -> str:
     """将 LLM 客户端异常转换为对用户可操作的中文提示。"""
     if isinstance(exc, APIConnectionError):
-        return (
+        action = (
             "无法连接到 LLM 服务（Connection error）。"
             "请检查：① 「个人中心 → AI 问答」中配置的 API 地址是否正确且可访问；"
             "② 网络或代理设置是否正常。"
         )
-    if isinstance(exc, AuthenticationError):
-        return (
+    elif isinstance(exc, AuthenticationError):
+        action = (
             "LLM 认证失败（Authentication error）。"
             "请检查「个人中心 → AI 问答」中配置的 API Key 是否有效。"
         )
-    if isinstance(exc, RateLimitError):
-        return "LLM 请求频率超限（Rate limit）。请稍后重试，或检查账户配额。"
-    if isinstance(exc, APIStatusError):
-        return f"LLM 服务返回错误（HTTP {exc.status_code}）：{exc.message}"
-    return str(exc)
+    elif isinstance(exc, RateLimitError):
+        action = "LLM 请求频率超限，请稍后重试或检查账户配额"
+    elif isinstance(exc, APIStatusError):
+        action = f"LLM 服务暂时不可用（HTTP {exc.status_code}）"
+    else:
+        action = "LLM 调用失败，请稍后重试"
+    return safe_failure_detail(
+        _logger,
+        action,
+        exc,
+        operation="deep_research_llm",
+    )
 
 
 def _run_round1_with_heartbeat(
@@ -1191,7 +1203,14 @@ def stream_research(
                             pass
                 yield chunk
         except Exception as exc:
-            yield _sse({"type": "error", "round": 2, "content": f"摘要分析失败: {exc}"})
+            yield _sse({
+                "type": "error",
+                "round": 2,
+                "content": safe_failure_detail(
+                    _logger, "摘要分析失败，请稍后重试", exc,
+                    operation="deep_research_round2",
+                ),
+            })
             yield "data: [DONE]\n\n"
             update_session_status(session_id, "error")
             return
@@ -1264,7 +1283,14 @@ def stream_research(
                             pass
                 yield chunk
         except Exception as exc:
-            yield _sse({"type": "error", "round": 3, "content": f"全文分析失败: {exc}"})
+            yield _sse({
+                "type": "error",
+                "round": 3,
+                "content": safe_failure_detail(
+                    _logger, "全文分析失败，请稍后重试", exc,
+                    operation="deep_research_round3",
+                ),
+            })
             yield "data: [DONE]\n\n"
             update_session_status(session_id, "error")
             return
@@ -1284,7 +1310,13 @@ def stream_research(
         update_session_status(session_id, "done")
 
     except Exception as exc:
-        yield _sse({"type": "error", "content": f"研究会话异常: {exc}"})
+        yield _sse({
+            "type": "error",
+            "content": safe_failure_detail(
+                _logger, "研究会话异常，请稍后重试", exc,
+                operation="deep_research_session",
+            ),
+        })
         yield "data: [DONE]\n\n"
         if session_id is not None:
             try:
@@ -1393,7 +1425,14 @@ def stream_continue_round3(
                             pass
                 yield chunk
         except Exception as exc:
-            yield _sse({"type": "error", "round": 3, "content": f"全文分析失败: {exc}"})
+            yield _sse({
+                "type": "error",
+                "round": 3,
+                "content": safe_failure_detail(
+                    _logger, "全文分析失败，请稍后重试", exc,
+                    operation="deep_research_continue_round3",
+                ),
+            })
             yield "data: [DONE]\n\n"
             update_session_status(session_id, "error")
             return
@@ -1413,7 +1452,13 @@ def stream_continue_round3(
         update_session_status(session_id, "done")
 
     except Exception as exc:
-        yield _sse({"type": "error", "content": f"续接 Round 3 异常: {exc}"})
+        yield _sse({
+            "type": "error",
+            "content": safe_failure_detail(
+                _logger, "继续深度研究失败，请稍后重试", exc,
+                operation="deep_research_continue_session",
+            ),
+        })
         yield "data: [DONE]\n\n"
         try:
             update_session_status(session_id, "error")
@@ -1570,7 +1615,14 @@ def stream_followup(
                             pass
                 yield chunk
         except Exception as exc:
-            yield _sse({"type": "error", "round": 2, "content": f"摘要分析失败: {exc}"})
+            yield _sse({
+                "type": "error",
+                "round": 2,
+                "content": safe_failure_detail(
+                    _logger, "摘要分析失败，请稍后重试", exc,
+                    operation="deep_research_followup_round2",
+                ),
+            })
             yield "data: [DONE]\n\n"
             update_session_status(session_id, "error")
             return
@@ -1635,7 +1687,14 @@ def stream_followup(
                             pass
                 yield chunk
         except Exception as exc:
-            yield _sse({"type": "error", "round": 3, "content": f"全文分析失败: {exc}"})
+            yield _sse({
+                "type": "error",
+                "round": 3,
+                "content": safe_failure_detail(
+                    _logger, "全文分析失败，请稍后重试", exc,
+                    operation="deep_research_followup_round3",
+                ),
+            })
             yield "data: [DONE]\n\n"
             update_session_status(session_id, "error")
             return
@@ -1655,7 +1714,13 @@ def stream_followup(
         update_session_status(session_id, "done")
 
     except Exception as exc:
-        yield _sse({"type": "error", "content": f"追问会话异常: {exc}"})
+        yield _sse({
+            "type": "error",
+            "content": safe_failure_detail(
+                _logger, "追问研究失败，请稍后重试", exc,
+                operation="deep_research_followup_session",
+            ),
+        })
         yield "data: [DONE]\n\n"
         if session_id is not None:
             try:

@@ -76,6 +76,28 @@ def public_error_detail(reference: str, action: str = "服务暂时不可用") -
     return f"{action}（错误编号：{reference}）"
 
 
+def safe_failure_detail(
+    logger: logging.Logger,
+    action: str,
+    exc: BaseException,
+    *,
+    operation: str = "",
+) -> str:
+    """Log a private exception and return a non-empty, referenceable message."""
+    reference = log_internal_error(logger, operation or action, exc)
+    return public_error_detail(reference, action)
+
+
+def safe_stored_error(value: Any, fallback: str = "任务执行失败，请重试") -> str:
+    """Never re-expose legacy raw exception text stored in task tables."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if is_public_error_detail(text):
+        return text
+    return fallback
+
+
 def is_public_error_detail(value: Any) -> bool:
     return bool(_PUBLIC_ERROR_RE.search(str(value or "")))
 

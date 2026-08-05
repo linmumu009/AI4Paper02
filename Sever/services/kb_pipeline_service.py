@@ -29,6 +29,8 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from services.safe_logging_service import safe_failure_detail
+
 _SEVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SEVER_DIR not in sys.path:
     sys.path.insert(0, _SEVER_DIR)
@@ -310,14 +312,19 @@ def process_kb_paper(user_id: int, paper_id: str, scope: str = "kb") -> None:
         logger.info("KB paper processing completed for %s", paper_id)
 
     except Exception as exc:
-        logger.exception("KB paper processing failed for %s: %s", paper_id, exc)
+        public_error = safe_failure_detail(
+            logger,
+            "知识库论文处理失败，请稍后重试",
+            exc,
+            operation="kb_paper_pipeline",
+        )
         try:
             import services.kb_service as kbs2
             kbs2.set_kb_paper_process_status(
                 user_id, paper_id,
                 status="failed",
                 step="",
-                error=str(exc)[:500],
+                error=public_error,
                 scope=scope,
             )
         except Exception:

@@ -12,11 +12,16 @@ defaults defined in ``user_settings_service``.
 """
 
 import json
+import logging
 from typing import Generator, Optional
 
 from openai import OpenAI
 from services.llm_utils import approx_tokens as _approx_tokens, crop as _crop
 from services import paper_data_utils as _pdu
+from services.safe_logging_service import safe_failure_detail
+
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Lazy service imports (avoid circular imports)
@@ -461,6 +466,12 @@ def stream_compare(
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
 
     except Exception as exc:
-        yield f"data: {json.dumps(f'分析失败: {exc}', ensure_ascii=False)}\n\n"
+        message = safe_failure_detail(
+            _logger,
+            "分析失败，请稍后重试",
+            exc,
+            operation="paper_compare_stream",
+        )
+        yield f"data: {json.dumps(message, ensure_ascii=False)}\n\n"
 
     yield "data: [DONE]\n\n"

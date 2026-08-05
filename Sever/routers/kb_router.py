@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, translate_service, auto_classify_service
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
+from services.safe_logging_service import safe_stored_error
 from routers._deps import _KB_FILES_DIR
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -608,7 +609,9 @@ def api_kb_paper_process_status(
         "paper_id": paper_id,
         "process_status": paper.get("process_status", "none"),
         "process_step": paper.get("process_step", ""),
-        "process_error": paper.get("process_error", ""),
+        "process_error": safe_stored_error(
+            paper.get("process_error"), "知识库论文处理失败，请重试"
+        ),
     }
 
 
@@ -670,7 +673,9 @@ def api_kb_paper_translate_status(
         "paper_id": paper_id,
         "translate_status": paper.get("translate_status", "none"),
         "translate_progress": paper.get("translate_progress", 0),
-        "translate_error": paper.get("translate_error", ""),
+        "translate_error": safe_stored_error(
+            paper.get("translate_error"), "知识库论文翻译失败，请重试"
+        ),
         "busy": translate_service.is_translating(paper_id),
     }
 
@@ -809,7 +814,9 @@ def api_kb_classify_status(
         "classify_status": paper.get("classify_status", "none"),
         "classify_folder_id": paper.get("classify_folder_id"),
         "classify_confidence": paper.get("classify_confidence"),
-        "classify_error": paper.get("classify_error", ""),
+        "classify_error": safe_stored_error(
+            paper.get("classify_error"), "自动分类失败，请重试"
+        ),
         "busy": auto_classify_service.is_classifying(_user["id"], paper_id, scope),
     }
 

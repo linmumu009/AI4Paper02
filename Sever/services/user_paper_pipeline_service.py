@@ -32,6 +32,8 @@ from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from services.safe_logging_service import safe_failure_detail
+
 # Ensure Sever root is in sys.path so Controller imports work
 _SEVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _SEVER_DIR not in sys.path:
@@ -893,8 +895,13 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         logger.info("User paper pipeline completed: %s", paper_id)
 
     except Exception as exc:
-        logger.exception("User paper pipeline error for %s: %s", paper_id, exc)
-        _set("failed", step="", error=str(exc)[:500], finished=True)
+        public_error = safe_failure_detail(
+            logger,
+            "论文处理失败，请稍后重试",
+            exc,
+            operation="user_paper_pipeline",
+        )
+        _set("failed", step="", error=public_error, finished=True)
     finally:
         _mark_done(paper_id)
 

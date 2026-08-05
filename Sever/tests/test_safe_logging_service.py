@@ -16,6 +16,8 @@ from services.safe_logging_service import (  # noqa: E402
     log_internal_error,
     public_error_detail,
     redact_sensitive_text,
+    safe_failure_detail,
+    safe_stored_error,
 )
 from config.logging_config import _JsonFormatter, _RedactingFormatter  # noqa: E402
 
@@ -82,6 +84,27 @@ class SafeLoggingServiceTests(unittest.TestCase):
         json_output = _JsonFormatter().format(record)
         self.assertNotIn("private-token-value", text_output)
         self.assertNotIn("private-token-value", json_output)
+
+    def test_safe_failure_is_nonempty_referenceable_and_hides_exception(self) -> None:
+        logger = Mock(spec=logging.Logger)
+        detail = safe_failure_detail(
+            logger,
+            "生成失败，请稍后重试",
+            RuntimeError("api_key=sk-private-value"),
+            operation="stream_generation",
+        )
+        self.assertIn("生成失败，请稍后重试", detail)
+        self.assertTrue(is_public_error_detail(detail))
+        self.assertNotIn("sk-private-value", detail)
+
+    def test_stored_legacy_errors_are_not_reexposed(self) -> None:
+        self.assertEqual(safe_stored_error(""), "")
+        self.assertEqual(
+            safe_stored_error("provider failed api_key=sk-old-secret"),
+            "任务执行失败，请重试",
+        )
+        referenced = public_error_detail("abcdef123456", "翻译失败")
+        self.assertEqual(safe_stored_error(referenced), referenced)
 
 
 if __name__ == "__main__":
