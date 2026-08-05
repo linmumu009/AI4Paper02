@@ -12,6 +12,7 @@ if str(_SEVER) not in sys.path:
 
 from Controller.llm_select_theme import parse_score, score_one  # noqa: E402
 from Controller.paper_assets import extract_blocks_with_llm  # noqa: E402
+from Controller.pdf_info import parse_json_or_fallback  # noqa: E402
 from services.idea_pipeline_service import _call_llm_json  # noqa: E402
 from services.llm_response_guard import (  # noqa: E402
     EmptyLlmResponseError,
@@ -106,6 +107,29 @@ class StructuredLlmResponseContractTests(unittest.TestCase):
             "input",
         )
         self.assertEqual(result["items"][0]["title"], "idea")
+
+    def test_pdf_info_parser_rejects_empty_or_unstructured_success(self) -> None:
+        for content, error_type in (
+            (None, EmptyLlmResponseError),
+            ("", EmptyLlmResponseError),
+            ("not json", InvalidLlmResponseError),
+            ("{}", InvalidLlmResponseError),
+        ):
+            with self.subTest(content=content):
+                with self.assertRaises(error_type):
+                    parse_json_or_fallback(content)
+
+        result = parse_json_or_fallback(
+            '{"institution":"Unknown","is_large":false,"institution_tier":4}'
+        )
+        self.assertEqual(result["instution"], "Unknown")
+        self.assertFalse(result["is_large"])
+        fenced = parse_json_or_fallback(
+            '```json\n{"instution":"","is_large":"false","institution_tier":4}\n```'
+        )
+        self.assertFalse(fenced["is_large"])
+        with self.assertRaises(InvalidLlmResponseError):
+            parse_json_or_fallback('{"instution":"Unknown","is_large":"maybe"}')
 
 
 if __name__ == "__main__":

@@ -132,6 +132,49 @@ class TestPipelineCompletionContract(unittest.TestCase):
         self.assertFalse(coverage["complete"])
         self.assertEqual(coverage["missing_ids"], ["2608.00003"])
 
+    def test_pdf_info_requires_only_theme_passed_papers(self) -> None:
+        pipeline_db_service.bulk_upsert_theme_scores(
+            3,
+            self.date_str,
+            {"2608.00001": 0.95, "2608.00002": 0.20, "2608.00003": 0.10},
+        )
+        pipeline_db_service.bulk_upsert_selected_papers(
+            3,
+            self.date_str,
+            [
+                {
+                    "paper_arxiv_id": "2608.00001",
+                    "theme_score": 0.95,
+                    "passed_theme_filter": 1,
+                },
+                {
+                    "paper_arxiv_id": "2608.00002",
+                    "theme_score": 0.20,
+                    "passed_theme_filter": 0,
+                },
+                {
+                    "paper_arxiv_id": "2608.00003",
+                    "theme_score": 0.10,
+                    "passed_theme_filter": 0,
+                },
+            ],
+        )
+        pipeline_db_service.upsert_paper_info(
+            3,
+            self.date_str,
+            "2608.00001",
+            title="One",
+            abstract="Abstract",
+        )
+
+        coverage = pipeline_db_service.get_db_step_coverage(
+            "pdf_info", 3, self.date_str
+        )
+
+        self.assertTrue(coverage["complete"])
+        self.assertEqual(coverage["expected_count"], 1)
+        self.assertEqual(coverage["valid_count"], 1)
+
     def test_empty_asset_skeleton_is_not_complete(self) -> None:
         self._select_final(3, ["2608.00001"])
         empty_blocks = {

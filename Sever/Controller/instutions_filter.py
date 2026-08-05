@@ -68,29 +68,49 @@ def run(args: argparse.Namespace) -> None:
             print("============开始筛选大机构论文 (DB mode)==============", flush=True)
             date_str = run_date
             info_list = _pdb.get_paper_info(uid, date_str)
-            if not info_list:
-                print(f"[FILTER] No paper_info in DB for user={uid} date={date_str}; skip", flush=True)
-                print("============结束筛选大机构论文==============", flush=True)
-                return
             # Read existing theme filter results written by paper_theme_filter.
             # is_final_selected requires BOTH theme relevance AND large institution.
             selected_rows = _pdb.get_selected_papers(uid, date_str, final_only=False)
-            theme_passed: Dict[str, bool] = {
-                r["paper_arxiv_id"]: bool(r.get("passed_theme_filter", 0))
-                for r in selected_rows
+            theme_passed_ids = {
+                str(row.get("paper_arxiv_id") or "").strip()
+                for row in selected_rows
+                if bool(row.get("passed_theme_filter", 0))
+                and str(row.get("paper_arxiv_id") or "").strip()
             }
+            if not theme_passed_ids:
+                print(f"[FILTER] No theme-passed papers for user={uid} date={date_str}; skip", flush=True)
+                print("============结束筛选大机构论文==============", flush=True)
+                return
+
+            info_by_id = {
+                str(info.get("paper_arxiv_id") or "").strip(): info
+                for info in info_list
+                if str(info.get("paper_arxiv_id") or "").strip()
+            }
+            invalid_ids = {
+                paper_id
+                for paper_id in theme_passed_ids
+                if paper_id not in info_by_id
+                or not str(info_by_id[paper_id].get("title") or "").strip()
+                or not str(info_by_id[paper_id].get("abstract") or "").strip()
+            }
+            if invalid_ids:
+                print(
+                    f"[FILTER][ERROR] incomplete valid paper_info: {len(invalid_ids)} "
+                    f"of {len(theme_passed_ids)} theme-passed papers",
+                    flush=True,
+                )
+                raise SystemExit(1)
+
             rows_to_update = []
-            for info in info_list:
-                arxiv_id = info["paper_arxiv_id"]
+            for arxiv_id in sorted(theme_passed_ids):
+                info = info_by_id[arxiv_id]
                 is_large = bool(info.get("is_large", 0))
-                passed_theme = theme_passed.get(arxiv_id, False)
                 rows_to_update.append({
                     "paper_arxiv_id": arxiv_id,
-                    # Preserve the passed_theme_filter value set by paper_theme_filter.
-                    "passed_theme_filter": int(passed_theme),
+                    "passed_theme_filter": 1,
                     "passed_institution_filter": int(is_large),
-                    # Final selection requires both theme relevance AND large institution.
-                    "is_final_selected": int(passed_theme and is_large),
+                    "is_final_selected": int(is_large),
                 })
             _pdb.bulk_upsert_selected_papers(uid, date_str, rows_to_update)
             kept_count = sum(1 for r in rows_to_update if r["is_final_selected"])

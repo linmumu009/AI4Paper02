@@ -1717,6 +1717,11 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
             "WHERE user_id=? AND date_str=? AND is_final_selected=1",
             (user_id, date_str),
         )
+        theme_passed_ids = _ids(
+            "SELECT paper_arxiv_id FROM pipeline_selected_papers "
+            "WHERE user_id=? AND date_str=? AND passed_theme_filter=1",
+            (user_id, date_str),
+        )
 
         invalid_ids: set[str] = set()
         if step == "llm_select_theme":
@@ -1730,11 +1735,10 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
                 (user_id, date_str),
             )
         elif step == "pdf_info":
-            # Institution extraction only affects papers that entered this
-            # user's theme-scoring stage.  The acquisition table may contain
-            # hundreds of additional categories that are intentionally not
-            # model inputs for this user.
-            expected_ids = score_ids
+            # Institution extraction runs only for papers that passed this
+            # user's relevance threshold. Shared preview files must not widen
+            # this per-user input set.
+            expected_ids = theme_passed_ids
             all_output_ids = _ids(
                 "SELECT paper_arxiv_id FROM pipeline_paper_info "
                 "WHERE user_id=? AND date_str=?",
@@ -1742,17 +1746,20 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
             )
             valid_ids = _ids(
                 "SELECT paper_arxiv_id FROM pipeline_paper_info "
-                "WHERE user_id=? AND date_str=? AND TRIM(abstract) != ''",
+                "WHERE user_id=? AND date_str=? "
+                "AND TRIM(title) != '' AND TRIM(abstract) != ''",
                 (user_id, date_str),
             )
             invalid_ids = all_output_ids - valid_ids
         elif step == "instutions_filter":
-            expected_ids = _ids(
+            expected_ids = theme_passed_ids
+            paper_info_valid_ids = _ids(
                 "SELECT paper_arxiv_id FROM pipeline_paper_info "
-                "WHERE user_id=? AND date_str=? AND TRIM(abstract) != ''",
+                "WHERE user_id=? AND date_str=? "
+                "AND TRIM(title) != '' AND TRIM(abstract) != ''",
                 (user_id, date_str),
             )
-            valid_ids = selected_row_ids
+            valid_ids = selected_row_ids & paper_info_valid_ids
         elif step == "paper_summary":
             expected_ids = final_ids
             valid_ids = _ids(
