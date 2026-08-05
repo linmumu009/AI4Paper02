@@ -12,11 +12,14 @@ from pydantic import BaseModel, Field
 from services import announcement_service, auth_service, entitlement_service, sms_service, user_presets_service, user_settings_service
 from routers._deps import (
     _clear_session_cookie,
+    _login_account_limiter,
     _login_limiter,
     _register_limiter,
     _set_session_cookie,
     _sms_send_limiter,
+    _sms_send_phone_limiter,
     _sms_verify_limiter,
+    _sms_verify_phone_limiter,
 )
 
 router = APIRouter(prefix="/api", tags=["auth"])
@@ -131,6 +134,7 @@ class UserPromptPresetBody(BaseModel):
 def api_auth_sms_send(body: SmsSendBody, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     _sms_send_limiter.check(client_ip)
+    _sms_send_phone_limiter.check(body.phone)
     result = sms_service.send_verify_code(body.phone)
     if not result["success"]:
         raise HTTPException(
@@ -144,6 +148,7 @@ def api_auth_sms_send(body: SmsSendBody, request: Request):
 def api_auth_sms_verify(body: SmsVerifyBody, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     _sms_verify_limiter.check(client_ip)
+    _sms_verify_phone_limiter.check(body.phone)
     result = sms_service.check_verify_code(body.phone, body.code)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
@@ -156,6 +161,7 @@ def api_auth_login_sms(body: SmsLoginBody, request: Request, response: Response)
     client_ip = request.client.host if request.client else "unknown"
     _login_limiter.check(client_ip)
     _sms_verify_limiter.check(client_ip)
+    _sms_verify_phone_limiter.check(body.phone)
 
     verify = sms_service.check_verify_code(body.phone, body.code)
     if not verify["success"]:
@@ -197,6 +203,7 @@ def api_auth_register(body: AuthRegisterBody, request: Request):
 def api_auth_login(body: AuthCredentialBody, request: Request, response: Response):
     client_ip = request.client.host if request.client else "unknown"
     _login_limiter.check(client_ip)
+    _login_account_limiter.check(body.username)
 
     user = auth_service.verify_credentials(body.username, body.password)
     if user is None:

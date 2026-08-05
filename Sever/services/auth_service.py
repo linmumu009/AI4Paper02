@@ -1161,6 +1161,9 @@ def change_user_password(user_id: int, old_password: str, new_password: str) -> 
             "UPDATE auth_users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?",
             (new_hash, new_salt.hex(), now, user_id),
         )
+        # A password change is a security boundary: invalidate every existing
+        # browser/desktop session so a stolen token cannot outlive the change.
+        conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
         refreshed = conn.execute("SELECT * FROM auth_users WHERE id = ?", (user_id,)).fetchone()
         return _row_user_public(refreshed)
@@ -1271,6 +1274,7 @@ def admin_reset_password(user_id: int, new_password: str) -> dict:
             "UPDATE auth_users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?",
             (pw_hash, salt.hex(), now, user_id),
         )
+        conn.execute("DELETE FROM auth_sessions WHERE user_id = ?", (user_id,))
         conn.commit()
         refreshed = conn.execute("SELECT * FROM auth_users WHERE id = ?", (user_id,)).fetchone()
         return _row_user_public(refreshed)

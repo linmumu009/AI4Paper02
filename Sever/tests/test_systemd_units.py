@@ -16,6 +16,8 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertNotIn("--workers 2", unit)
         self.assertIn("KillMode=mixed", unit)
         self.assertIn("UMask=0077", unit)
+        self.assertIn("Environment=COOKIE_SECURE=true", unit)
+        self.assertIn("Environment=COOKIE_SAMESITE=lax", unit)
 
     def test_deploy_installs_api_unit_before_restart(self) -> None:
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")

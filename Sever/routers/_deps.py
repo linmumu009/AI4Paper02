@@ -4,21 +4,18 @@ Shared utilities for all routers.
 Provides:
 - Common path constants (_SEVER_DIR, _DATA_DIR, _KB_FILES_DIR, _EXE_RELEASE_DIR)
 - Security helpers (_admin_error_response)
-- In-memory rate limiter (_RateLimiter, _login_limiter, _register_limiter)
+- Durable rate limiter (_RateLimiter, _login_limiter, _register_limiter)
 - Cookie / session helpers (_is_request_https, _cookie_secure_flag,
   _set_session_cookie, _clear_session_cookie, _get_optional_user)
 - Tier quota helpers (_tier_quota_limit, _tier_label)
 """
 
 import os
-import threading
-import time
-from collections import defaultdict
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
 
-from services import auth_service, entitlement_service
+from services import auth_service, entitlement_service, rate_limit_service
 
 # ---------------------------------------------------------------------------
 # Path constants
@@ -48,41 +45,46 @@ def _admin_error_response(action: str, exc: Exception, status_code: int = 500) -
 # ---------------------------------------------------------------------------
 
 class _RateLimiter:
-    """Simple in-memory sliding-window rate limiter keyed by IP address.
+    """FastAPI adapter around the durable sliding-window limiter."""
 
-    ``max_attempts`` requests are allowed within ``window_seconds``.
-    After that, further calls to ``check()`` raise 429 Too Many Requests.
-    """
-
-    def __init__(self, max_attempts: int = 10, window_seconds: int = 300):
-        self.max_attempts = max_attempts
-        self.window = window_seconds
-        self._attempts: dict[str, list[float]] = defaultdict(list)
-        self._lock = threading.Lock()
+    def __init__(self, bucket: str, max_attempts: int, window_seconds: int):
+        self._limiter = rate_limit_service.PersistentRateLimiter(
+            bucket=bucket,
+            max_attempts=max_attempts,
+            window_seconds=window_seconds,
+        )
 
     def check(self, key: str) -> None:
-        now = time.monotonic()
-        with self._lock:
-            attempts = self._attempts[key]
-            self._attempts[key] = [t for t in attempts if now - t < self.window]
-            if len(self._attempts[key]) >= self.max_attempts:
-                raise HTTPException(
-                    status_code=429,
-                    detail="请求过于频繁，请稍后再试",
-                )
-            self._attempts[key].append(now)
+        try:
+            self._limiter.check(key)
+        except rate_limit_service.RateLimitExceeded as exc:
+            raise HTTPException(
+                status_code=429,
+                detail="请求过于频繁，请稍后再试",
+                headers={"Retry-After": str(exc.retry_after_seconds)},
+            ) from exc
 
 
 # 10 attempts per 5 minutes per IP for login
-_login_limiter = _RateLimiter(max_attempts=10, window_seconds=300)
+_login_limiter = _RateLimiter("auth_login", max_attempts=10, window_seconds=300)
+# Also cap attempts per account so rotating source IPs cannot brute-force one user.
+_login_account_limiter = _RateLimiter(
+    "auth_login_account", max_attempts=10, window_seconds=300
+)
 # 5 attempts per 10 minutes per IP for registration
-_register_limiter = _RateLimiter(max_attempts=5, window_seconds=600)
+_register_limiter = _RateLimiter("auth_register", max_attempts=5, window_seconds=600)
 # 5 SMS sends per 10 minutes per IP (to prevent SMS cost abuse)
-_sms_send_limiter = _RateLimiter(max_attempts=5, window_seconds=600)
+_sms_send_limiter = _RateLimiter("sms_send", max_attempts=5, window_seconds=600)
+_sms_send_phone_limiter = _RateLimiter(
+    "sms_send_phone", max_attempts=3, window_seconds=600
+)
 # 10 SMS verify attempts per 5 minutes per IP (to prevent brute-force)
-_sms_verify_limiter = _RateLimiter(max_attempts=10, window_seconds=300)
+_sms_verify_limiter = _RateLimiter("sms_verify", max_attempts=10, window_seconds=300)
+_sms_verify_phone_limiter = _RateLimiter(
+    "sms_verify_phone", max_attempts=10, window_seconds=300
+)
 # 120 analytics events per minute per IP (generous but bounded)
-_analytics_limiter = _RateLimiter(max_attempts=120, window_seconds=60)
+_analytics_limiter = _RateLimiter("analytics", max_attempts=120, window_seconds=60)
 
 
 # ---------------------------------------------------------------------------
