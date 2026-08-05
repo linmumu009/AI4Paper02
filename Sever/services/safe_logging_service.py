@@ -22,7 +22,7 @@ _API_KEY_RE = re.compile(r"\bsk-(?:or-v1-)?[A-Za-z0-9._-]{8,}")
 _ASSIGNMENT_RE = re.compile(
     r"(?i)([\"']?(?:api[_-]?key|apikey|authorization|access[_-]?token|"
     r"refresh[_-]?token|token|secret|password|signature)[\"']?\s*[:=]\s*)"
-    r"([\"']?)([^\"'\s,;&]{4,})([\"']?)"
+    r"([\"']?)([^\"'\s,;&]{1,})([\"']?)"
 )
 
 

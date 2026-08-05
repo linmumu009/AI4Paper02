@@ -62,6 +62,12 @@ class SafeLoggingServiceTests(unittest.TestCase):
         self.assertLessEqual(len(redacted), 114)
         self.assertTrue(redacted.endswith("...[TRUNCATED]"))
 
+    def test_redacts_even_one_character_sensitive_values(self) -> None:
+        redacted = redact_sensitive_text("token=x password=q")
+        self.assertNotIn("token=x", redacted)
+        self.assertNotIn("password=q", redacted)
+        self.assertEqual(redacted.count("[REDACTED]"), 2)
+
     def test_text_and_json_formatters_redact_before_emitting(self) -> None:
         record = logging.LogRecord(
             name="test",
