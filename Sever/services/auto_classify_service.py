@@ -98,11 +98,14 @@ def is_classifying(user_id: int, paper_id: str, scope: str = "kb") -> bool:
 def _resolve_llm_config(user_id: int) -> Optional[dict]:
     """
     Read auto_classify feature settings and resolve the LLM connection config.
-    Returns dict with keys: base_url, api_key, model, max_tokens, temperature.
-    Returns None if not configured.
+    Returns dict with keys: base_url, api_key, model, max_tokens, temperature,
+    use_openrouter_free_pool, enable_thinking.
+    Returns None if not configured (no credentials and pool not active).
     """
     from services import user_settings_service as uss
     from services import user_presets_service as ups
+    from services.llm_client_factory import has_llm_credentials
+    import config.config as _sys_cfg
 
     cfg = uss.get_settings(user_id, "auto_classify")
     if not cfg.get("enabled"):
@@ -115,28 +118,52 @@ def _resolve_llm_config(user_id: int) -> Optional[dict]:
         except Exception:
             preset = None
         if preset:
-            return {
+            result = {
                 "base_url": preset.get("base_url", ""),
                 "api_key": preset.get("api_key", ""),
                 "model": preset.get("model", ""),
                 "max_tokens": preset.get("max_tokens") or 512,
                 "temperature": preset.get("temperature") if preset.get("temperature") is not None else 0.1,
+                "enable_thinking": bool(preset.get("enable_thinking", False)),
+                "use_openrouter_free_pool": bool(preset.get("use_openrouter_free_pool", False)),
             }
+            if has_llm_credentials(result):
+                return result
 
     # Fallback: direct config (llm_base_url / llm_api_key / llm_model stored directly)
     base_url = (cfg.get("llm_base_url") or "").strip()
     api_key = (cfg.get("llm_api_key") or "").strip()
     model = (cfg.get("llm_model") or "").strip()
-    if not (base_url and api_key and model):
-        return None
+    use_pool = bool(cfg.get("use_openrouter_free_pool", False))
 
-    return {
+    user_result = {
         "base_url": base_url,
         "api_key": api_key,
         "model": model,
         "max_tokens": cfg.get("max_tokens") or 512,
         "temperature": cfg.get("temperature") if cfg.get("temperature") is not None else 0.1,
+        "use_openrouter_free_pool": use_pool,
     }
+    if has_llm_credentials(user_result):
+        return user_result
+
+    # System-level fallback: try system defaults
+    _sys_key = (getattr(_sys_cfg, "auto_classify_api_key", "") or "").strip()
+    _sys_mdl = (getattr(_sys_cfg, "auto_classify_model", "") or "").strip()
+    _sys_pool = bool(getattr(_sys_cfg, "auto_classify_use_openrouter_free_pool", False))
+    if _sys_key or _sys_pool:
+        sys_result = {
+            "base_url": (getattr(_sys_cfg, "auto_classify_base_url", "") or "").strip(),
+            "api_key": _sys_key,
+            "model": _sys_mdl,
+            "max_tokens": cfg.get("max_tokens") or getattr(_sys_cfg, "auto_classify_max_tokens", 512),
+            "temperature": cfg.get("temperature") if cfg.get("temperature") is not None else getattr(_sys_cfg, "auto_classify_temperature", 0.1),
+            "use_openrouter_free_pool": _sys_pool,
+        }
+        if has_llm_credentials(sys_result):
+            return sys_result
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -392,15 +419,17 @@ def _do_classify(user_id: int, paper_id: str, scope: str = "kb") -> None:
         # Acquire semaphore to cap concurrent LLM calls
         _set("running")
         with _classify_semaphore:
-            client = OpenAI(
-                base_url=llm_cfg["base_url"],
-                api_key=llm_cfg["api_key"],
-            )
+            from services.llm_request_options import build_thinking_kwargs
+            from services.llm_client_factory import build_llm_client
+            client = build_llm_client(llm_cfg)
+            _thinking_cfg = {"llm_base_url": llm_cfg["base_url"], "llm_model": llm_cfg["model"],
+                             "enable_thinking": llm_cfg.get("enable_thinking", False)}
             response = client.chat.completions.create(
                 model=llm_cfg["model"],
                 messages=[{"role": "user", "content": prompt_text}],
                 max_tokens=llm_cfg["max_tokens"],
                 temperature=llm_cfg["temperature"],
+                **build_thinking_kwargs(_thinking_cfg),
             )
         raw = response.choices[0].message.content or ""
 

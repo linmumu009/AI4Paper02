@@ -47,6 +47,7 @@ logger = logging.getLogger(__name__)
 
 _running_jobs: set[str] = set()
 _running_lock = threading.Lock()
+USER_PAPER_SETTINGS_FEATURE = "my_papers"
 
 
 def is_processing(paper_id: str) -> bool:
@@ -101,8 +102,16 @@ def _extract_text_pymupdf(pdf_path: str, max_chars: int = 200_000) -> str:
 # PDF text extraction — MinerU API (high-quality Markdown, matches daily pipeline)
 # ---------------------------------------------------------------------------
 
-def _get_mineru_token() -> str:
-    """Return the MinerU API token from config, or empty string if not set."""
+def _get_mineru_token(user_id: Optional[int] = None) -> str:
+    """Return the MinerU API token for my_papers, falling back to config.py."""
+    if user_id is not None:
+        try:
+            from services.user_settings_service import get_settings
+            token = (get_settings(user_id, USER_PAPER_SETTINGS_FEATURE).get("mineru_token") or "").strip()
+            if token:
+                return token
+        except Exception:
+            pass
     try:
         from config.config import minerU_Token  # type: ignore
         return (minerU_Token or "").strip()
@@ -261,7 +270,7 @@ def _fallback_mineru_images_from_pdf(pdf_path: str, bundle_dir: Path) -> None:
         logger.info("MinerU image fallback: wrote %d image(s) from PDF into %s", n_written, images_dir)
 
 
-def _convert_pdf_via_mineru(pdf_path: str, extract_root: Optional[str] = None) -> str:
+def _convert_pdf_via_mineru(pdf_path: str, extract_root: Optional[str] = None, user_id: Optional[int] = None) -> str:
     """Upload a single PDF to MinerU API and return extracted Markdown text.
 
     Reuses MinerUClient and helpers from Controller/selectedpaper_to_mineru.py,
@@ -281,7 +290,7 @@ def _convert_pdf_via_mineru(pdf_path: str, extract_root: Optional[str] = None) -
         logger.warning("selectedpaper_to_mineru import failed: %s", exc)
         return ""
 
-    token = _get_mineru_token()
+    token = _get_mineru_token(user_id)
     if not token:
         return ""
 
@@ -428,7 +437,7 @@ def _run_pdf_info(text: str, user_id: int) -> Dict[str, Any]:
     except Exception:
         return {"instution": "", "is_large": False, "abstract": ""}
 
-    cfg = _resolve_llm_for_user(user_id)
+    cfg = _resolve_llm_for_user(user_id, feature=USER_PAPER_SETTINGS_FEATURE)
     sys_prompt = cfg.get("system_prompt", "")
     if not sys_prompt or not text.strip():
         return {"instution": "", "is_large": False, "abstract": ""}
@@ -446,6 +455,7 @@ def _run_pdf_info(text: str, user_id: int) -> Dict[str, Any]:
             user_content=user_content,
             temperature=cfg.get("temperature", 1.0),
             max_tokens=cfg.get("max_tokens", 1024),
+            use_openrouter_free_pool=bool(cfg.get("use_openrouter_free_pool", False)),
         )
         return parse_json_or_fallback(raw)
     except Exception as exc:
@@ -471,7 +481,7 @@ def _run_paper_summary(text: str, paper_id: str, user_id: int) -> str:
         md_path = Path(tmpdir) / f"{paper_id}.md"
         md_path.write_text(text, encoding="utf-8")
         try:
-            client, ecfg = make_client_for_user(user_id=user_id)
+            client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
             _, summary_text = summarize_one(client, md_path, effective_cfg=ecfg)
             return summary_text or ""
         except Exception as exc:
@@ -521,7 +531,7 @@ def _run_summary_limit(
 
         in_path.write_text(summary_text, encoding="utf-8")
         try:
-            ecfg = build_effective_cfg(user_id=user_id)
+            ecfg = build_effective_cfg(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
             client = make_client_from_cfg(ecfg)
             process_one(
                 client, in_path, out_path, pdf_info_map, effective_cfg=ecfg
@@ -554,7 +564,7 @@ def _run_paper_assets(summary_text: str, user_id: int) -> Dict[str, Any]:
         return {}
 
     try:
-        client, ecfg = make_client_for_user(user_id=user_id)
+        client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
         blocks = extract_blocks_with_llm(client, summary_text, effective_cfg=ecfg)
         return ensure_blocks_structure(blocks)
     except Exception as exc:
@@ -741,10 +751,10 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         os.makedirs(md_dir, exist_ok=True)
 
         text = ""
-        mineru_token = _get_mineru_token()
+        mineru_token = _get_mineru_token(user_id)
         if mineru_token:
             _set("processing", step="pdf_mineru")
-            text = _convert_pdf_via_mineru(pdf_path, extract_root=md_dir)
+            text = _convert_pdf_via_mineru(pdf_path, extract_root=md_dir, user_id=user_id)
             if not text.strip():
                 logger.warning("MinerU returned empty result for %s, falling back to PyMuPDF", paper_id)
                 _set("processing", step="pdf_extract")

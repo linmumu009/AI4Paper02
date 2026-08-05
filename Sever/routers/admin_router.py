@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from services import analytics_service, auth_service
 from services import config_service, config_mapper, llm_config_service, prompt_config_service
+from services import user_settings_service, openrouter_key_pool_service
 from services.secret_storage_service import mask_secret_mapping
 from routers._deps import _admin_error_response
 
@@ -65,8 +66,8 @@ class SystemConfigBody(BaseModel):
 class LlmConfigBody(BaseModel):
     name: str = Field(..., description="配置名称")
     remark: Optional[str] = Field(None)
-    base_url: str = Field(...)
-    api_key: str = Field(...)
+    base_url: Optional[str] = Field(default="")
+    api_key: Optional[str] = Field(default="")
     model: str = Field(...)
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
@@ -77,6 +78,8 @@ class LlmConfigBody(BaseModel):
     completion_window: Optional[str] = None
     out_root: Optional[str] = None
     jsonl_root: Optional[str] = None
+    enable_thinking: bool = False
+    use_openrouter_free_pool: bool = False
 
 
 class ApplyLlmConfigBody(BaseModel):
@@ -106,6 +109,10 @@ class BatchApplyPromptItem(BaseModel):
 class BatchApplyConfigBody(BaseModel):
     llm_applies: list[BatchApplyLlmItem] = Field(default_factory=list)
     prompt_applies: list[BatchApplyPromptItem] = Field(default_factory=list)
+
+
+class FeatureDefaultsBody(BaseModel):
+    settings: dict = Field(..., description="要覆盖的默认配置项")
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +347,24 @@ def api_admin_analytics_value_retention(
     _admin=Depends(auth_service.require_admin_user),
 ):
     return {"ok": True, **analytics_service.get_value_action_retention(weeks=weeks)}
+
+
+@router.get("/analytics/preference", summary="Admin analytics: preference learning signal stats")
+def api_admin_analytics_preference(
+    days: int = Query(30, ge=1, le=365),
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """Return preference signal stats: action distribution, top categories, user coverage.
+
+    This is the observability endpoint for the user-preference learning closed loop.
+    It shows:
+    - Total feedback events recorded
+    - How many users have enough data for personalisation
+    - Which action types (kb_save, dismiss, paper_view…) are most common
+    - Which arXiv categories users most often positively engage with
+    """
+    from services import preference_service
+    return {"ok": True, **preference_service.get_preference_stats(days=days)}
 
 
 @router.get("/analytics/content-step-funnel", summary="Admin analytics: step funnel card_view->paper_view->save->deep_action")
@@ -635,3 +660,230 @@ def api_admin_apply_prompt_config(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise _admin_error_response("应用配置", e)
+
+
+# ---------------------------------------------------------------------------
+# Feature defaults management (AI 功能默认配置)
+# ---------------------------------------------------------------------------
+
+@router.get("/feature-defaults", summary="List all feature default configs")
+def api_admin_list_feature_defaults(
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        data = user_settings_service.list_admin_defaults()
+        return {"ok": True, "features": data}
+    except Exception as e:
+        raise _admin_error_response("获取功能默认配置列表", e)
+
+
+@router.get("/feature-defaults/{feature}", summary="Get feature default config")
+def api_admin_get_feature_defaults(
+    feature: str,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        hardcoded = user_settings_service.get_hardcoded_defaults(feature)
+        if not hardcoded:
+            raise HTTPException(status_code=404, detail=f"功能 '{feature}' 不存在")
+        overrides = user_settings_service.get_admin_overrides(feature)
+        effective = dict(hardcoded)
+        if overrides:
+            effective.update(overrides)
+        return {
+            "ok": True,
+            "feature": feature,
+            "effective_defaults": effective,
+            "hardcoded_defaults": hardcoded,
+            "admin_overrides": overrides,
+            "has_admin_overrides": bool(overrides),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _admin_error_response("获取功能默认配置", e)
+
+
+@router.put("/feature-defaults/{feature}", summary="Save admin overrides for a feature's defaults")
+def api_admin_save_feature_defaults(
+    feature: str,
+    body: FeatureDefaultsBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        hardcoded = user_settings_service.get_hardcoded_defaults(feature)
+        if not hardcoded:
+            raise HTTPException(status_code=404, detail=f"功能 '{feature}' 不存在")
+        effective = user_settings_service.save_admin_defaults(feature, body.settings)
+        return {
+            "ok": True,
+            "feature": feature,
+            "effective_defaults": effective,
+            "message": f"功能 '{feature}' 的默认配置已更新",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _admin_error_response("保存功能默认配置", e)
+
+
+@router.delete("/feature-defaults/{feature}", summary="Reset feature defaults to hardcoded values")
+def api_admin_reset_feature_defaults(
+    feature: str,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    try:
+        hardcoded = user_settings_service.get_hardcoded_defaults(feature)
+        if not hardcoded:
+            raise HTTPException(status_code=404, detail=f"功能 '{feature}' 不存在")
+        user_settings_service.reset_admin_defaults(feature)
+        return {
+            "ok": True,
+            "feature": feature,
+            "message": f"功能 '{feature}' 的默认配置已恢复为内置默认值",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise _admin_error_response("重置功能默认配置", e)
+
+
+# ---------------------------------------------------------------------------
+# User custom-config audit
+# ---------------------------------------------------------------------------
+
+@router.get("/users/custom-configs", summary="Audit all users with custom model/prompt configs")
+def api_admin_custom_config_audit(_admin=Depends(auth_service.require_admin_user)):
+    """Return a read-only audit of every user who has configured personal
+    LLM presets, prompt presets, or feature-level settings.
+
+    api_key values are never included; only has_api_key (bool) is returned.
+    """
+    try:
+        data = user_settings_service.get_custom_config_audit()
+        return {"ok": True, **data}
+    except Exception as exc:
+        raise _admin_error_response("获取用户自定义配置审计", exc)
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter Key Pool management
+# ---------------------------------------------------------------------------
+
+class OpenRouterKeyPoolBody(BaseModel):
+    keys_text: str = Field(..., description="每行一个 OpenRouter API Key")
+    daily_limit: int = Field(50, ge=1, le=10000, description="每个 Key 每天最多调用次数")
+
+
+@router.get("/openrouter-key-pool", summary="Get OpenRouter key pool status")
+def api_admin_get_openrouter_key_pool(
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """返回 OpenRouter 免费 Key 池状态（Key 已脱敏）。"""
+    try:
+        status = openrouter_key_pool_service.get_pool_status()
+        return {"ok": True, **status}
+    except Exception as e:
+        raise _admin_error_response("获取 Key 池状态", e)
+
+
+@router.put("/openrouter-key-pool", summary="Save OpenRouter key pool")
+def api_admin_save_openrouter_key_pool(
+    body: OpenRouterKeyPoolBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """保存 OpenRouter Key 池（全量替换，每行一个 Key），并设置每日调用上限。"""
+    try:
+        status = openrouter_key_pool_service.save_pool(body.keys_text, body.daily_limit)
+        return {"ok": True, "message": f"已保存 {status['total_keys']} 个 Key", **status}
+    except Exception as e:
+        raise _admin_error_response("保存 Key 池", e)
+
+
+@router.get("/openrouter-free-models", summary="Fetch OpenRouter free models")
+def api_admin_get_openrouter_free_models(
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """从 OpenRouter 拉取免费模型列表（prompt 和 completion 均为零费用）。"""
+    try:
+        models = openrouter_key_pool_service.fetch_free_models()
+        return {"ok": True, "models": models, "total": len(models)}
+    except Exception as e:
+        raise _admin_error_response("拉取 OpenRouter 免费模型列表", e)
+
+
+# ---------------------------------------------------------------------------
+# PDF Cleanup management
+# ---------------------------------------------------------------------------
+
+class PdfCleanupConfigBody(BaseModel):
+    retention_days: int = Field(14, ge=1, le=3650, description="PDF 缓存保留天数")
+    auto_enabled: bool = Field(False, description="是否启用自动定时清理")
+    auto_hour: int = Field(3, ge=0, le=23, description="自动清理触发时间（小时）")
+    auto_minute: int = Field(0, ge=0, le=59, description="自动清理触发时间（分钟）")
+
+
+class PdfCleanupRunBody(BaseModel):
+    dry_run: bool = Field(True, description="True=仅预览不删除，False=实际删除")
+    retention_days: Optional[int] = Field(None, ge=1, le=3650, description="本次使用的保留天数（不填则用当前配置值）")
+
+
+@router.get("/pdf-cleanup/status", summary="获取 PDF 清理状态")
+def api_admin_pdf_cleanup_status(
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """返回当前配置、调度线程状态和最近一次运行结果。"""
+    try:
+        from services import pdf_cleanup_service
+        return {"ok": True, **pdf_cleanup_service.get_status()}
+    except Exception as e:
+        raise _admin_error_response("获取 PDF 清理状态", e)
+
+
+@router.post("/pdf-cleanup/run", summary="手动触发 PDF 清理")
+def api_admin_pdf_cleanup_run(
+    body: PdfCleanupRunBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """手动触发一次 PDF 清理（支持 dry_run 预览模式）。"""
+    try:
+        from services import pdf_cleanup_service
+        result = pdf_cleanup_service.run_cleanup(
+            retention_days=body.retention_days,
+            dry_run=body.dry_run,
+        )
+        return {"ok": True, **result}
+    except Exception as e:
+        raise _admin_error_response("PDF 清理", e)
+
+
+@router.post("/pdf-cleanup/config", summary="保存 PDF 清理配置")
+def api_admin_pdf_cleanup_config(
+    body: PdfCleanupConfigBody,
+    _admin=Depends(auth_service.require_admin_user),
+):
+    """保存清理配置并同步到 config 模块；若启用自动模式则确保调度线程在运行。"""
+    try:
+        updated = config_service.update_config({
+            "PDF_CLEANUP_RETENTION_DAYS": body.retention_days,
+            "PDF_CLEANUP_AUTO_ENABLED": body.auto_enabled,
+            "PDF_CLEANUP_HOUR": body.auto_hour,
+            "PDF_CLEANUP_MINUTE": body.auto_minute,
+        })
+        from services import pdf_cleanup_service
+        if body.auto_enabled:
+            pdf_cleanup_service.start_auto_scheduler()
+        return {
+            "ok": True,
+            "message": "PDF 清理配置已保存",
+            "config": {
+                "retention_days": body.retention_days,
+                "auto_enabled": body.auto_enabled,
+                "auto_hour": body.auto_hour,
+                "auto_minute": body.auto_minute,
+            },
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise _admin_error_response("保存 PDF 清理配置", e)

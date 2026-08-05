@@ -74,7 +74,7 @@ TIER_ENTITLEMENTS: dict[str, dict[str, Any]] = {
         # --- per-session caps ---
         "compare_max_items": 2,
         # --- storage caps ---
-        "kb_paper_limit": 20,
+        "kb_paper_limit": 3,
         "kb_folder_limit": 3,
         "kb_note_limit": 10,
         "kb_compare_result_limit": 3,

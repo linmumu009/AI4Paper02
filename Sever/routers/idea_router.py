@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, data_service, engagement_service, entitlement_service, idea_pipeline_service, idea_service, kb_service
+from services import auth_service, data_service, engagement_service, entitlement_service, idea_pipeline_service, idea_service, kb_service, research_memory_service
 from routers._deps import _get_optional_user, _tier_quota_limit, _tier_label
 
 router = APIRouter(prefix="/api/idea", tags=["idea"])
@@ -135,6 +135,9 @@ class UpdateAtomBody(BaseModel):
     section: Optional[str] = None
     tags: Optional[list[str]] = None
     evidence: Optional[list[dict]] = None
+    status: Optional[str] = None
+    confidence: Optional[float] = None
+    source_scope: Optional[str] = None
 
 
 class UpdatePlanBody(BaseModel):
@@ -272,6 +275,92 @@ def api_idea_delete_atoms_for_paper(paper_id: str, _user=Depends(auth_service.re
 
 
 # ---------------------------------------------------------------------------
+# Source-paper info  (lightweight metadata for atoms' source papers)
+# ---------------------------------------------------------------------------
+
+def _resolve_paper_info(user_id: int, paper_id: str) -> dict:
+    """Resolve lightweight paper metadata from multiple data sources.
+
+    Priority:
+      1. User-uploaded papers (paper_id starts with 'up_')
+      2. KB papers saved by the user
+      3. Pipeline / arXiv papers via data_service
+      4. Fallback: return minimal dict with just the paper_id as title
+    """
+    # 1. User-uploaded papers
+    if paper_id.startswith("up_"):
+        try:
+            from services import user_paper_service as _ups  # lazy to avoid circular imports
+            p = _ups.get_paper(user_id, paper_id)
+            if p:
+                return {
+                    "paper_id": paper_id,
+                    "title": p.get("title") or paper_id,
+                    "abstract": p.get("abstract") or "",
+                    "institution": p.get("institution") or "",
+                    "source_type": "user_upload",
+                }
+        except Exception:
+            pass
+
+    # 2. KB papers
+    try:
+        pd = kb_service.get_paper_data(user_id, paper_id, scope="kb")
+        if pd:
+            return {
+                "paper_id": paper_id,
+                "title": pd.get("short_title") or pd.get("📖标题") or paper_id,
+                "abstract": pd.get("推荐理由") or pd.get("abstract") or "",
+                "institution": pd.get("institution") or "",
+                "source_type": "kb",
+            }
+    except Exception:
+        pass
+
+    # 3. Pipeline / arXiv papers (may be slow; keep as last non-trivial fallback)
+    try:
+        detail = data_service.get_paper_detail(paper_id, user_id=user_id)
+        if detail and detail.get("summary"):
+            s = detail["summary"]
+            return {
+                "paper_id": paper_id,
+                "title": s.get("short_title") or s.get("📖标题") or paper_id,
+                "abstract": s.get("推荐理由") or s.get("abstract") or "",
+                "institution": s.get("institution") or "",
+                "source_type": "pipeline",
+            }
+    except Exception:
+        pass
+
+    # 4. Fallback — always return something so the UI can at least show the ID
+    return {
+        "paper_id": paper_id,
+        "title": paper_id,
+        "abstract": "",
+        "institution": "",
+        "source_type": "unknown",
+    }
+
+
+@router.get("/source-papers", summary="Resolve lightweight metadata for a list of source paper IDs")
+def api_idea_source_papers(
+    paper_ids: list[str] = Query(default=[]),
+    _user=Depends(auth_service.require_user),
+):
+    """Return {paper_id: {title, abstract, institution, source_type}} for up to 20 paper IDs.
+
+    Used by the frontend to display human-readable paper info in the provenance panel
+    instead of raw arXiv IDs.  Resolves from user-papers, KB, and pipeline data in order.
+    """
+    result: dict[str, dict] = {}
+    for pid in paper_ids[:20]:
+        pid = pid.strip()
+        if pid:
+            result[pid] = _resolve_paper_info(_user["id"], pid)
+    return {"ok": True, "papers": result}
+
+
+# ---------------------------------------------------------------------------
 # Questions
 # ---------------------------------------------------------------------------
 
@@ -283,6 +372,15 @@ def api_idea_list_questions(
 ):
     questions = idea_service.list_questions(_user["id"], limit=limit, offset=offset)
     return {"ok": True, "questions": questions, "count": len(questions)}
+
+
+@router.get("/questions/{question_id}", summary="Get a single question by ID")
+def api_idea_get_question(question_id: int, _user=Depends(auth_service.require_user)):
+    """Return one question, enforcing that it belongs to the requesting user."""
+    q = idea_service.get_question(question_id)
+    if not q or q.get("user_id") != _user["id"]:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return {"ok": True, "question": q}
 
 
 @router.post("/questions/generate", summary="Generate research questions from atoms")
@@ -307,15 +405,18 @@ def api_idea_digest(
     _user=Depends(auth_service.require_user),
 ):
     uid = _user.get("id", 0) if _user else 0
-    digest = data_service.get_daily_digest(date, user_id=uid)
-    all_papers = digest.get("papers", [])
-
     quota_limit = _tier_quota_limit(_user)
-    if quota_limit is not None:
-        visible_papers = all_papers[:quota_limit]
-    else:
-        visible_papers = all_papers
-    allowed_paper_ids = [p["paper_id"] for p in visible_papers if p.get("paper_id")]
+
+    def _get_allowed_ids(d: str) -> list[str]:
+        dig = data_service.get_daily_digest(d, user_id=uid)
+        all_papers = dig.get("papers", [])
+        visible = all_papers[:quota_limit] if quota_limit is not None else all_papers
+        return [p["paper_id"] for p in visible if p.get("paper_id")]
+
+    # Try the requested date first
+    effective_date = date
+    is_fallback = False
+    allowed_paper_ids = _get_allowed_ids(date)
 
     candidates, total_available = idea_service.list_shared_candidates_for_date(
         date_str=date,
@@ -323,12 +424,36 @@ def api_idea_digest(
         viewer_user_id=_user["id"],
     )
 
+    # Fallback: if the requested date has no ideas, look for the most recent
+    # earlier date that still has candidates the user hasn't acted on.
+    if total_available == 0:
+        all_dates = data_service.list_dates(user_id=uid)
+        try:
+            start_idx = all_dates.index(date)
+        except ValueError:
+            start_idx = -1
+        for earlier in all_dates[start_idx + 1:]:
+            fb_allowed = _get_allowed_ids(earlier)
+            fb_candidates, fb_total = idea_service.list_shared_candidates_for_date(
+                date_str=earlier,
+                allowed_paper_ids=fb_allowed,
+                viewer_user_id=_user["id"],
+            )
+            if fb_total > 0:
+                candidates = fb_candidates
+                total_available = fb_total
+                effective_date = earlier
+                is_fallback = True
+                break
+
     return {
         "ok": True,
         "candidates": candidates,
         "total_available": total_available,
         "quota_limit": quota_limit,
         "tier": _tier_label(_user),
+        "effective_date": effective_date,
+        "is_fallback": is_fallback,
     }
 
 
@@ -748,3 +873,48 @@ def api_idea_library_tree(_user=Depends(auth_service.require_user)):
 def api_idea_library_create_folder(body: CreateIdeaFolderBody, _user=Depends(auth_service.require_user)):
     folder = kb_service.create_folder(_user["id"], body.name, body.parent_id, scope="idea_library")
     return folder
+
+
+# ---------------------------------------------------------------------------
+# Research Memory (paper-level atom aggregation + topic clusters)
+# ---------------------------------------------------------------------------
+
+@router.get("/papers/{paper_id}/memory", summary="Get research memory for a paper")
+def api_idea_get_paper_memory(paper_id: str, _user=Depends(auth_service.require_user)):
+    """Return atoms grouped by type for one paper.
+
+    Always returns a valid response; ``has_atoms=false`` when no atoms exist yet.
+    """
+    memory = research_memory_service.get_paper_memory(_user["id"], paper_id)
+    return {"ok": True, **memory}
+
+
+@router.post("/papers/{paper_id}/memory/extract", summary="Extract research memory for a paper")
+def api_idea_extract_paper_memory(paper_id: str, _user=Depends(auth_service.require_user)):
+    """Extract/re-extract atoms for a paper and return grouped memory.
+
+    Internally calls extract_atoms_for_paper, then returns the same grouped
+    structure as GET /papers/{paper_id}/memory.
+    Quota check: reuses the idea_gen pre-check (does not consume a credit).
+    """
+    status = entitlement_service.check_quota(_user["id"], "idea_gen")
+    if not status["allowed"]:
+        raise HTTPException(status_code=429, detail="本月灵感生成用量已达上限，请升级套餐以继续使用")
+    result = idea_pipeline_service.extract_atoms_for_paper(_user["id"], paper_id)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    memory = research_memory_service.get_paper_memory(_user["id"], paper_id)
+    return {"ok": True, "atoms_created": result.get("count", 0), **memory}
+
+
+@router.get("/memory/clusters", summary="Get topic clusters across all papers")
+def api_idea_get_memory_clusters(
+    limit: int = Query(20, ge=1, le=50),
+    _user=Depends(auth_service.require_user),
+):
+    """Return tag-based topic clusters across all papers with atoms.
+
+    Uses tag overlap to group papers; no external dependencies or embeddings.
+    """
+    clusters = research_memory_service.get_memory_clusters(_user["id"], limit=limit)
+    return {"ok": True, "clusters": clusters, "count": len(clusters)}

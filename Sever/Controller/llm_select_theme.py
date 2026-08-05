@@ -13,10 +13,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
-from openai import OpenAI
-
 ROOT = Path(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, str(ROOT))
+
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 
 from config.config import (  # noqa: E402
     DATA_ROOT,
@@ -68,12 +69,13 @@ def _resolve_prompt_preset(user_id: int, preset_id: Any) -> str:
         return ""
 
 
-def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[str, Any]]:
+def make_client_for_user(user_id: Optional[int] = None) -> Tuple[Any, Dict[str, Any]]:
     """Return (client, effective_cfg) honouring user overrides when *user_id* is given.
 
     effective_cfg keys: model, temperature, max_tokens, system_prompt.
     Falls back to config.py values when no user preset is found.
     """
+    import config.config as _sys_cfg_ts
     # Global defaults
     key: str = (qwen_api_key or "").strip()
     base: str = (theme_select_base_url or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -81,6 +83,8 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
     temperature = theme_select_temperature
     max_tokens = theme_select_max_tokens
     sys_prompt: str = theme_select_system_prompt or ""
+    enable_thinking: bool = False
+    use_pool: bool = bool(getattr(_sys_cfg_ts, "theme_select_use_openrouter_free_pool", False))
 
     if user_id is not None:
         ucfg = _load_user_config(user_id)
@@ -92,6 +96,9 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                 key = (preset.get("api_key") or key).strip()
                 base = (preset.get("base_url") or base).strip()
                 model_name = (preset.get("model") or model_name).strip()
+                enable_thinking = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 if preset.get("temperature") is not None:
                     temperature = preset["temperature"]
                 if preset.get("max_tokens") is not None:
@@ -100,6 +107,8 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                 key = (ucfg.get("llm_api_key") or key).strip()
                 base = (ucfg.get("llm_base_url") or base).strip()
                 model_name = (ucfg.get("llm_model") or model_name).strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 if ucfg.get("temperature") is not None:
                     temperature = ucfg["temperature"]
                 if ucfg.get("max_tokens") is not None:
@@ -124,15 +133,20 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                     flush=True,
                 )
 
-    if not key:
+    if not key and not use_pool:
         raise SystemExit("theme_select: no api_key available (global config or user preset)")
-    client = OpenAI(api_key=key, base_url=base)
-    return client, {
+    from services.llm_client_factory import build_llm_client
+    effective_cfg = {
         "model": model_name,
         "temperature": temperature,
         "max_tokens": max_tokens,
         "system_prompt": sys_prompt,
+        "llm_base_url": base,
+        "enable_thinking": enable_thinking,
+        "use_openrouter_free_pool": use_pool,
     }
+    client = build_llm_client({"api_key": key, "base_url": base, "use_openrouter_free_pool": use_pool})
+    return client, effective_cfg
 
 
 def setup_logging() -> logging.Logger:
@@ -233,6 +247,7 @@ def score_one(client: OpenAI, block: PaperRecord, effective_cfg: Dict[str, Any])
         kwargs["temperature"] = float(temp)
     if max_tok is not None:
         kwargs["max_tokens"] = int(max_tok)
+    kwargs.update(build_thinking_kwargs(effective_cfg))
     resp = client.chat.completions.create(
         model=effective_cfg.get("model") or theme_select_model,
         messages=[
@@ -264,24 +279,117 @@ def run() -> None:
     run_date = os.environ.get("RUN_DATE") or datetime.utcnow().date().isoformat()
 
     input_dir = ROOT / PAPER_DEDUP_DIR
-    json_path = find_latest_json(input_dir, args.json)
+    date_str = run_date  # always key by RUN_DATE in DB mode
 
-    # Derive date_str from filename (e.g. 2025-01-15.json) — but ONLY in file mode.
-    # In DB mode we must always key by RUN_DATE so that downstream steps
-    # (paper_theme_filter, pdf_info, …) can find the scores by the same key.
-    # Overwriting date_str with the input filename date causes silent key drift
-    # (e.g. latest dedup file is 2026-03-07.json but RUN_DATE=2026-03-10).
-    date_str = run_date
-    if output_mode != "db":
-        stem = json_path.stem
-        if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
-            date_str = stem
+    if output_mode == "db" and not args.json:
+        # DB mode: only process papers belonging to RUN_DATE.
+        # Never fall back to the latest file from a different date – that would
+        # silently re-score stale papers and write them under today's key.
+        target_json = input_dir / f"{run_date}.json"
+        if target_json.exists():
+            json_path: Path = target_json
+            meta_obj, papers = load_json_papers(json_path)
+        else:
+            # File for today doesn't exist yet; try loading directly from DB arxiv_list.
+            try:
+                sys.path.insert(0, str(ROOT))
+                from services import pipeline_db_service as _pdb_init
+                _arxiv_rows = _pdb_init.get_arxiv_list(run_date)
+            except Exception as _db_init_err:
+                logger.error("DB mode: cannot load arxiv_list for %s: %s", run_date, _db_init_err)
+                _arxiv_rows = []
+            if not _arxiv_rows:
+                logger.warning(
+                    "[DB] No papers in paperList_remove_duplications or pipeline_arxiv_list "
+                    "for RUN_DATE=%s — skipping theme scoring. "
+                    "Did the shared pipeline run successfully today?",
+                    run_date,
+                )
+                print(f"[INFO] llm_select_theme: no papers for date={run_date}; skip", flush=True)
+                print("============结束主题相关性评分==============", flush=True)
+                return
+            # Convert DB rows to the dict shape load_json_papers would produce
+            papers = []
+            for _r in _arxiv_rows:
+                papers.append({
+                    "arxiv_id": _r.get("paper_arxiv_id", ""),
+                    "title": _r.get("title", ""),
+                    "summary": _r.get("abstract_text", ""),
+                    "categories": _r.get("paper_categories") or [],
+                    "published": _r.get("published_utc", ""),
+                })
+            meta_obj: Dict[str, Any] = {"papers": papers}
+            json_path = input_dir / f"{run_date}.json"  # used only for out_path name
+        logger.info("[DB] Loaded %d papers for date=%s", len(papers), run_date)
+    else:
+        # File mode (or explicit --json): use find_latest_json as before
+        json_path = find_latest_json(input_dir, args.json)
+        meta_obj, papers = load_json_papers(json_path)
+        # In file mode, derive date_str from the filename
+        if output_mode != "db":
+            stem = json_path.stem
+            if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
+                date_str = stem
 
     out_dir = Path(args.outdir) if args.outdir else ROOT / DATA_ROOT / "llm_select_theme"
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / Path(json_path.name).with_suffix(".json").name
+    out_path = out_dir / f"{date_str}.json"
 
-    meta_obj, papers = load_json_papers(json_path)
+    # --- Per-user category filter ---
+    # If the user has configured search_categories, only score papers whose arXiv
+    # categories overlap with the user's selection. This avoids wasting LLM calls
+    # on papers from categories the user never asked for.
+    if args.user_id is not None:
+        try:
+            ucfg = _load_user_config(args.user_id)
+            user_cats_raw = ucfg.get("search_categories")
+            default_cats = ["cs.CL", "cs.LG", "cs.AI", "stat.ML"]
+            try:
+                from config import config as _cfg_mod
+                default_cats = list(getattr(_cfg_mod, "SEARCH_CATEGORIES", default_cats) or default_cats)
+            except Exception:
+                pass
+            user_cats: Optional[List[str]] = None
+            if isinstance(user_cats_raw, list) and user_cats_raw:
+                # Only apply filter when user has explicitly customised (differs from default)
+                if sorted(user_cats_raw) != sorted(default_cats):
+                    user_cats = [c.strip() for c in user_cats_raw if c.strip()]
+
+            if user_cats:
+                # Build paper_categories lookup from DB (DB mode) or from JSON field
+                paper_cats_map: Dict[str, List[str]] = {}
+                if output_mode == "db":
+                    try:
+                        sys.path.insert(0, str(ROOT))
+                        from services import pipeline_db_service as _pdb
+                        arxiv_rows = _pdb.get_arxiv_list(date_str)
+                        for row in arxiv_rows:
+                            pid = str(row.get("paper_arxiv_id", "")).strip()
+                            if pid:
+                                paper_cats_map[pid] = row.get("paper_categories") or []
+                    except Exception as _pc_err:
+                        logger.warning("Could not load paper_categories from DB: %s", _pc_err)
+                else:
+                    for p in papers:
+                        pid = str(p.get("arxiv_id", "")).strip()
+                        cats = p.get("categories") or []
+                        if pid:
+                            paper_cats_map[pid] = cats if isinstance(cats, list) else []
+
+                user_cats_set = set(user_cats)
+                before_count = len(papers)
+                papers = [
+                    p for p in papers
+                    if not paper_cats_map.get(str(p.get("arxiv_id", "")).strip())
+                    or bool(user_cats_set & set(paper_cats_map.get(str(p.get("arxiv_id", "")).strip(), [])))
+                ]
+                logger.info(
+                    "Category filter [user=%s cats=%s]: %d → %d papers",
+                    args.user_id, user_cats, before_count, len(papers),
+                )
+        except Exception as _filter_err:
+            logger.warning("Category filter failed, scoring all papers: %s", _filter_err)
+
     records: List[PaperRecord] = []
     for p in papers:
         title = normalize_text(str(p.get("title", "")))
@@ -296,6 +404,7 @@ def run() -> None:
 
     client, effective_cfg = make_client_for_user(args.user_id)
     scores: Dict[str, float] = {}
+    failed: set[str] = set()
     workers = max(1, int(theme_select_concurrency or 1))
     logger.info("Scoring %d paper(s) with %d worker(s) [user_id=%s output_mode=%s]",
                 len(records), workers, args.user_id, output_mode)
@@ -306,17 +415,37 @@ def run() -> None:
         future_map = {pool.submit(score_one, client, blk, effective_cfg): blk for blk in records}
         for future in as_completed(future_map):
             blk = future_map[future]
+            key = blk.arxiv_id or blk.title
             try:
                 score = future.result()
+                scores[key] = score
             except Exception as exc:
                 logger.warning("Score failed for %s: %r", blk.title, exc)
-                score = 0.0
-            scores[blk.arxiv_id or blk.title] = score
+                failed.add(key)
             done += 1
             sys.stdout.write(f"\r[PROGRESS] scoring {done}/{total}")
             sys.stdout.flush()
             time.sleep(0.05)
     print()
+
+    success_count = len(scores)
+    fail_count = len(failed)
+    if fail_count:
+        logger.warning(
+            "Theme scoring finished with %d success, %d failed (failed papers are not written as 0.0)",
+            success_count, fail_count,
+        )
+    if success_count == 0 and total > 0:
+        logger.error("All %d theme scores failed; aborting step", total)
+        print("============结束主题相关性评分（全部失败）==============", flush=True)
+        sys.exit(1)
+    if total > 0 and fail_count / total > 0.5:
+        logger.error(
+            "Theme scoring failure rate %.0f%% exceeds 50%% (%d/%d); aborting step",
+            100.0 * fail_count / total, fail_count, total,
+        )
+        print("============结束主题相关性评分（失败率过高）==============", flush=True)
+        sys.exit(1)
 
     for p in papers:
         key = str(p.get("arxiv_id", "")).strip() or str(p.get("title", "")).strip()
@@ -333,7 +462,8 @@ def run() -> None:
                 (str(p.get("arxiv_id", "")).strip() or str(p.get("title", "")).strip()):
                 round(float(p.get("theme_relevant_score", 0.0) or 0.0), 3)
                 for p in papers
-                if str(p.get("arxiv_id", "")).strip() or str(p.get("title", "")).strip()
+                if (str(p.get("arxiv_id", "")).strip() or str(p.get("title", "")).strip())
+                and "theme_relevant_score" in p
             }
             _pdb.bulk_upsert_theme_scores(uid, date_str, db_scores)
             logger.info("[DB] Saved %d theme scores for user=%s date=%s", len(db_scores), uid, date_str)

@@ -19,8 +19,9 @@ API_URL = "http://export.arxiv.org/api/query"
 # [Controller/arxiv_search.py] 检索学科分类（arXiv 分类代码）
 SEARCH_CATEGORIES = ["cs.CL", "cs.LG", "cs.AI", "stat.ML"]
 
-# [Controller/arxiv_search.py] 请求 User-Agent
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0 Safari/537.36"
+# [Controller/arxiv_search.py] 请求 User-Agent（arXiv 建议含联系信息）
+USER_AGENT = "AI4Papers/1.0 (https://ai4papers.com; contact@ai4papers.com)"
+ARXIV_USER_AGENT = USER_AGENT
 
 # [全局] 数据根目录 —— 基于本文件位置计算绝对路径，确保无论 CWD 在哪都指向 Sever/data
 _SEVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -53,12 +54,26 @@ SELECTED_MINERU_DIR = os.path.join(DATA_ROOT, "selectedpaper_to_mineru")
 # [Controller/file_collect.py] 文件收集输出目录
 FILE_COLLECT_DIR = os.path.join(DATA_ROOT, "file_collect")
 
+# [services/pdf_cleanup_service.py] PDF 缓存自动清理配置
+# 超过 N 天且无用户收藏的推荐 PDF 将被清理；建议值 14-30
+PDF_CLEANUP_RETENTION_DAYS: int = 14
+# 自动清理开关（False = 仅手动触发）
+PDF_CLEANUP_AUTO_ENABLED: bool = False
+# 自动清理触发时间（本地时区，小时/分钟）
+PDF_CLEANUP_HOUR: int = 3
+PDF_CLEANUP_MINUTE: int = 0
+
 # [Controller/arxiv_search.py] 分页与筛选参数
 PAGE_SIZE_DEFAULT = 200
 MAX_PAPERS_DEFAULT = 500
 SLEEP_DEFAULT = 3.1
 
-# [services/openrouter_rate_limit.py] OpenRouter free-tier global rate limiting
+# [services/arxiv_rate_limit.py] 全局 arXiv 节流与 429 退避
+ARXIV_MIN_INTERVAL = 3.1
+ARXIV_429_BASE_WAIT = 60
+ARXIV_429_MAX_WAIT = 900
+
+# [services/openrouter_rate_limit.py] OpenRouter 免费层全局限流与 429 退避
 OPENROUTER_FREE_RPM = 18
 OPENROUTER_429_BASE_WAIT = 5
 OPENROUTER_429_MAX_WAIT = 60
@@ -70,7 +85,7 @@ RETRY_COUNT = 5
 PROGRESS_SINGLE_LINE = True
 RETRY_TOTAL = 7
 RETRY_BACKOFF = 1.5
-REQUESTS_UA = USER_AGENT
+REQUESTS_UA = ARXIV_USER_AGENT
 PROXIES = None
 RESPECT_ENV_PROXIES = False
 
@@ -99,14 +114,16 @@ theme_select_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 theme_select_model = "qwen-plus"
 theme_select_max_tokens = 16
 theme_select_temperature = 1.0
-theme_select_concurrency = 8
+theme_select_concurrency = 2
+theme_select_use_openrouter_free_pool = False
 
 # [Controller/pdf_info.py] 机构判别模型参数
 org_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 org_model = "qwen-plus"
 org_max_tokens = 2048
 org_temperature = 1.0
-pdf_info_concurrency = 8
+org_use_openrouter_free_pool = False
+pdf_info_concurrency = 2
 
 # [Controller/paper_summary.py] 摘要生成模型参数
 summary_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -120,7 +137,8 @@ summary_temperature = 1.0
 # 最终传入 ≈ 系统提示词 + 裁剪后的用户内容 ≤ 总输入预算
 summary_input_hard_limit = 129024
 summary_input_safety_margin = 4096
-summary_concurrency = 16
+summary_concurrency = 2
+summary_use_openrouter_free_pool = False
 
 # [Controller/paper_assets.py] 结构化分析输出长度控制
 # 13-key schema 的完整 JSON 输出约 8000-10000 tokens，需独立配置，不能复用 summary_max_tokens(2048)
@@ -156,11 +174,12 @@ summary_limit_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 summary_limit_model = "qwen-plus"
 summary_limit_max_tokens = 2048
 summary_limit_temperature = 1.0
-summary_limit_concurrency = 8
+summary_limit_concurrency = 2
 # [Controller/summary_limit.py] 摘要精简输入长度控制（模型上下文窗口硬上限与安全边距）
 # 总输入预算 = summary_limit_input_hard_limit - summary_limit_input_safety_margin
 summary_limit_input_hard_limit = 129024
 summary_limit_input_safety_margin = 4096
+summary_limit_use_openrouter_free_pool = False
 
 
 # [Controller/summary_limit.py] 摘要精简模型2
@@ -183,12 +202,31 @@ summary_batch_endpoint = "/v1/chat/completions"
 summary_batch_out_root = os.path.join(DATA_ROOT, "paper_summary_batch")
 summary_batch_jsonl_root = os.path.join(DATA_ROOT, "selectpaper_to_jsonl")
 
+# [services/chat_service, compare_service, research_service] AI 问答/对比分析/深度研究 系统兜底模型
+# 留空则功能需用户自行配置；部署时通过 config.json 或环境变量注入真实值
+paper_chat_base_url = ""
+paper_chat_api_key = ""
+paper_chat_model = ""
+paper_chat_max_tokens = 4096
+paper_chat_temperature = 0.7
+paper_chat_input_hard_limit = 129024
+paper_chat_input_safety_margin = 4096
+
+# [services/auto_classify_service] 自动分类 系统兜底模型
+auto_classify_base_url = ""
+auto_classify_api_key = ""
+auto_classify_model = ""
+auto_classify_max_tokens = 512
+auto_classify_temperature = 0.1
+auto_classify_use_openrouter_free_pool = False
+
 # [Controller/idea_ingest.py, idea_combine.py, idea_review.py] 灵感生成模型参数（全局兜底）
 idea_generate_base_url = ""
 idea_generate_api_key = ""
 idea_generate_model = ""
 idea_generate_max_tokens = 8192
 idea_generate_temperature = 0.7
+idea_generate_use_openrouter_free_pool = False
 idea_generate_input_hard_limit = 129024
 idea_generate_input_safety_margin = 4096
 idea_generate_concurrency = 3
@@ -200,36 +238,43 @@ idea_generate_concurrency = 3
 idea_ingest_base_url = ""
 idea_ingest_api_key = ""
 idea_ingest_model = ""
+idea_ingest_use_openrouter_free_pool = False
 
 # [Controller/idea_combine.py] 研究问题生成阶段
 idea_question_base_url = ""
 idea_question_api_key = ""
 idea_question_model = ""
+idea_question_use_openrouter_free_pool = False
 
 # [Controller/idea_combine.py] 灵感候选生成阶段
 idea_candidate_base_url = ""
 idea_candidate_api_key = ""
 idea_candidate_model = ""
+idea_candidate_use_openrouter_free_pool = False
 
 # [Controller/idea_review.py] 灵感评审阶段
 idea_review_base_url = ""
 idea_review_api_key = ""
 idea_review_model = ""
+idea_review_use_openrouter_free_pool = False
 
 # [Controller/idea_review.py] 灵感修订阶段
 idea_revise_base_url = ""
 idea_revise_api_key = ""
 idea_revise_model = ""
+idea_revise_use_openrouter_free_pool = False
 
 # [services/idea_pipeline_service.py] 实验计划生成阶段
 idea_plan_base_url = ""
 idea_plan_api_key = ""
 idea_plan_model = ""
+idea_plan_use_openrouter_free_pool = False
 
 # [services/idea_pipeline_service.py] 评测回放阶段
 idea_eval_base_url = ""
 idea_eval_api_key = ""
 idea_eval_model = ""
+idea_eval_use_openrouter_free_pool = False
 
 # [Controller/idea_ingest.py, services/idea_pipeline_service.py] 原子抽取系统提示词
 idea_ingest_system_prompt = """\
@@ -605,6 +650,7 @@ translate_chunk_size = 6000
 translate_concurrency = 8
 translate_input_hard_limit = 120000
 translate_input_safety_margin = 4096
+translate_use_openrouter_free_pool = False
 
 # [Controller/summary_limit.py] 首行压缩提示词
 summary_limit_prompt_headline = (

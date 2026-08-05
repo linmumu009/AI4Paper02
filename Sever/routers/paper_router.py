@@ -23,7 +23,7 @@ Registered in api.py via app.include_router(paper_router)
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from services import analytics_service, auth_service, chat_service, data_service, engagement_service, entitlement_service, kb_service
@@ -87,6 +87,100 @@ def api_list_papers(
     }
 
 
+@router.get("/papers/{paper_id}/pdf", summary="Serve local PDF for a paper")
+def api_paper_pdf(
+    request: Request,
+    paper_id: str,
+    user: Optional[dict] = Depends(_get_optional_user),
+):
+    if user is None:
+        raise HTTPException(status_code=401, detail="请先登录以查看 PDF")
+    source = kb_service._find_pdf_in_file_collect(paper_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="PDF not found locally")
+
+    import os as _os
+    import hashlib as _hl
+    import email.utils as _eu
+    import time as _time
+
+    file_size = _os.path.getsize(source)
+    mtime = _os.path.getmtime(source)
+    etag = f'"{_hl.md5(f"{paper_id}:{file_size}:{mtime}".encode()).hexdigest()}"'
+    last_modified = _eu.formatdate(_time.mktime(_time.gmtime(mtime)), usegmt=True)
+
+    base_headers = {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "private, max-age=86400",
+        "ETag": etag,
+        "Last-Modified": last_modified,
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Expose-Headers": "Accept-Ranges, Content-Range, Content-Length, ETag",
+    }
+
+    range_header = request.headers.get("Range")
+    if range_header:
+        # Parse "bytes=start-end" and return 206 Partial Content so PDF.js can
+        # stream individual chunks instead of waiting for the full file.
+        try:
+            unit, rng = range_header.split("=", 1)
+            if unit.strip().lower() != "bytes":
+                raise ValueError("unsupported range unit")
+            start_str, end_str = rng.split("-", 1)
+            start = int(start_str) if start_str else 0
+            end = int(end_str) if end_str else file_size - 1
+            end = min(end, file_size - 1)
+            if start > end or start >= file_size:
+                return Response(
+                    status_code=416,
+                    headers={"Content-Range": f"bytes */{file_size}"},
+                )
+            length = end - start + 1
+
+            def _iter_range():
+                with open(source, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                        yield chunk
+
+            return StreamingResponse(
+                _iter_range(),
+                status_code=206,
+                media_type="application/pdf",
+                headers={
+                    **base_headers,
+                    "Content-Range": f"bytes {start}-{end}/{file_size}",
+                    "Content-Length": str(length),
+                },
+            )
+        except (ValueError, AttributeError):
+            pass  # Fall through to full-file response
+
+    # No Range header — return the full file with caching headers.
+    return FileResponse(
+        source,
+        media_type="application/pdf",
+        headers={**base_headers, "Content-Length": str(file_size)},
+    )
+
+
+@router.get("/papers/{paper_id}/images/{filename}", summary="Serve selected paper image")
+def api_paper_image(
+    paper_id: str,
+    filename: str,
+    date: str = Query(..., description="Pipeline date in YYYY-MM-DD format", pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    source = data_service.get_paper_image_path(date, paper_id, filename)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(source)
+
+
 @router.get("/papers/{paper_id}", summary="Get paper detail")
 def api_paper_detail(
     paper_id: str,
@@ -97,19 +191,6 @@ def api_paper_detail(
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Paper {paper_id} not found")
     return detail
-
-
-@router.get("/papers/{paper_id}/pdf", summary="Serve local PDF for a paper")
-def api_paper_pdf(
-    paper_id: str,
-    user: Optional[dict] = Depends(_get_optional_user),
-):
-    if user is None:
-        raise HTTPException(status_code=401, detail="请先登录以查看 PDF")
-    source = kb_service._find_pdf_in_file_collect(paper_id)
-    if source is None:
-        raise HTTPException(status_code=404, detail="PDF not found locally")
-    return FileResponse(source, media_type="application/pdf")
 
 
 # ---------------------------------------------------------------------------
@@ -290,6 +371,34 @@ def api_pipeline_status(
 # Analytics event tracking (all logged-in or anonymous users)
 # ---------------------------------------------------------------------------
 
+def _maybe_record_preference_feedback(user_id: int, event_type: str, target_id: str, value: Optional[float]) -> None:
+    """Translate analytics events into preference feedback signals (fire-and-forget)."""
+    if user_id <= 0 or not target_id:
+        return
+    try:
+        from services import preference_service as _pref
+        action: Optional[str] = None
+        if event_type == "paper_view_duration" and value is not None:
+            action = "paper_view_deep" if value >= _pref.VIEW_DEEP_S else None
+        elif event_type == "paper_view":
+            action = "paper_view"
+        if action is None:
+            return
+        feats = _pref.get_cached_paper_features(target_id)
+        _pref.record_feedback(
+            user_id=user_id,
+            paper_id=target_id,
+            action=action,
+            categories=feats["categories"] if feats else None,
+            keywords=feats["keywords"] if feats else None,
+            institution_tier=feats["institution_tier"] if feats else 4,
+            source="analytics",
+        )
+    except Exception as _exc:
+        import logging as _log
+        _log.getLogger(__name__).debug("preference feedback from analytics event skipped: %r", _exc)
+
+
 @router.post("/analytics/event", summary="Report a single analytics event")
 def api_analytics_event(body: AnalyticsEventBody, request: Request):
     client_ip = request.client.host if request.client else "unknown"
@@ -304,6 +413,9 @@ def api_analytics_event(body: AnalyticsEventBody, request: Request):
         value=body.value,
         meta=body.meta,
     )
+    # Translate paper_view / paper_view_duration into preference signals
+    if body.target_type == "paper":
+        _maybe_record_preference_feedback(user_id, body.event_type, body.target_id or "", body.value)
     return {"ok": True, "event_id": eid}
 
 
@@ -325,4 +437,8 @@ def api_analytics_events_batch(body: AnalyticsEventBatchBody, request: Request):
         for e in body.events
     ]
     count = analytics_service.record_events_batch(events)
+    # Translate relevant paper events into preference signals (batch)
+    for e in body.events:
+        if e.target_type == "paper":
+            _maybe_record_preference_feedback(user_id, e.event_type, e.target_id or "", e.value)
     return {"ok": True, "count": count}

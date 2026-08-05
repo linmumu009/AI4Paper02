@@ -8,11 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
-
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 from config.config import (
     qwen_api_key,
     summary_base_url,
@@ -38,15 +39,15 @@ from config.config import (
 # User‑override helpers
 # ---------------------------------------------------------------------------
 
-def _load_user_config(user_id: int) -> Dict[str, Any]:
-    """Load merged paper_recommend settings for *user_id*.
+def _load_user_config(user_id: int, feature: str = "paper_recommend") -> Dict[str, Any]:
+    """Load merged feature settings for *user_id*.
 
     Returns an empty dict when the user has no overrides (or on any error),
     so the caller can safely fall back to config.py defaults.
     """
     try:
         from services.user_settings_service import get_settings
-        return get_settings(user_id, "paper_recommend")
+        return get_settings(user_id, feature)
     except Exception:
         return {}
 
@@ -78,7 +79,7 @@ def _resolve_prompt_preset(user_id: int, preset_id: Any) -> str:
         return ""
 
 
-def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[str, Any]]:
+def make_client_for_user(user_id: Optional[int] = None, feature: str = "paper_recommend") -> Tuple[OpenAI, Dict[str, Any]]:
     """Return (client, effective_cfg) honouring user overrides when *user_id* is given.
 
     ``effective_cfg`` contains the resolved values for ``system_prompt``,
@@ -94,20 +95,27 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
         "input_safety_margin": summary_input_safety_margin,
     }
 
+    import config.config as _sys_cfg_ps
     key: str = ""
     base: str = ""
     model: str = ""
+    use_pool: bool = bool(getattr(_sys_cfg_ps, "summary_use_openrouter_free_pool", False))
+    user_llm_configured = False
 
     if user_id is not None:
-        ucfg = _load_user_config(user_id)
+        ucfg = _load_user_config(user_id, feature)
         if ucfg:
             # LLM connection — module-specific preset first, then generic fallback, then cascade from first step
             preset_id = ucfg.get("summary_llm_preset_id") or ucfg.get("llm_preset_id") or ucfg.get("theme_select_llm_preset_id")
             preset = _resolve_llm_preset(user_id, preset_id) if preset_id else {}
             if preset:
+                user_llm_configured = True
                 key = (preset.get("api_key") or "").strip()
                 base = (preset.get("base_url") or "").strip()
                 model = (preset.get("model") or "").strip()
+                cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 if preset.get("temperature") is not None:
                     cfg["temperature"] = preset["temperature"]
                 if preset.get("max_tokens") is not None:
@@ -117,9 +125,15 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                 if preset.get("input_safety_margin") is not None:
                     cfg["input_safety_margin"] = preset["input_safety_margin"]
             else:
+                user_llm_configured = any(
+                    (ucfg.get(k) not in (None, ""))
+                    for k in ("llm_api_key", "llm_base_url", "llm_model", "use_openrouter_free_pool")
+                )
                 key = (ucfg.get("llm_api_key") or "").strip()
                 base = (ucfg.get("llm_base_url") or "").strip()
                 model = (ucfg.get("llm_model") or "").strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 if ucfg.get("temperature") is not None:
                     cfg["temperature"] = ucfg["temperature"]
                 if ucfg.get("max_tokens") is not None:
@@ -130,15 +144,38 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
                     cfg["input_safety_margin"] = ucfg["input_safety_margin"]
 
             # Prompt — preset takes priority
-            prompt_preset_id = ucfg.get("prompt_preset_id")
+            prompt_preset_id = ucfg.get("summary_prompt_preset_id") or ucfg.get("prompt_preset_id")
             prompt_content = _resolve_prompt_preset(user_id, prompt_preset_id) if prompt_preset_id else ""
             if prompt_content:
                 cfg["system_prompt"] = prompt_content
             elif ucfg.get("system_prompt"):
                 cfg["system_prompt"] = ucfg["system_prompt"]
 
-    # If user config didn't provide LLM credentials, fall back to config.py
-    if not key or not base:
+    if user_id is not None and not user_llm_configured:
+        try:
+            from services import user_settings_service as _uss
+            admin_llm = _uss.resolve_admin_llm_for_feature(feature)
+        except Exception:
+            admin_llm = {}
+        if admin_llm:
+            key = (admin_llm.get("llm_api_key") or key).strip()
+            base = (admin_llm.get("llm_base_url") or base).strip()
+            model = (admin_llm.get("llm_model") or model).strip()
+            if "use_openrouter_free_pool" in admin_llm:
+                use_pool = bool(admin_llm["use_openrouter_free_pool"])
+            if admin_llm.get("temperature") is not None:
+                cfg["temperature"] = admin_llm["temperature"]
+            if admin_llm.get("max_tokens") is not None:
+                cfg["max_tokens"] = admin_llm["max_tokens"]
+            if admin_llm.get("input_hard_limit") is not None:
+                cfg["input_hard_limit"] = admin_llm["input_hard_limit"]
+            if admin_llm.get("input_safety_margin") is not None:
+                cfg["input_safety_margin"] = admin_llm["input_safety_margin"]
+            if admin_llm.get("enable_thinking") is not None:
+                cfg["enable_thinking"] = bool(admin_llm["enable_thinking"])
+
+    # If user config didn't provide LLM credentials and pool mode not active, fall back to config.py
+    if not use_pool and (not key or not base):
         if SLLM == 2:
             key = (summary_gptgod_apikey or "").strip()
             base = (summary_base_url_2 or "").strip()
@@ -152,7 +189,7 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
             base = (summary_base_url or "").strip()
             model = summary_model
     elif not model:
-        # User provided key/base but no model — use config.py default model
+        # User provided key/base (or pool) but no model — use config.py default model
         if SLLM == 2:
             model = summary_model_2
         elif SLLM == 3:
@@ -160,13 +197,17 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
         else:
             model = summary_model
 
-    if not key:
+    if not key and not use_pool:
         raise SystemExit("LLM API key missing (neither user preset nor config.py)")
-    if not base:
+    if not base and not use_pool:
         raise SystemExit("LLM base URL missing (neither user preset nor config.py)")
 
     cfg["model"] = model
-    return OpenAI(api_key=key, base_url=base), cfg
+    cfg.setdefault("llm_base_url", base)
+    cfg.setdefault("enable_thinking", False)
+    cfg["use_openrouter_free_pool"] = use_pool
+    from services.llm_client_factory import build_llm_client
+    return build_llm_client({"api_key": key, "base_url": base, "use_openrouter_free_pool": use_pool}), cfg
 
 
 def approx_input_tokens(text: str) -> int:
@@ -250,6 +291,7 @@ def summarize_one(
         kwargs["temperature"] = float(temp)
     if max_tok is not None:
         kwargs["max_tokens"] = int(max_tok)
+    kwargs.update(build_thinking_kwargs(ecfg))
 
     from services.llm_summary_response import create_nonempty_completion
 

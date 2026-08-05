@@ -128,6 +128,7 @@ class UserLlmPresetBody(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     input_hard_limit: Optional[int] = Field(default=None, ge=1, le=500000)
     input_safety_margin: Optional[int] = Field(default=None, ge=0, le=100000)
+    enable_thinking: bool = False
 
 
 class UserPromptPresetBody(BaseModel):

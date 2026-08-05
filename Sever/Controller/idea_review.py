@@ -23,9 +23,10 @@ import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 
 import config.config as _config_module  # noqa: E402
 from config.config import (  # noqa: E402
@@ -119,16 +120,19 @@ def _make_client(user_id: Optional[int] = None,
     }
     key = ""
     base = ""
+    use_pool: bool = False
 
     # --- 1. Try system-level config (per-phase → global fallback) ---
     sys_base = (getattr(_config_module, f"{sys_pfx}_base_url", "") or "").strip()
     sys_key  = (getattr(_config_module, f"{sys_pfx}_api_key",  "") or "").strip()
     sys_model= (getattr(_config_module, f"{sys_pfx}_model",    "") or "").strip()
-    if not (sys_base and sys_key and sys_model):
+    sys_pool = bool(getattr(_config_module, f"{sys_pfx}_use_openrouter_free_pool", False))
+    if not (sys_model and (sys_key or sys_pool)):
         sys_base = (getattr(_config_module, "idea_generate_base_url", "") or "").strip()
         sys_key  = (getattr(_config_module, "idea_generate_api_key",  "") or "").strip()
         sys_model= (getattr(_config_module, "idea_generate_model",    "") or "").strip()
-    if sys_base and sys_key and sys_model:
+        sys_pool = bool(getattr(_config_module, "idea_generate_use_openrouter_free_pool", False))
+    if sys_model and (sys_key or sys_pool):
         base = sys_base
         key = sys_key
         cfg["model"] = sys_model
@@ -138,6 +142,7 @@ def _make_client(user_id: Optional[int] = None,
             cfg["temperature"] = _sys_temp
         cfg["input_hard_limit"] = getattr(_config_module, "idea_generate_input_hard_limit", 129024)
         cfg["input_safety_margin"] = getattr(_config_module, "idea_generate_input_safety_margin", 4096)
+        use_pool = sys_pool
         print(f"[IDEA_REVIEW] Using system-level {sys_pfx}/idea_generate config.", flush=True)
     elif user_id is not None:
         # --- 2. Fallback: per-user settings ---
@@ -151,6 +156,9 @@ def _make_client(user_id: Optional[int] = None,
                 key = (preset.get("api_key") or "").strip()
                 base = (preset.get("base_url") or "").strip()
                 cfg["model"] = (preset.get("model") or "").strip()
+                cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if preset.get(k) is not None:
                         cfg[k] = preset[k]
@@ -158,16 +166,22 @@ def _make_client(user_id: Optional[int] = None,
                 key = (ucfg.get("llm_api_key") or "").strip()
                 base = (ucfg.get("llm_base_url") or "").strip()
                 cfg["model"] = (ucfg.get("llm_model") or "").strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if ucfg.get(k) is not None:
                         cfg[k] = ucfg[k]
             cfg["_ucfg"] = ucfg
-        if key:
+        if key or use_pool:
             print(f"[IDEA_REVIEW] Using per-user idea_generate config (user_id={user_id}).", flush=True)
 
-    if not key or not base or not cfg["model"]:
+    if (not key and not use_pool) or not cfg["model"]:
         return None, cfg
-    return OpenAI(api_key=key, base_url=base), cfg
+    cfg.setdefault("llm_base_url", base)
+    cfg.setdefault("enable_thinking", False)
+    cfg["use_openrouter_free_pool"] = use_pool
+    from services.llm_client_factory import build_llm_client
+    return build_llm_client({"api_key": key, "base_url": base, "use_openrouter_free_pool": use_pool}), cfg
 
 
 def _approx_tokens(text: str) -> int:
@@ -194,6 +208,7 @@ def _call_llm_json(
         kwargs["temperature"] = float(cfg["temperature"])
     if cfg.get("max_tokens") is not None:
         kwargs["max_tokens"] = int(cfg["max_tokens"])
+    kwargs.update(build_thinking_kwargs(cfg))
 
     resp = client.chat.completions.create(
         model=cfg["model"],

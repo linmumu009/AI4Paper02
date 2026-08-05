@@ -93,10 +93,12 @@ def init_db() -> None:
                 temperature REAL,
                 input_hard_limit   INTEGER,
                 input_safety_margin INTEGER,
+                enable_thinking INTEGER NOT NULL DEFAULT 0,
                 created_at  TEXT NOT NULL,
                 updated_at  TEXT NOT NULL
             )
         """)
+        _ensure_user_llm_preset_columns(conn)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS user_prompt_presets (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -110,6 +112,16 @@ def init_db() -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _ensure_user_llm_preset_columns(conn: sqlite3.Connection) -> None:
+    """向后兼容迁移：为旧版 user_llm_presets 表补充缺失列。"""
+    rows = conn.execute("PRAGMA table_info(user_llm_presets)").fetchall()
+    existing = {r["name"] for r in rows}
+    if "enable_thinking" not in existing:
+        conn.execute(
+            "ALTER TABLE user_llm_presets ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -151,8 +163,8 @@ def create_llm_preset(user_id: int, data: dict) -> dict:
             """INSERT INTO user_llm_presets
                (user_id, name, base_url, api_key, model, max_tokens,
                 temperature, input_hard_limit, input_safety_margin,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                enable_thinking, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 user_id,
                 data.get("name", "未命名配置"),
@@ -163,6 +175,7 @@ def create_llm_preset(user_id: int, data: dict) -> dict:
                 data.get("temperature"),
                 data.get("input_hard_limit"),
                 data.get("input_safety_margin"),
+                1 if data.get("enable_thinking") else 0,
                 now, now,
             ),
         )
@@ -188,6 +201,7 @@ def update_llm_preset(user_id: int, preset_id: int, data: dict) -> Optional[dict
                name = ?, base_url = ?, api_key = ?, model = ?,
                max_tokens = ?, temperature = ?,
                input_hard_limit = ?, input_safety_margin = ?,
+               enable_thinking = ?,
                updated_at = ?
                WHERE id = ? AND user_id = ?""",
             (
@@ -199,6 +213,7 @@ def update_llm_preset(user_id: int, preset_id: int, data: dict) -> Optional[dict
                 data.get("temperature", existing.get("temperature")),
                 data.get("input_hard_limit", existing.get("input_hard_limit")),
                 data.get("input_safety_margin", existing.get("input_safety_margin")),
+                1 if data.get("enable_thinking", existing.get("enable_thinking")) else 0,
                 now,
                 preset_id, user_id,
             ),

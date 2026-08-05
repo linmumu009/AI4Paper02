@@ -14,6 +14,7 @@ import os
 import re
 from collections import Counter
 from typing import Any, Optional
+from urllib.parse import quote
 
 # Resolve paths relative to the Sever/ directory
 _SEVER_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,28 +28,33 @@ _DB_ROOT = os.path.join(_SEVER_ROOT, "database")
 
 def _find_local_pdf_url(paper_id: str) -> Optional[str]:
     """
-    Search for a locally cached PDF and return a /static/data/... URL.
+    Search for a locally cached PDF and return the authenticated API URL.
 
     Locations checked (newest date first):
       1. data/raw_pdf/{date}/{paper_id}.pdf
       2. data/file_collect/{date}/{paper_id}/{paper_id}.pdf
 
-    Returns a relative URL path (e.g. /static/data/raw_pdf/2025-01-01/2504.00001.pdf)
-    or None if not found.
+    Returns the API endpoint URL /api/papers/{paper_id}/pdf (served by paper_router
+    with proper auth and Range-request support) when a local file is found,
+    or None to let the caller fall back to the arXiv URL.
+
+    Note: /static/data/ is intentionally not mounted (see api.py), so returning
+    raw filesystem paths as URLs would produce 404s. The API endpoint is the
+    correct way to serve locally cached PDFs.
     """
     raw_pdf_root = os.path.join(_DATA_ROOT, "raw_pdf")
     if os.path.isdir(raw_pdf_root):
         for date_dir in sorted(os.listdir(raw_pdf_root), reverse=True):
             candidate = os.path.join(raw_pdf_root, date_dir, f"{paper_id}.pdf")
             if os.path.isfile(candidate):
-                return f"/static/data/raw_pdf/{date_dir}/{paper_id}.pdf"
+                return f"/api/papers/{paper_id}/pdf"
 
     fc_root = os.path.join(_DATA_ROOT, "file_collect")
     if os.path.isdir(fc_root):
         for date_dir in sorted(os.listdir(fc_root), reverse=True):
             candidate = os.path.join(fc_root, date_dir, paper_id, f"{paper_id}.pdf")
             if os.path.isfile(candidate):
-                return f"/static/data/file_collect/{date_dir}/{paper_id}/{paper_id}.pdf"
+                return f"/api/papers/{paper_id}/pdf"
 
     return None
 
@@ -224,6 +230,66 @@ def _safe_path_component(value: str) -> str:
     return value
 
 
+_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+
+
+def _safe_image_filename(filename: str) -> str:
+    """Validate an image filename used below a per-paper image directory."""
+    name = os.path.basename(str(filename or "").strip())
+    if not name or name != filename:
+        raise ValueError(f"Invalid image filename: {filename!r}")
+    _safe_path_component(name)
+    if not name.lower().endswith(_IMAGE_EXTENSIONS):
+        raise ValueError(f"Unsupported image extension: {filename!r}")
+    return name
+
+
+def get_paper_image_path(date: str, paper_id: str, filename: str) -> Optional[str]:
+    """Resolve a paper image to an absolute path without exposing data/ broadly."""
+    try:
+        date = _safe_path_component(date)
+        paper_id = _safe_path_component(paper_id)
+        filename = _safe_image_filename(filename)
+    except ValueError:
+        return None
+
+    candidate_dirs = [
+        os.path.join(_DATA_ROOT, "select_image", date, paper_id),
+        os.path.join(_DATA_ROOT, "file_collect", date, paper_id, "image"),
+    ]
+    for base_dir in candidate_dirs:
+        base_abs = os.path.abspath(base_dir)
+        path_abs = os.path.abspath(os.path.join(base_abs, filename))
+        if (
+            (path_abs == base_abs or path_abs.startswith(base_abs + os.sep))
+            and os.path.isfile(path_abs)
+        ):
+            return path_abs
+    return None
+
+
+def _build_paper_image_entries(paper_id: str, date: str, images: list[str]) -> list[dict[str, str]]:
+    """Return frontend-ready image objects with a guarded API URL."""
+    entries: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in images or []:
+        try:
+            filename = _safe_image_filename(str(raw))
+        except ValueError:
+            continue
+        if filename in seen:
+            continue
+        seen.add(filename)
+        entries.append({
+            "filename": filename,
+            "url": (
+                f"/api/papers/{quote(paper_id, safe='')}/images/"
+                f"{quote(filename, safe='')}?date={quote(date, safe='')}"
+            ),
+        })
+    return entries
+
+
 # ---------------------------------------------------------------------------
 # file_collect directory reader
 # ---------------------------------------------------------------------------
@@ -312,6 +378,10 @@ def get_papers_by_date(
 
     Checks DB first (multi-user path with personalized data), then falls back
     to the legacy file_collect tree.
+
+    When user_id > 0 and the user has sufficient feedback history, applies a
+    lightweight preference reranking layer that adds preference_score,
+    is_exploration, and why_recommended to each paper.
     """
     papers = _get_papers_from_db(date, user_id=user_id)
     if papers is None:
@@ -339,6 +409,40 @@ def get_papers_by_date(
             if q in p.get("institution", "").lower()
         ]
 
+    # ── Preference rerank (Phase 1) ──────────────────────────────────────────
+    # Only active for authenticated users; skip when search/filter applied
+    # (filtered result sets are often too small / contextual for rerank).
+    if user_id > 0 and not search and not institution:
+        try:
+            from services import preference_service as _pref
+            from services import impression_service as _imp
+            # Opportunistically cache paper features so dismiss has features later
+            for p in papers:
+                pid = p.get("paper_id", "")
+                if pid:
+                    feats = _pref.extract_paper_features(p)
+                    _pref.cache_paper_features(pid, feats)
+            papers, _rerank_meta = _pref.rerank_papers_detailed(user_id, papers)
+            # Fire-and-forget impression log (non-critical, never raises to caller)
+            try:
+                _imp.log_slate(
+                    user_id=user_id,
+                    date_str=date,
+                    scored_papers=_rerank_meta.get("scored_papers", []),
+                    weights=_rerank_meta.get("weights"),
+                    profile_version=_rerank_meta.get("profile_version", ""),
+                )
+            except Exception as _imp_exc:
+                import logging as _log2
+                _log2.getLogger(__name__).debug(
+                    "impression log failed for user %s date %s: %r", user_id, date, _imp_exc
+                )
+        except Exception as _exc:
+            import logging as _log
+            _log.getLogger(__name__).warning(
+                "preference rerank failed for user %s date %s: %r", user_id, date, _exc
+            )
+
     return papers
 
 
@@ -351,6 +455,7 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
         from services.pipeline_db_service import (
             get_digest_papers,
             get_date_notice,
+            get_paper_images,
             has_final_selections,
             is_digest_ready_for_publication,
         )
@@ -373,6 +478,11 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
         db_papers = get_digest_papers(source_uid, date, fallback_user_id=0)
         if not db_papers:
             return []
+
+        try:
+            image_map = get_paper_images(date)
+        except Exception:
+            image_map = {}
 
         # Convert DB format to the expected frontend format
         result = []
@@ -402,14 +512,11 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
             parsed["paper_assets"] = dp.get("paper_assets")
             parsed["is_personalized"] = dp.get("is_personalized", False)
             parsed["pipeline_user_id"] = dp.get("pipeline_user_id", 0)
-            # Images from shared select_image dir (still file-based)
-            select_img_path = os.path.join(
-                _DATA_ROOT, "select_image", date, f"select_image_{date}.json"
-            )
-            if os.path.isfile(select_img_path):
-                pass  # images are loaded per-paper in get_paper_detail
-            parsed["images"] = []
-            parsed["image_count"] = 0
+            parsed["authors"] = dp.get("authors", [])
+            parsed["categories"] = dp.get("categories", [])
+            images = _build_paper_image_entries(paper_id, date, image_map.get(paper_id, []))
+            parsed["images"] = images
+            parsed["image_count"] = len(images)
             result.append(parsed)
         return result
     except Exception:
@@ -458,7 +565,7 @@ def _get_papers_from_files(date: str) -> Optional[list[dict]]:
                 data["institution_tier"] = 3 if is_large else 4
 
         # List images
-        data["images"] = _list_paper_images(paper_dir)
+        data["images"] = _build_paper_image_entries(paper_id, date, _list_paper_images(paper_dir))
         data["image_count"] = len(data["images"])
 
         papers.append(data)
@@ -543,8 +650,12 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 data["relevance_score"] = scores.get(paper_id)
                 data["is_personalized"] = (candidate_uid != 0 and candidate_uid == user_id)
 
-                # Images from select_image (still file-based)
-                images = _list_paper_images_from_select_image(paper_id, date_str)
+                # Images from select_image are returned as guarded API URLs.
+                images = _build_paper_image_entries(
+                    paper_id,
+                    date_str,
+                    _list_paper_images_from_select_image(paper_id, date_str),
+                )
 
                 local_pdf_url = _find_local_pdf_url(paper_id)
                 _blocks = assets_row.get("blocks") if assets_row else None
@@ -601,7 +712,7 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
             else:
                 data["institution_tier"] = 3 if is_large else 4
 
-        images = _list_paper_images(paper_dir)
+        images = _build_paper_image_entries(paper_id, date_dir, _list_paper_images(paper_dir))
 
         assets_data = _load_paper_assets(date_dir)
         paper_assets = assets_data.get(paper_id)

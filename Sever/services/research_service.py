@@ -1430,7 +1430,7 @@ def stream_continue_round3(
                 "round": 3,
                 "content": safe_failure_detail(
                     _logger, "全文分析失败，请稍后重试", exc,
-                    operation="deep_research_continue_round3",
+                    operation="deep_research_round3",
                 ),
             })
             yield "data: [DONE]\n\n"
@@ -1620,7 +1620,7 @@ def stream_followup(
                 "round": 2,
                 "content": safe_failure_detail(
                     _logger, "摘要分析失败，请稍后重试", exc,
-                    operation="deep_research_followup_round2",
+                    operation="deep_research_round2",
                 ),
             })
             yield "data: [DONE]\n\n"
@@ -1692,7 +1692,7 @@ def stream_followup(
                 "round": 3,
                 "content": safe_failure_detail(
                     _logger, "全文分析失败，请稍后重试", exc,
-                    operation="deep_research_followup_round3",
+                    operation="deep_research_round3",
                 ),
             })
             yield "data: [DONE]\n\n"

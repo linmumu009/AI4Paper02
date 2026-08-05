@@ -10,11 +10,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Tuple, Optional, Dict
 
-from openai import OpenAI
-
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 from config.config import (  # noqa: E402
     qwen_api_key,
     summary_limit_base_url,
@@ -80,10 +81,10 @@ SECTION_PROMPTS = dict(SECTION_PROMPTS_DEFAULT)
 # User‑override helpers  (mirrors paper_summary.py)
 # ---------------------------------------------------------------------------
 
-def _load_user_config(user_id: int) -> Dict[str, Any]:
+def _load_user_config(user_id: int, feature: str = "paper_recommend") -> Dict[str, Any]:
     try:
         from services.user_settings_service import get_settings
-        return get_settings(user_id, "paper_recommend")
+        return get_settings(user_id, feature)
     except Exception:
         return {}
 
@@ -100,7 +101,20 @@ def _resolve_llm_preset(user_id: int, preset_id: Any) -> Dict[str, Any]:
         return {}
 
 
-def build_effective_cfg(user_id: Optional[int] = None) -> Dict[str, Any]:
+def _resolve_prompt_preset(user_id: int, preset_id: Any) -> str:
+    try:
+        pid = int(preset_id)
+    except (TypeError, ValueError):
+        return ""
+    try:
+        from services.user_presets_service import get_prompt_preset
+        p = get_prompt_preset(user_id, pid)
+        return (p or {}).get("prompt_content", "")
+    except Exception:
+        return ""
+
+
+def build_effective_cfg(user_id: Optional[int] = None, feature: str = "paper_recommend") -> Dict[str, Any]:
     """Return a dict with all effective config values for summary_limit.
 
     When *user_id* is ``None`` every value comes straight from config.py.
@@ -115,27 +129,40 @@ def build_effective_cfg(user_id: Optional[int] = None) -> Dict[str, Any]:
         "section_prompts": dict(SECTION_PROMPTS_DEFAULT),
     }
 
+    import config.config as _sys_cfg_sl
     key: str = ""
     base: str = ""
     model: str = ""
+    use_pool: bool = bool(getattr(_sys_cfg_sl, "summary_limit_use_openrouter_free_pool", False))
+    user_llm_configured = False
 
     if user_id is not None:
-        ucfg = _load_user_config(user_id)
+        ucfg = _load_user_config(user_id, feature)
         if ucfg:
             # LLM connection — module-specific preset first, then generic fallback, then cascade from first step
             preset_id = ucfg.get("summary_limit_llm_preset_id") or ucfg.get("llm_preset_id") or ucfg.get("theme_select_llm_preset_id")
             preset = _resolve_llm_preset(user_id, preset_id) if preset_id else {}
             if preset:
+                user_llm_configured = True
                 key = (preset.get("api_key") or "").strip()
                 base = (preset.get("base_url") or "").strip()
                 model = (preset.get("model") or "").strip()
+                cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if preset.get(k) is not None:
                         cfg[k] = preset[k]
             else:
+                user_llm_configured = any(
+                    (ucfg.get(k) not in (None, ""))
+                    for k in ("llm_api_key", "llm_base_url", "llm_model", "use_openrouter_free_pool")
+                )
                 key = (ucfg.get("llm_api_key") or "").strip()
                 base = (ucfg.get("llm_base_url") or "").strip()
                 model = (ucfg.get("llm_model") or "").strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if ucfg.get(k) is not None:
                         cfg[k] = ucfg[k]
@@ -155,17 +182,38 @@ def build_effective_cfg(user_id: Optional[int] = None) -> Dict[str, Any]:
 
             # Section prompts
             prompt_map = {
-                "intro": "summary_limit_prompt_intro",
-                "method": "summary_limit_prompt_method",
-                "findings": "summary_limit_prompt_findings",
-                "opinion": "summary_limit_prompt_opinion",
+                "intro": ("summary_limit_prompt_intro_preset_id", "summary_limit_prompt_intro"),
+                "method": ("summary_limit_prompt_method_preset_id", "summary_limit_prompt_method"),
+                "findings": ("summary_limit_prompt_findings_preset_id", "summary_limit_prompt_findings"),
+                "opinion": ("summary_limit_prompt_opinion_preset_id", "summary_limit_prompt_opinion"),
             }
-            for sec, ukey in prompt_map.items():
-                if ucfg.get(ukey):
-                    cfg["section_prompts"][sec] = ucfg[ukey]
+            for sec, (preset_key, text_key) in prompt_map.items():
+                prompt_content = _resolve_prompt_preset(user_id, ucfg.get(preset_key)) if ucfg.get(preset_key) else ""
+                if prompt_content:
+                    cfg["section_prompts"][sec] = prompt_content
+                elif ucfg.get(text_key):
+                    cfg["section_prompts"][sec] = ucfg[text_key]
 
-    # Resolve LLM credentials (fall back to config.py)
-    if not key or not base:
+    if user_id is not None and not user_llm_configured:
+        try:
+            from services import user_settings_service as _uss
+            admin_llm = _uss.resolve_admin_llm_for_feature(feature)
+        except Exception:
+            admin_llm = {}
+        if admin_llm:
+            key = (admin_llm.get("llm_api_key") or key).strip()
+            base = (admin_llm.get("llm_base_url") or base).strip()
+            model = (admin_llm.get("llm_model") or model).strip()
+            if "use_openrouter_free_pool" in admin_llm:
+                use_pool = bool(admin_llm["use_openrouter_free_pool"])
+            for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
+                if admin_llm.get(k) is not None:
+                    cfg[k] = admin_llm[k]
+            if admin_llm.get("enable_thinking") is not None:
+                cfg["enable_thinking"] = bool(admin_llm["enable_thinking"])
+
+    # Resolve LLM credentials (fall back to config.py when pool mode not active)
+    if not use_pool and (not key or not base):
         if SLLM == 2:
             key = (summary_limit_gptgod_apikey or "").strip()
             base = (summary_limit_url_2 or "").strip()
@@ -186,19 +234,27 @@ def build_effective_cfg(user_id: Optional[int] = None) -> Dict[str, Any]:
         else:
             model = summary_limit_model
 
-    if not key:
+    if not key and not use_pool:
         raise SystemExit("LLM API key missing (summary_limit)")
-    if not base:
+    if not base and not use_pool:
         raise SystemExit("LLM base URL missing (summary_limit)")
 
     cfg["api_key"] = key
     cfg["base_url"] = base
     cfg["model"] = model
+    cfg.setdefault("llm_base_url", base)
+    cfg.setdefault("enable_thinking", False)
+    cfg["use_openrouter_free_pool"] = use_pool
     return cfg
 
 
-def make_client_from_cfg(cfg: Dict[str, Any]) -> OpenAI:
-    return OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+def make_client_from_cfg(cfg: Dict[str, Any]) -> Any:
+    from services.llm_client_factory import build_llm_client
+    return build_llm_client({
+        "api_key": cfg.get("api_key", ""),
+        "base_url": cfg.get("base_url", ""),
+        "use_openrouter_free_pool": cfg.get("use_openrouter_free_pool", False),
+    })
 
 
 def approx_input_tokens(text: str) -> int:
@@ -215,6 +271,15 @@ def crop_to_input_tokens(text: str, limit_tokens: int) -> str:
     if len(b) <= budget:
         return text
     return b[:budget].decode("utf-8", errors="ignore")
+
+
+def _choice_text(resp: Any) -> str:
+    """Extract non-None text from an OpenAI-compatible chat completion response."""
+    choices = getattr(resp, "choices", None)
+    if not choices:
+        return ""
+    msg = choices[0].message
+    return (getattr(msg, "content", None) or "").strip()
 
 
 def list_md_files(root: Path) -> List[Path]:
@@ -468,6 +533,7 @@ def rewrite_block(
             kwargs["temperature"] = float(temp)
         if max_tok is not None:
             kwargs["max_tokens"] = int(max_tok)
+        kwargs.update(build_thinking_kwargs(ecfg))
         resp = client.chat.completions.create(
             model=get_summary_limit_model(ecfg),
             messages=[
@@ -477,10 +543,10 @@ def rewrite_block(
             stream=False,
             **kwargs,
         )
-        new_text = resp.choices[0].message.content if resp.choices else ""
+        new_text = _choice_text(resp)
         if not new_text:
             new_text = content
-        content = new_text.strip()
+        content = new_text
         if non_ws_len(content) <= limit_chars:
             break
     return content
@@ -513,9 +579,10 @@ def compress_headline(
         stream=False,
         max_tokens=max_tok or 2048,
         temperature=0,
+        **build_thinking_kwargs(ecfg),
     )
-    new_text = resp.choices[0].message.content if resp.choices else ""
-    return new_text.strip() if new_text else text
+    new_text = _choice_text(resp)
+    return new_text if new_text else text
 
 
 def apply_headline_limit(
@@ -576,6 +643,27 @@ def load_pdf_info_map(date_str: str) -> Dict[str, Dict[str, str]]:
     return out
 
 
+def load_pdf_info_map_for_run(
+    date_str: str,
+    *,
+    user_id: int = 0,
+    output_mode: str = "file",
+    pdb: Any = None,
+) -> Dict[str, Dict[str, str]]:
+    """Load pdf metadata for inject_pdf_info (file json or pipeline_paper_info DB)."""
+    if output_mode == "db" and pdb is not None:
+        raw = pdb.get_paper_info_map(user_id, date_str)
+        out: Dict[str, Dict[str, str]] = {}
+        for arxiv_id, row in raw.items():
+            out[arxiv_id] = {
+                "title": str(row.get("title") or ""),
+                "source": str(row.get("source") or ""),
+                "instution": str(row.get("institution") or row.get("instution") or ""),
+            }
+        return out
+    return load_pdf_info_map(date_str)
+
+
 def inject_pdf_info(text: str, md_path: Path, pdf_info_map: Dict[str, Dict[str, str]]) -> str:
     if not text.strip() or not pdf_info_map:
         return text
@@ -589,7 +677,7 @@ def inject_pdf_info(text: str, md_path: Path, pdf_info_map: Dict[str, Dict[str, 
 
     title = str(info.get("title", "") or "").strip()
     source = str(info.get("source", "") or "").strip()
-    instution = str(info.get("instution", "") or "").strip()
+    instution = str(info.get("instution") or info.get("institution") or "").strip()
 
     lines = text.splitlines()
     first_idx = None
@@ -645,6 +733,7 @@ def structure_matches_example(
     text: str,
     *,
     effective_cfg: Optional[Dict[str, Any]] = None,
+    paper_id: str = "",
 ) -> bool:
     ecfg = effective_cfg or {}
     sys_prompt = (summary_limit_prompt_structure_check or "").strip()
@@ -666,10 +755,18 @@ def structure_matches_example(
             {"role": "user", "content": user_content},
         ],
         stream=False,
-        max_tokens=8,
+        max_tokens=32,
         temperature=0,
+        **build_thinking_kwargs(ecfg),
     )
-    reply = resp.choices[0].message.content.strip().upper() if resp.choices else ""
+    reply = _choice_text(resp).upper()
+    if not reply:
+        label = paper_id or "unknown"
+        print(
+            f"[WARN] structure_matches_example empty LLM reply for {label}; treating as NO",
+            flush=True,
+        )
+        return False
     return reply.startswith("YES")
 
 
@@ -702,9 +799,48 @@ def restructure_to_example(
         stream=False,
         max_tokens=max_tok or 2048,
         temperature=0,
+        **build_thinking_kwargs(ecfg),
     )
-    new_text = resp.choices[0].message.content if resp.choices else ""
-    return new_text.strip() if new_text else text
+    new_text = _choice_text(resp)
+    return new_text if new_text else text
+
+
+def local_normalize_summary(
+    md_path: Path,
+    pdf_info_map: Dict[str, Dict[str, str]],
+) -> str:
+    """No-LLM fallback: inject metadata and normalize layout only."""
+    text = md_path.read_text(encoding="utf-8", errors="ignore")
+    if not text.strip():
+        return ""
+    text = inject_pdf_info(text, md_path, pdf_info_map)
+    text = normalize_style(text)
+    return ensure_section_spacing(text)
+
+
+def process_one_with_fallback(
+    client: OpenAI,
+    md_path: Path,
+    out_path: Path,
+    pdf_info_map: Dict[str, Dict[str, str]],
+    *,
+    effective_cfg: Optional[Dict[str, Any]] = None,
+) -> Tuple[Path, str]:
+    try:
+        return process_one(
+            client, md_path, out_path, pdf_info_map, effective_cfg=effective_cfg
+        )
+    except Exception as exc:
+        fallback = local_normalize_summary(md_path, pdf_info_map)
+        if not fallback.strip():
+            raise exc
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(fallback, encoding="utf-8")
+        print(
+            f"[SUMMARY_LIMIT] fallback=copied_local for {md_path.stem}: {exc!r}",
+            flush=True,
+        )
+        return md_path, "copied"
 
 
 def process_one(
@@ -729,7 +865,9 @@ def process_one(
     lines = base_text.splitlines(keepends=True)
     lines = apply_headline_limit(client, lines, effective_cfg=ecfg)
     base_text = "".join(lines)
-    if structure_matches_example(client, base_text, effective_cfg=ecfg):
+    if structure_matches_example(
+        client, base_text, effective_cfg=ecfg, paper_id=md_path.stem
+    ):
         prefix, sections = split_sections(lines)
         if sections:
             out_lines: List[str] = []
@@ -843,7 +981,9 @@ def run() -> None:
     gather_dir = out_root / "gather" / date_str
     single_dir.mkdir(parents=True, exist_ok=True)
 
-    pdf_info_map = load_pdf_info_map(date_str)
+    pdf_info_map = load_pdf_info_map_for_run(
+        date_str, user_id=uid, output_mode=output_mode, pdb=_pdb
+    )
 
     if output_mode == "db" and _pdb is not None:
         existing_db = _pdb.get_summaries_map(uid, date_str)
@@ -875,7 +1015,14 @@ def run() -> None:
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         future_map = {
-            ex.submit(process_one, client, p, single_dir / f"{p.stem}.md", pdf_info_map, effective_cfg=ecfg): p
+            ex.submit(
+                process_one_with_fallback,
+                client,
+                p,
+                single_dir / f"{p.stem}.md",
+                pdf_info_map,
+                effective_cfg=ecfg,
+            ): p
             for p in to_run
         }
         for fut in as_completed(future_map):

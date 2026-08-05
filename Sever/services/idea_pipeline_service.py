@@ -23,6 +23,7 @@ import os
 from typing import Any, Generator, Optional
 
 from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -74,20 +75,35 @@ _IDEA_DATA_DIR = os.path.join(_SEVER_ROOT, "data", "idea")
 def _find_paper_dir(paper_id: str, user_id: Optional[int] = None) -> Optional[str]:
     """Search for a paper's directory.
 
-    For user-uploaded papers (paper_id starts with 'up_'), look in
-    data/kb_files/user_papers/{user_id}/{paper_id}/ first.
-    Falls back to scanning data/file_collect/{date}/{paper_id}/ for arXiv papers.
+    Search order:
+    1. User-uploaded papers: data/kb_files/user_papers/{user_id}/{paper_id}/
+    2. User KB saved papers (processed via kb pipeline): data/kb_files/{user_id}/{paper_id}/
+    3. Global arXiv pipeline output: data/file_collect/{date}/{paper_id}/
     """
     # Security: reject paper_id with path traversal characters
     if '..' in paper_id or '/' in paper_id or '\\' in paper_id or '\x00' in paper_id:
         return None
-    # User-uploaded papers live under kb_files/user_papers/
-    if user_id is not None and paper_id.startswith("up_"):
-        from services.user_paper_service import _USER_PAPERS_DIR
-        user_paper_dir = os.path.join(_USER_PAPERS_DIR, str(user_id), paper_id)
-        if os.path.isdir(user_paper_dir):
-            return user_paper_dir
-    # arXiv / pipeline papers live under file_collect/{date}/{paper_id}/
+
+    if user_id is not None:
+        # 1. User-uploaded papers live under kb_files/user_papers/
+        if paper_id.startswith("up_"):
+            from services.user_paper_service import _USER_PAPERS_DIR
+            user_paper_dir = os.path.join(_USER_PAPERS_DIR, str(user_id), paper_id)
+            if os.path.isdir(user_paper_dir):
+                return user_paper_dir
+
+        # 2. KB-saved papers that have been processed via processKbPaper live under
+        #    kb_files/{user_id}/{paper_id}/ and contain {paper_id}_mineru.md etc.
+        from services.kb_service import _KB_FILES_DIR as _KB_DIR
+        kb_saved_dir = os.path.join(_KB_DIR, str(user_id), paper_id)
+        if os.path.isdir(kb_saved_dir):
+            # Only use this dir if it has relevant content (avoid empty directories)
+            mineru_md = os.path.join(kb_saved_dir, f"{paper_id}_mineru.md")
+            summary_md = os.path.join(kb_saved_dir, f"{paper_id}_summary.md")
+            if os.path.isfile(mineru_md) or os.path.isfile(summary_md):
+                return kb_saved_dir
+
+    # 3. arXiv / pipeline papers live under file_collect/{date}/{paper_id}/
     if not os.path.isdir(_FILE_COLLECT_DIR):
         return None
     for date_dir in sorted(os.listdir(_FILE_COLLECT_DIR), reverse=True):
@@ -205,26 +221,35 @@ def _get_llm_config(user_id: int, module: str = "ingest") -> dict:
             cfg["llm_base_url"] = preset.get("base_url", "")
             cfg["llm_api_key"] = preset.get("api_key", "")
             cfg["llm_model"] = preset.get("model", "")
+            cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+            cfg["use_openrouter_free_pool"] = bool(preset.get("use_openrouter_free_pool", cfg.get("use_openrouter_free_pool", False)))
             for k in ("max_tokens", "temperature", "input_hard_limit", "input_safety_margin"):
                 if preset.get(k) is not None:
                     cfg[k] = preset[k]
 
+    user_has_pool = bool(cfg.get("use_openrouter_free_pool"))
+    user_has_creds = bool(
+        (cfg.get("llm_api_key") or "").strip() and (cfg.get("llm_model") or "").strip()
+    ) or user_has_pool
+
     # --- If no user credentials found, fall back to system config ---
-    if not ((cfg.get("llm_base_url") or "").strip()
-            and (cfg.get("llm_api_key") or "").strip()
-            and (cfg.get("llm_model") or "").strip()):
+    if not user_has_creds:
         sys_pfx = _MODULE_SYS_CFG_PREFIX.get(module, "idea_generate")
         sys_base = (getattr(_cfg_mod, f"{sys_pfx}_base_url", "") or "").strip()
         sys_key  = (getattr(_cfg_mod, f"{sys_pfx}_api_key",  "") or "").strip()
         sys_mdl  = (getattr(_cfg_mod, f"{sys_pfx}_model",    "") or "").strip()
-        if not (sys_base and sys_key and sys_mdl):
+        sys_pool = bool(getattr(_cfg_mod, f"{sys_pfx}_use_openrouter_free_pool", False))
+        if not (sys_key or sys_pool):
+            # no module-specific creds or pool → try global idea_generate defaults
             sys_base = (getattr(_cfg_mod, "idea_generate_base_url", "") or "").strip()
             sys_key  = (getattr(_cfg_mod, "idea_generate_api_key",  "") or "").strip()
             sys_mdl  = (getattr(_cfg_mod, "idea_generate_model",    "") or "").strip()
-        if sys_base and sys_key and sys_mdl:
+            sys_pool = bool(getattr(_cfg_mod, "idea_generate_use_openrouter_free_pool", False))
+        if sys_key or sys_pool:
             cfg["llm_base_url"] = sys_base
             cfg["llm_api_key"]  = sys_key
             cfg["llm_model"]    = sys_mdl
+            cfg["use_openrouter_free_pool"] = sys_pool
             cfg.setdefault("max_tokens",          getattr(_cfg_mod, "idea_generate_max_tokens", 8192))
             cfg.setdefault("temperature",          getattr(_cfg_mod, "idea_generate_temperature", 0.7))
             cfg.setdefault("input_hard_limit",     getattr(_cfg_mod, "idea_generate_input_hard_limit", 129024))
@@ -267,20 +292,28 @@ def _get_llm_config(user_id: int, module: str = "ingest") -> dict:
 
 def _make_client(cfg: dict) -> Optional[OpenAI]:
     """Create OpenAI client from config dict. Returns None if missing credentials."""
-    url = (cfg.get("llm_base_url") or "").strip()
+    use_pool = bool(cfg.get("use_openrouter_free_pool"))
     key = (cfg.get("llm_api_key") or "").strip()
-    if not url or not key:
+    if not key and not use_pool:
         return None
-    return OpenAI(api_key=key, base_url=url)
+    from services.llm_client_factory import build_llm_client
+    return build_llm_client(cfg)
 
 
 def _check_credentials(cfg: dict) -> Optional[str]:
-    """Return an error message if LLM credentials are missing, else None."""
-    url = (cfg.get("llm_base_url") or "").strip()
-    key = (cfg.get("llm_api_key") or "").strip()
-    model = (cfg.get("llm_model") or "").strip()
-    if not url or not key or not model:
+    """Return an error message if LLM credentials are missing, else None.
+
+    In pool mode (use_openrouter_free_pool=True) the api_key may be empty;
+    a model name is still required.  base_url defaults to OpenRouter when empty.
+    """
+    from services.llm_client_factory import has_llm_credentials
+    use_pool = bool(cfg.get("use_openrouter_free_pool") or cfg.get("llm_use_openrouter_free_pool"))
+    if not has_llm_credentials(cfg):
         return "请先在「个人中心 → 灵感生成」中配置 LLM 的 URL、API Key 和 Model，或选择一个模型预设。"
+    if not use_pool:
+        url = (cfg.get("llm_base_url") or "").strip()
+        if not url:
+            return "请先在「个人中心 → 灵感生成」中配置 LLM 的 URL、API Key 和 Model，或选择一个模型预设。"
     return None
 
 
@@ -307,6 +340,7 @@ def _call_llm(
     max_tokens = cfg.get("max_tokens")
     if max_tokens is not None:
         kwargs["max_tokens"] = int(max_tokens)
+    kwargs.update(build_thinking_kwargs(cfg))
 
     return client.chat.completions.create(
         model=model,
@@ -336,6 +370,7 @@ def _call_llm_json(client: OpenAI, cfg: dict, system_prompt: str, user_content: 
     max_tokens = cfg.get("max_tokens")
     if max_tokens is not None:
         kwargs["max_tokens"] = int(max_tokens)
+    kwargs.update(build_thinking_kwargs(cfg))
 
     resp = client.chat.completions.create(
         model=model,

@@ -26,7 +26,9 @@ except Exception:
 from config.config import (
     API_URL,
     SEARCH_CATEGORIES,
-    REQUESTS_UA,
+    ARXIV_USER_AGENT,
+    ARXIV_429_BASE_WAIT,
+    ARXIV_429_MAX_WAIT,
     OUTPUT_DIR,
     ARXIV_JSON_DIR,
     FILENAME_FMT,
@@ -38,7 +40,14 @@ from config.config import (
     RETRY_COUNT,
     PROGRESS_SINGLE_LINE,
 )
-from Controller.http_session import build_session
+from Controller.http_session import build_arxiv_api_session
+from services.arxiv_rate_limit import (
+    ARXIV_EXIT_RATE_LIMIT_PARTIAL,
+    RateLimitExhausted,
+    compute_429_wait,
+    parse_retry_after,
+    wait_before_request,
+)
 
 try:
     from zoneinfo import ZoneInfo  # py3.9+
@@ -113,6 +122,21 @@ def parse_entry_summary(entry) -> str:
     return normalize_text(
         getattr(entry, "summary", "") or getattr(entry, "description", "")
     )
+
+
+def parse_entry_categories(entry) -> List[str]:
+    """Extract arXiv category tags from a feedparser entry (e.g. ['cs.CL', 'cs.LG'])."""
+    cats: List[str] = []
+    for tag in getattr(entry, "tags", None) or []:
+        term = ""
+        if isinstance(tag, dict):
+            term = tag.get("term", "")
+        else:
+            term = getattr(tag, "term", "") or ""
+        term = term.strip()
+        if term:
+            cats.append(term)
+    return cats
 
 
 def _parse_utc_datetime(s: str, *, is_end: bool) -> datetime:
@@ -267,21 +291,70 @@ def build_search_query(
     return " AND ".join(clauses)
 
 
-def fetch_page_with_retry(session: requests.Session, params: dict, logger, retries: int = 5):
+def fetch_page_with_retry(
+    session: requests.Session,
+    params: dict,
+    logger,
+    retries: int = 5,
+    *,
+    base_429_wait: float = ARXIV_429_BASE_WAIT,
+    max_429_wait: float = ARXIV_429_MAX_WAIT,
+):
+    """Fetch one page from the arXiv API with retry/backoff.
+
+    Returns (feed, had_rate_limit) where had_rate_limit is True if any 429
+    response was received during this call.
+    Raises RateLimitExhausted when all 429 retries are exhausted.
+    Raises the last exception for other HTTP errors.
+    """
     backoff = 1.0
     last_exc = None
+    had_rate_limit = False
     for attempt in range(1, retries + 1):
         try:
+            wait_before_request()
             r = session.get(ARXIV_API, params=params, timeout=60)
             r.raise_for_status()
-            return feedparser.parse(r.text)
+            return feedparser.parse(r.text), had_rate_limit
+        except requests.exceptions.HTTPError as e:
+            last_exc = e
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code == 429:
+                had_rate_limit = True
+                retry_after = None
+                if e.response is not None:
+                    retry_after = parse_retry_after(e.response.headers.get("Retry-After"))
+                if attempt >= retries:
+                    raise RateLimitExhausted(
+                        f"arXiv rate limit (429) after {retries} attempts"
+                    ) from e
+                wait = compute_429_wait(
+                    attempt,
+                    retry_after,
+                    base_wait=base_429_wait,
+                    max_wait=max_429_wait,
+                )
+                logger.warning(
+                    "Rate limited 429 (attempt %d/%d); waiting %.0fs before retry.",
+                    attempt, retries, wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.warning("Request failed (attempt %d/%d): %s", attempt, retries, repr(e))
+                if attempt < retries:
+                    time.sleep(backoff)
+                    backoff *= 2
+        except RateLimitExhausted:
+            raise
         except Exception as e:
             last_exc = e
             logger.warning("Request failed (attempt %d/%d): %s", attempt, retries, repr(e))
             if attempt < retries:
                 time.sleep(backoff)
                 backoff *= 2
-    raise last_exc
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("fetch_page_with_retry ended without result")
 
 
 @dataclass
@@ -292,6 +365,11 @@ class Paper:
     link: str
     authors: List[str]
     summary: str
+    paper_categories: List[str] = None
+
+    def __post_init__(self):
+        if self.paper_categories is None:
+            self.paper_categories = []
 
 
 def parse_args() -> argparse.Namespace:
@@ -308,8 +386,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--max-papers", type=int, default=MAX_PAPERS_DEFAULT, help="最多返回多少篇")
     ap.add_argument("--sleep", type=float, default=SLEEP_DEFAULT, help="分页间隔秒数（建议 >=3，尊重 arXiv）")
     ap.add_argument("--retries", type=int, default=RETRY_COUNT, help="请求失败重试次数（指数退避）")
+    ap.add_argument("--429-base-wait", dest="base_429_wait", type=float, default=ARXIV_429_BASE_WAIT, help="429 退避基数（秒）")
+    ap.add_argument("--429-max-wait", dest="max_429_wait", type=float, default=ARXIV_429_MAX_WAIT, help="429 退避上限（秒）")
     ap.add_argument("--no-single-line-progress", action="store_true", help="禁用单行进度显示")
-    ap.add_argument("--user-agent", default=REQUESTS_UA, help="User-Agent（建议改成你自己的标识）")
+    ap.add_argument("--user-agent", default=ARXIV_USER_AGENT, help="User-Agent（建议含联系信息）")
     ap.add_argument("--use-proxy", action="store_true", default=USE_PROXY_DEFAULT, help="是否允许读取环境变量代理")
     ap.add_argument("--out", default="", help="输出 markdown 文件路径；为空则写入 data/arxivList/md")
     ap.add_argument("--out-json", default="", help="输出 json 文件路径；为空则写入 data/arxivList/json")
@@ -363,7 +443,7 @@ def run():
         end_utc.strftime("%Y-%m-%d %H:%M:%S UTC"),
     )
 
-    session = build_session(prefer_env_proxy=bool(args.use_proxy))
+    session = build_arxiv_api_session(prefer_env_proxy=bool(args.use_proxy))
     if args.user_agent:
         session.headers.update({"User-Agent": str(args.user_agent)})
     logger.info("Proxy from env enabled: %s", bool(args.use_proxy))
@@ -373,6 +453,9 @@ def run():
     page_size = max(1, min(args.page_size, 2000))
     candidates = 0
     pages = 0
+    # True if any page fetch encountered a 429 rate-limit response.
+    any_rate_limited = False
+    rate_limit_partial = False
     print("============开始获取初始可下载列表==============", flush=True)
 
     while len(results) < args.max_papers:
@@ -392,9 +475,46 @@ def run():
             "sortBy": "submittedDate",
             "sortOrder": "descending",
         }
-        feed = fetch_page_with_retry(session, params, logger, retries=int(args.retries))
+        try:
+            feed, page_had_rate_limit = fetch_page_with_retry(
+                session,
+                params,
+                logger,
+                retries=int(args.retries),
+                base_429_wait=float(args.base_429_wait),
+                max_429_wait=float(args.max_429_wait),
+            )
+        except RateLimitExhausted as e:
+            any_rate_limited = True
+            if pages > 1 and results:
+                logger.warning(
+                    "Rate limit (429) on page %d after partial fetch (%d papers); "
+                    "saving partial results and exiting with code %d.",
+                    pages,
+                    len(results),
+                    ARXIV_EXIT_RATE_LIMIT_PARTIAL,
+                )
+                rate_limit_partial = True
+                break
+            logger.warning(
+                "Rate limit (429) exhausted: %s",
+                e,
+            )
+            raise SystemExit(2) from e
+
+        if page_had_rate_limit:
+            any_rate_limited = True
 
         if not feed.entries:
+            # If this is the very first page and we hit a 429 during the attempt,
+            # the empty result is unreliable – exit with code 2 so the pipeline
+            # treats this as an error rather than silently recording 0 papers.
+            if pages == 1 and any_rate_limited:
+                logger.warning(
+                    "First-page response is empty after rate-limit (429) error; "
+                    "the 0-paper result is unreliable. Exiting with code 2."
+                )
+                sys.exit(2)
             logger.info("No entries returned; stopping.")
             break
 
@@ -406,6 +526,7 @@ def run():
                 title = normalize_text(getattr(entry, "title", ""))
                 summary = parse_entry_summary(entry)
                 authors = parse_entry_authors(entry)
+                paper_cats = parse_entry_categories(entry)
 
                 arxiv_id = arxiv_id_from_entry_url(entry.id)
                 link = f"https://arxiv.org/abs/{arxiv_id}"
@@ -418,6 +539,7 @@ def run():
                         link=link,
                         authors=authors,
                         summary=summary,
+                        paper_categories=paper_cats,
                     )
                 )
 
@@ -502,6 +624,7 @@ def run():
                 "link": p.link,
                 "authors": p.authors,
                 "summary": p.summary,
+                "categories": p.paper_categories,
             }
             for p in results
         ],
@@ -527,6 +650,7 @@ def run():
                 "published_utc": p.published_utc.isoformat(),
                 "link": p.link,
                 "categories": list(categories) if categories else [],
+                "paper_categories": p.paper_categories or [],
             }
             for p in results
         ]
@@ -539,6 +663,13 @@ def run():
     logger.info("Selected papers     : %d", len(results))
     logger.info("Saved markdown to   : %s", out_path)
     logger.info("Saved json to       : %s", out_json_path)
+    if rate_limit_partial:
+        logger.warning(
+            "Partial arXiv fetch due to rate limiting. "
+            "Wait 15–30 minutes before re-running arxiv_search."
+        )
+        print("END arxiv_search.py (partial, rate limited)", flush=True)
+        sys.exit(ARXIV_EXIT_RATE_LIMIT_PARTIAL)
     print("END arxiv_search.py", flush=True)
 
 

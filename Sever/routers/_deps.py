@@ -29,7 +29,11 @@ _logger = logging.getLogger(__name__)
 _SEVER_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 _DATA_DIR = os.path.join(_SEVER_DIR, "data")
 _KB_FILES_DIR = os.path.join(_DATA_DIR, "kb_files")
-_EXE_RELEASE_DIR = os.path.normpath(os.path.join(_SEVER_DIR, "..", "exe_release"))
+_EXE_RELEASE_DIR = os.path.abspath(
+    os.path.normpath(
+        os.environ.get("EXE_RELEASE_DIR", os.path.join(_SEVER_DIR, "..", "exe_release"))
+    )
+)
 
 
 # ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, translate_service, auto_classify_service
+from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, preference_service, translate_service, auto_classify_service
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from services.safe_logging_service import safe_stored_error
 from routers._deps import _KB_FILES_DIR
@@ -202,14 +202,47 @@ _TREE_CACHE_TTL = 15  # seconds — enough to absorb rapid successive loads
 _tree_cache_lock = _threading.Lock()
 
 
+def _tree_has_active_tasks(tree: dict) -> bool:
+    """Return True if any paper in the tree has an in-progress process or translate task."""
+    active_process = {"processing", "pending"}
+    def _check_papers(papers) -> bool:
+        for p in papers or []:
+            if p.get("process_status") in active_process:
+                return True
+            if p.get("translate_status") == "processing":
+                return True
+        return False
+
+    def _walk(folder: dict) -> bool:
+        if _check_papers(folder.get("papers")):
+            return True
+        for child in folder.get("children") or []:
+            if _walk(child):
+                return True
+        return False
+
+    if _check_papers(tree.get("papers")):
+        return True
+    for folder in tree.get("folders") or []:
+        if _walk(folder):
+            return True
+    return False
+
+
 def _get_tree_cached(user_id: int, scope: str) -> dict:
-    """Return cached enriched KB tree if fresh, else rebuild and cache it."""
+    """Return cached enriched KB tree if fresh, else rebuild and cache it.
+
+    When any paper has an active process/translate task the cache is bypassed
+    so the caller always sees the latest status from the database.
+    """
     key = (user_id, scope)
     now = _time.monotonic()
     with _tree_cache_lock:
         entry = _TREE_CACHE.get(key)
         if entry and (now - entry["ts"]) < _TREE_CACHE_TTL:
-            return entry["data"]
+            # Skip cache when tasks are still running to avoid stale progress
+            if not _tree_has_active_tasks(entry["data"]):
+                return entry["data"]
     tree = kb_service.get_tree(user_id, scope=scope)
     enriched = _enrich_kb_tree(tree, user_id)
     with _tree_cache_lock:
@@ -309,6 +342,22 @@ def api_kb_add_paper(body: AddPaperBody, _user=Depends(auth_service.require_user
         except Exception as _exc:
             import logging as _logging
             _logging.getLogger(__name__).warning("enqueue_classify failed for %s: %s", body.paper_id, _exc)
+    # Record positive preference signal (kb_save = strongest positive)
+    if body.scope == "kb":
+        try:
+            feats = preference_service.extract_paper_features(body.paper_data)
+            preference_service.record_feedback(
+                user_id=_user["id"],
+                paper_id=body.paper_id,
+                action="kb_save",
+                categories=feats["categories"],
+                keywords=feats["keywords"],
+                institution_tier=feats["institution_tier"],
+                source="kb",
+            )
+        except Exception as _pexc:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("preference feedback (kb_save) failed for %s: %s", body.paper_id, _pexc)
     return paper
 
 
@@ -474,6 +523,21 @@ def api_kb_compare(body: ComparePapersBody, _user=Depends(auth_service.require_u
 @router.post("/dismiss", summary="Dismiss paper")
 def api_kb_dismiss_paper(body: DismissPaperBody, user=Depends(auth_service.require_user)):
     kb_service.dismiss_paper(user["id"], body.paper_id)
+    # Record negative preference signal — try to get features from cache
+    try:
+        feats = preference_service.get_cached_paper_features(body.paper_id)
+        preference_service.record_feedback(
+            user_id=user["id"],
+            paper_id=body.paper_id,
+            action="dismiss",
+            categories=feats["categories"] if feats else None,
+            keywords=feats["keywords"] if feats else None,
+            institution_tier=feats["institution_tier"] if feats else 4,
+            source="dismiss",
+        )
+    except Exception as _pexc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("preference feedback (dismiss) failed for %s: %s", body.paper_id, _pexc)
     return {"ok": True}
 
 
@@ -593,6 +657,7 @@ def api_kb_paper_process(
     ok, msg = kb_pipeline_service.start_kb_paper_process(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
+    _invalidate_tree_cache(_user["id"], scope)
     return {"ok": True, "message": msg}
 
 
@@ -621,14 +686,15 @@ def api_kb_paper_translate(
     scope: str = Query("kb"),
     _user=Depends(auth_service.require_user),
 ):
-    # Gate check: translation is Pro/Pro+ only
+    # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
-        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
-    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+        raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
+    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
     entitlement_service.consume_quota(_user["id"], "translate")
     ok, msg = translate_service.start_kb_translation(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
+    _invalidate_tree_cache(_user["id"], scope)
     return {"ok": True, "message": msg}
 
 
@@ -638,10 +704,10 @@ def api_kb_paper_retranslate(
     scope: str = Query("kb"),
     _user=Depends(auth_service.require_user),
 ):
-    # Gate check: translation is Pro/Pro+ only
+    # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
-        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
-    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+        raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
+    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
     entitlement_service.consume_quota(_user["id"], "translate")
     paths = translate_service.kb_paper_derivative_paths(_user["id"], paper_id)
     for key in ("zh", "bilingual"):
@@ -657,6 +723,7 @@ def api_kb_paper_retranslate(
     ok, msg = translate_service.start_kb_translation(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
+    _invalidate_tree_cache(_user["id"], scope)
     return {"ok": True, "message": msg}
 
 
@@ -925,4 +992,3 @@ def api_kb_export(
         media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="kb_export_{scope}.json"'},
     )
-

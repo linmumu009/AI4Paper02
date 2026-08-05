@@ -46,6 +46,7 @@ def map_llm_config_to_variables(config: Dict[str, Any], prefix: str) -> Dict[str
         "concurrency": f"{prefix}_concurrency",
         "input_hard_limit": f"{prefix}_input_hard_limit",
         "input_safety_margin": f"{prefix}_input_safety_margin",
+        "use_openrouter_free_pool": f"{prefix}_use_openrouter_free_pool",
     }
     
     # 特殊处理：api_key 的映射
@@ -71,7 +72,11 @@ def map_llm_config_to_variables(config: Dict[str, Any], prefix: str) -> Dict[str
     for db_field, config_var in field_mapping.items():
         if db_field in config and config[db_field] is not None:
             if hasattr(cfg_module, config_var):
-                updates[config_var] = config[db_field]
+                value = config[db_field]
+                # 布尔字段统一转换
+                if db_field == "use_openrouter_free_pool":
+                    value = bool(value)
+                updates[config_var] = value
     
     # 处理 api_key
     if "api_key" in config and config["api_key"]:

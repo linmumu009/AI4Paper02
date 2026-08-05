@@ -81,6 +81,7 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
     "inspiration": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
     "paper_chat": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
     "deep_research": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id"},
+    "translate": {"llm_base_url", "llm_api_key", "llm_model", "llm_preset_id"},
     "idea_generate": {
         "llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id",
         # Per-phase LLM preset IDs (每阶段独立 1:1)
@@ -100,6 +101,17 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
         # Per-module prompt preset IDs
         "theme_select_prompt_preset_id", "org_prompt_preset_id",
         "summary_prompt_preset_id",
+        "summary_limit_prompt_intro_preset_id", "summary_limit_prompt_method_preset_id",
+        "summary_limit_prompt_findings_preset_id", "summary_limit_prompt_opinion_preset_id",
+        # MinerU 服务密钥
+        "mineru_token",
+    },
+    "my_papers": {
+        "llm_base_url", "llm_api_key", "llm_model", "llm_preset_id", "prompt_preset_id",
+        # Per-module LLM preset IDs
+        "org_llm_preset_id", "summary_llm_preset_id", "summary_limit_llm_preset_id",
+        # Per-module prompt preset IDs
+        "org_prompt_preset_id", "summary_prompt_preset_id",
         "summary_limit_prompt_intro_preset_id", "summary_limit_prompt_method_preset_id",
         "summary_limit_prompt_findings_preset_id", "summary_limit_prompt_opinion_preset_id",
         # MinerU 服务密钥
@@ -270,6 +282,49 @@ _PAPER_RECOMMEND_LIMIT_PROMPT_OPINION = (
     "只输出压缩后的正文，不要标题、不要解释、不要字数说明。"
 )
 
+_DEEP_RESEARCH_ROUND1_SYSTEM_DEFAULT = """你是一个学术论文相关性评估专家。
+给定一个研究问题和若干论文的摘要/标题，请评估每篇论文与该问题的相关性，并输出 JSON 排序结果。
+
+输出格式（严格 JSON，不要有任何多余文字）：
+{
+  "rankings": [
+    {
+      "paper_id": "论文ID",
+      "score": 0.95,
+      "level": "high",
+      "reason": "相关性原因（一句话）"
+    }
+  ]
+}
+
+score 范围 0.0-1.0，level 为 "high"(>=0.6)、"medium"(>=0.3)、"low"(<0.3)。
+按 score 从高到低排序。所有输入论文都必须出现在输出中。"""
+
+_DEEP_RESEARCH_ROUND2_SYSTEM_DEFAULT = """你是一个学术研究助手，擅长从论文摘要中提炼信息并回答研究问题。
+
+你的任务：
+1. 仔细阅读给定论文的 AI 摘要，尝试回答用户的研究问题。
+2. 如果摘要中的信息足够回答问题，请直接给出详尽、有条理的回答。
+3. 如果摘要信息不足（需要查阅全文的实验数据、详细方法或具体数值），请在回答末尾附上以下 JSON 块（不要在其他地方输出 JSON）：
+
+```json
+{"action":"read_full","papers":["paper_id_1","paper_id_2"]}
+```
+
+只有当确实需要全文才能更好回答时才建议阅读全文。如果摘要已足够，不要输出 JSON 块。
+回答时请用中文，结构清晰，引用具体论文时注明论文 ID。"""
+
+_DEEP_RESEARCH_ROUND3_SYSTEM_DEFAULT = """你是一个学术研究助手，能够深度分析论文全文并回答研究问题。
+
+你已经阅读了相关论文的摘要并做了初步分析，现在你获得了以下论文的全文内容（经过结构化解析）。
+请结合全文内容，给出更深入、更准确的回答。
+
+回答要求：
+- 用中文，条理清晰
+- 引用具体证据时注明来源论文 ID 和相关章节
+- 如果全文中有关键实验数据、方法细节或结论，要明确引用
+- 综合之前的摘要分析和本次全文阅读，给出完整的最终回答"""
+
 _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
     "compare": {
         "llm_base_url": "",
@@ -293,6 +348,30 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
         "system_prompt": _INSPIRATION_SYSTEM_PROMPT_DEFAULT,
     },
     "paper_recommend": {
+        # --- LLM 连接配置 ---
+        "llm_base_url": "",
+        "llm_api_key": "",
+        "llm_model": "",
+        "temperature": 1.0,
+        "max_tokens": 2048,
+        "input_hard_limit": 129024,
+        "input_safety_margin": 4096,
+        # --- 提示词配置 ---
+        "system_prompt": _PAPER_RECOMMEND_SYSTEM_PROMPT_DEFAULT,
+        "summary_limit_prompt_intro": _PAPER_RECOMMEND_LIMIT_PROMPT_INTRO,
+        "summary_limit_prompt_method": _PAPER_RECOMMEND_LIMIT_PROMPT_METHOD,
+        "summary_limit_prompt_findings": _PAPER_RECOMMEND_LIMIT_PROMPT_FINDINGS,
+        "summary_limit_prompt_opinion": _PAPER_RECOMMEND_LIMIT_PROMPT_OPINION,
+        # --- 字数上限 ---
+        "section_limit_intro": 170,
+        "section_limit_method": 270,
+        "section_limit_findings": 270,
+        "section_limit_opinion": 150,
+        "headline_limit": 18,
+        # --- arXiv 检索分类 ---
+        "search_categories": ["cs.CL", "cs.LG", "cs.AI", "stat.ML"],
+    },
+    "my_papers": {
         # --- LLM 连接配置 ---
         "llm_base_url": "",
         "llm_api_key": "",
@@ -338,6 +417,20 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
         "input_hard_limit": 200000,
         "input_safety_margin": 8192,
         "system_prompt": "",
+        "round1_system_prompt": _DEEP_RESEARCH_ROUND1_SYSTEM_DEFAULT,
+        "round2_system_prompt": _DEEP_RESEARCH_ROUND2_SYSTEM_DEFAULT,
+        "round3_system_prompt": _DEEP_RESEARCH_ROUND3_SYSTEM_DEFAULT,
+    },
+    "translate": {
+        "llm_base_url": "",
+        "llm_api_key": "",
+        "llm_model": "",
+        "temperature": 0.3,
+        "max_tokens": 4096,
+        "input_hard_limit": 120000,
+        "input_safety_margin": 4096,
+        "chunk_size": 6000,
+        "concurrency": 8,
     },
     "idea_generate": {
         "llm_base_url": "",
@@ -373,9 +466,162 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
 }
 
 
-def get_defaults(feature: str) -> dict[str, Any]:
-    """Return the default values for *feature* (empty dict if unknown)."""
+def get_hardcoded_defaults(feature: str) -> dict[str, Any]:
+    """Return the original hardcoded default values for *feature* (empty dict if unknown).
+    These are the built-in defaults from code, unaffected by admin overrides."""
     return dict(_FEATURE_DEFAULTS.get(feature, {}))
+
+
+def get_defaults(feature: str) -> dict[str, Any]:
+    """Return the effective default values for *feature*.
+
+    Priority: admin overrides (user_id=0 in DB) > hardcoded _FEATURE_DEFAULTS.
+    Returns empty dict if feature is unknown.
+    """
+    hardcoded = get_hardcoded_defaults(feature)
+    if not hardcoded:
+        return {}
+    admin_overrides = get_admin_overrides(feature)
+    if admin_overrides:
+        merged = dict(hardcoded)
+        merged.update(admin_overrides)
+        return merged
+    return hardcoded
+
+
+# ---------------------------------------------------------------------------
+# Admin default overrides (user_id = 0)
+# ---------------------------------------------------------------------------
+
+_ADMIN_USER_ID = 0
+
+
+def get_admin_overrides(feature: str) -> dict[str, Any]:
+    """Return only the admin-set overrides for *feature* (user_id=0 raw JSON).
+    Returns empty dict if no admin overrides are set."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT settings_json FROM user_settings WHERE user_id = ? AND feature = ?",
+            (_ADMIN_USER_ID, feature),
+        ).fetchone()
+        if row:
+            try:
+                return unprotect_secret_mapping(json.loads(row["settings_json"]) or {})
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        return {}
+    finally:
+        conn.close()
+
+
+def save_admin_defaults(feature: str, overrides: dict[str, Any]) -> dict[str, Any]:
+    """Save admin overrides for *feature* (writes to user_id=0 row).
+    Returns the new effective defaults after saving."""
+    now = _now_iso()
+    protected = protect_secret_mapping(
+        overrides,
+        existing=get_admin_overrides(feature),
+    )
+    settings_str = json.dumps(protected, ensure_ascii=False)
+    conn = _connect()
+    try:
+        conn.execute(
+            """
+            INSERT INTO user_settings (user_id, feature, settings_json, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id, feature) DO UPDATE SET
+                settings_json = excluded.settings_json,
+                updated_at    = excluded.updated_at
+            """,
+            (_ADMIN_USER_ID, feature, settings_str, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_defaults(feature)
+
+
+def reset_admin_defaults(feature: str) -> None:
+    """Delete admin overrides for *feature*, reverting to hardcoded defaults."""
+    conn = _connect()
+    try:
+        conn.execute(
+            "DELETE FROM user_settings WHERE user_id = ? AND feature = ?",
+            (_ADMIN_USER_ID, feature),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_admin_defaults() -> list[dict[str, Any]]:
+    """Return info for all known features: effective defaults, hardcoded defaults,
+    admin overrides, and whether admin overrides are active."""
+    features = list(_FEATURE_DEFAULTS.keys())
+    result = []
+    for feature in features:
+        hardcoded = get_hardcoded_defaults(feature)
+        overrides = get_admin_overrides(feature)
+        effective = dict(hardcoded)
+        if overrides:
+            effective.update(overrides)
+        result.append({
+            "feature": feature,
+            "has_admin_overrides": bool(overrides),
+            "effective_defaults": effective,
+            "hardcoded_defaults": hardcoded,
+            "admin_overrides": overrides,
+        })
+    return result
+
+
+def resolve_admin_llm_for_feature(feature: str) -> dict[str, Any]:
+    """Resolve the admin-configured default LLM for *feature*.
+
+    Reads `admin_llm_config_id` from the admin overrides (user_id=0) for the
+    given feature, then looks up the full LLM config from the llm_config table.
+
+    Returns a dict with keys matching the service `cfg` convention::
+
+        {
+            "llm_base_url": ...,
+            "llm_api_key":  ...,
+            "llm_model":    ...,
+            "max_tokens":   ...,  # only if set
+            "temperature":  ...,  # only if set
+        }
+
+    Returns an empty dict if no admin LLM config is set for this feature or if
+    the referenced config no longer exists.
+    """
+    overrides = get_admin_overrides(feature)
+    config_id = overrides.get("admin_llm_config_id")
+    if not config_id:
+        return {}
+    try:
+        from services import llm_config_service
+        llm_cfg = llm_config_service.get_config(int(config_id))
+    except Exception:
+        return {}
+    if not llm_cfg:
+        return {}
+    result: dict[str, Any] = {
+        "llm_base_url": llm_cfg.get("base_url", ""),
+        "llm_api_key":  llm_cfg.get("api_key", ""),
+        "llm_model":    llm_cfg.get("model", ""),
+        "enable_thinking": bool(llm_cfg.get("enable_thinking", 0)),
+        "use_openrouter_free_pool": bool(llm_cfg.get("use_openrouter_free_pool", 0)),
+    }
+    if llm_cfg.get("max_tokens") is not None:
+        result["max_tokens"] = llm_cfg["max_tokens"]
+    if llm_cfg.get("temperature") is not None:
+        result["temperature"] = llm_cfg["temperature"]
+    if llm_cfg.get("input_hard_limit") is not None:
+        result["input_hard_limit"] = llm_cfg["input_hard_limit"]
+    if llm_cfg.get("input_safety_margin") is not None:
+        result["input_safety_margin"] = llm_cfg["input_safety_margin"]
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -487,6 +733,264 @@ def list_users_with_custom_configs(features: list[str] | None = None) -> list[in
         return [r["user_id"] for r in rows]
     finally:
         conn.close()
+
+
+def collect_all_search_categories() -> list[str]:
+    """
+    Return the union of search_categories across all users' paper_recommend settings,
+    merged with the system-level SEARCH_CATEGORIES default.
+
+    Used by the shared pipeline phase to ensure all users' preferred arXiv categories
+    are fetched in one go.
+    """
+    from config import config as _config
+    system_cats: list[str] = list(getattr(_config, "SEARCH_CATEGORIES", ["cs.CL", "cs.LG", "cs.AI", "stat.ML"]) or [])
+    default_cats: list[str] = _FEATURE_DEFAULTS.get("paper_recommend", {}).get("search_categories", system_cats)
+
+    all_cats: set[str] = set(system_cats)
+
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT settings_json FROM user_settings WHERE feature = 'paper_recommend'"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    for row in rows:
+        try:
+            settings = json.loads(row["settings_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            settings = {}
+        user_cats = settings.get("search_categories")
+        if isinstance(user_cats, list) and user_cats:
+            all_cats.update(user_cats)
+
+    if not all_cats:
+        return list(default_cats)
+    return sorted(all_cats)
+
+
+# ---------------------------------------------------------------------------
+# Admin audit: all users with custom configs
+# ---------------------------------------------------------------------------
+
+def get_custom_config_audit() -> dict[str, Any]:
+    """Return an audit of every user that has at least one non-empty custom config.
+
+    Covers three sources:
+    - user_settings rows (feature-level settings, including preset references)
+    - user_llm_presets rows (named LLM connection presets)
+    - user_prompt_presets rows (named system-prompt presets)
+
+    Returns
+    -------
+    {
+        "summary": {
+            "total_users_with_custom_config": int,
+            "total_active_llm_preset_refs":   int,   # preset IDs actually referenced by a feature
+            "total_active_prompt_preset_refs": int,
+            "total_unused_llm_presets":        int,   # presets created but not referenced
+            "total_unused_prompt_presets":     int,
+        },
+        "users": [
+            {
+                "user_id": int,
+                "username": str,
+                "tier": str,
+                "role": str,
+                "feature_count": int,
+                "llm_preset_ref_count": int,
+                "prompt_preset_ref_count": int,
+                "total_llm_presets": int,
+                "total_prompt_presets": int,
+                "unused_llm_presets": [...],
+                "unused_prompt_presets": [...],
+                "last_updated": str | None,
+                "feature_configs": [...],
+            },
+            ...
+        ],
+    }
+
+    api_key values are never returned; only has_api_key (bool) is exposed.
+    """
+    conn = _connect()
+    try:
+        settings_rows = conn.execute(
+            "SELECT user_id, feature, settings_json, updated_at "
+            "FROM user_settings "
+            "WHERE user_id != 0 AND settings_json != '{}' AND settings_json != ''"
+        ).fetchall()
+
+        llm_rows = conn.execute("SELECT * FROM user_llm_presets").fetchall()
+        prompt_rows = conn.execute("SELECT * FROM user_prompt_presets").fetchall()
+        auth_rows = conn.execute(
+            "SELECT id, username, role, tier FROM auth_users"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # ---- lookup maps ----
+    auth_map: dict[int, dict] = {r["id"]: dict(r) for r in auth_rows}
+
+    llm_by_user: dict[int, dict[int, dict]] = {}
+    for r in llm_rows:
+        uid = r["user_id"]
+        llm_by_user.setdefault(uid, {})[r["id"]] = dict(r)
+
+    prompt_by_user: dict[int, dict[int, dict]] = {}
+    for r in prompt_rows:
+        uid = r["user_id"]
+        prompt_by_user.setdefault(uid, {})[r["id"]] = dict(r)
+
+    settings_by_user: dict[int, list[dict]] = {}
+    for r in settings_rows:
+        uid = r["user_id"]
+        try:
+            sdata = json.loads(r["settings_json"]) or {}
+        except (json.JSONDecodeError, TypeError):
+            sdata = {}
+        settings_by_user.setdefault(uid, []).append({
+            "feature": r["feature"],
+            "settings": sdata,
+            "updated_at": r["updated_at"],
+        })
+
+    # ---- collect all user_ids with any custom config ----
+    all_uids: set[int] = set(settings_by_user)
+    all_uids |= set(llm_by_user)
+    all_uids |= set(prompt_by_user)
+
+    # ---- build per-user records ----
+    user_records: list[dict] = []
+    for uid in sorted(all_uids):
+        user_info = auth_map.get(uid, {})
+        user_llm_presets_map = llm_by_user.get(uid, {})
+        user_prompt_presets_map = prompt_by_user.get(uid, {})
+        user_settings_list = settings_by_user.get(uid, [])
+
+        llm_preset_refs_used: set[int] = set()
+        prompt_preset_refs_used: set[int] = set()
+        feature_configs: list[dict] = []
+
+        for fs in user_settings_list:
+            feature = fs["feature"]
+            settings = fs["settings"]
+            feature_llm_refs: dict[str, dict] = {}
+            feature_prompt_refs: dict[str, dict] = {}
+            direct_params: dict[str, Any] = {}
+
+            for key, val in settings.items():
+                # --- LLM preset reference ---
+                if val and (key == "llm_preset_id" or key.endswith("_llm_preset_id")):
+                    try:
+                        pid = int(val)
+                    except (TypeError, ValueError):
+                        continue
+                    llm_preset_refs_used.add(pid)
+                    p = user_llm_presets_map.get(pid, {})
+                    feature_llm_refs[key] = {
+                        "preset_id": pid,
+                        "preset_name": p.get("name", "（已删除）") if p else "（已删除）",
+                        "model": p.get("model", "") if p else "",
+                        "base_url": p.get("base_url", "") if p else "",
+                        "has_api_key": bool(p.get("api_key")) if p else False,
+                        "temperature": p.get("temperature") if p else None,
+                        "max_tokens": p.get("max_tokens") if p else None,
+                        "enable_thinking": bool(p.get("enable_thinking")) if p else False,
+                    }
+
+                # --- Prompt preset reference ---
+                elif val and (key == "prompt_preset_id" or key.endswith("_prompt_preset_id")):
+                    try:
+                        pid = int(val)
+                    except (TypeError, ValueError):
+                        continue
+                    prompt_preset_refs_used.add(pid)
+                    p = user_prompt_presets_map.get(pid, {})
+                    content = p.get("prompt_content", "") if p else ""
+                    feature_prompt_refs[key] = {
+                        "preset_id": pid,
+                        "preset_name": p.get("name", "（已删除）") if p else "（已删除）",
+                        "content_preview": (content[:120] + "…") if len(content) > 120 else content,
+                    }
+
+            # direct non-preset params worth surfacing
+            for k in ("llm_model", "llm_base_url", "temperature", "max_tokens",
+                      "search_categories", "data_source", "context_strategy"):
+                if settings.get(k) not in (None, "", [], {}):
+                    direct_params[k] = settings[k]
+
+            feature_configs.append({
+                "feature": feature,
+                "updated_at": fs["updated_at"],
+                "llm_preset_refs": feature_llm_refs,
+                "prompt_preset_refs": feature_prompt_refs,
+                "direct_params": direct_params,
+                "has_direct_llm_config": bool(
+                    settings.get("llm_base_url") or settings.get("llm_model")
+                ),
+            })
+
+        # presets created but not currently referenced by any feature
+        unused_llm = [
+            {
+                "id": pid,
+                "name": p["name"],
+                "model": p.get("model", ""),
+                "base_url": p.get("base_url", ""),
+                "has_api_key": bool(p.get("api_key")),
+            }
+            for pid, p in user_llm_presets_map.items()
+            if pid not in llm_preset_refs_used
+        ]
+        unused_prompt = [
+            {
+                "id": pid,
+                "name": p["name"],
+                "content_preview": (p["prompt_content"][:120] + "…")
+                if len(p.get("prompt_content", "")) > 120
+                else p.get("prompt_content", ""),
+            }
+            for pid, p in user_prompt_presets_map.items()
+            if pid not in prompt_preset_refs_used
+        ]
+
+        updated_ats = [fs["updated_at"] for fs in user_settings_list]
+        last_updated = max(updated_ats) if updated_ats else None
+
+        user_records.append({
+            "user_id": uid,
+            "username": user_info.get("username", f"user_{uid}"),
+            "tier": user_info.get("tier", "free"),
+            "role": user_info.get("role", "user"),
+            "feature_count": len(feature_configs),
+            "llm_preset_ref_count": len(llm_preset_refs_used),
+            "prompt_preset_ref_count": len(prompt_preset_refs_used),
+            "total_llm_presets": len(user_llm_presets_map),
+            "total_prompt_presets": len(user_prompt_presets_map),
+            "unused_llm_presets": unused_llm,
+            "unused_prompt_presets": unused_prompt,
+            "last_updated": last_updated,
+            "feature_configs": feature_configs,
+        })
+
+    total_llm_refs = sum(r["llm_preset_ref_count"] for r in user_records)
+    total_prompt_refs = sum(r["prompt_preset_ref_count"] for r in user_records)
+    total_unused_llm = sum(len(r["unused_llm_presets"]) for r in user_records)
+    total_unused_prompt = sum(len(r["unused_prompt_presets"]) for r in user_records)
+
+    return {
+        "summary": {
+            "total_users_with_custom_config": len(user_records),
+            "total_active_llm_preset_refs": total_llm_refs,
+            "total_active_prompt_preset_refs": total_prompt_refs,
+            "total_unused_llm_presets": total_unused_llm,
+            "total_unused_prompt_presets": total_unused_prompt,
+        },
+        "users": user_records,
+    }
 
 
 # Ensure table exists on import

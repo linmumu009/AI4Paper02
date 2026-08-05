@@ -224,8 +224,24 @@ def init_db() -> None:
                 "ALTER TABLE idea_candidates ADD COLUMN source_paper_id TEXT NOT NULL DEFAULT ''"
             )
         conn.commit()
+
+        # Migration: add research memory fields to idea_atoms
+        _migrate_add_atom_research_fields(conn)
     finally:
         conn.close()
+
+
+def _migrate_add_atom_research_fields(conn: sqlite3.Connection) -> None:
+    """Add confidence, status, source_scope columns to idea_atoms if missing."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(idea_atoms)").fetchall()}
+    for col, definition in [
+        ("confidence",    "REAL    NOT NULL DEFAULT 0.0"),
+        ("status",        "TEXT    NOT NULL DEFAULT 'active'"),
+        ("source_scope",  "TEXT    NOT NULL DEFAULT 'kb'"),
+    ]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE idea_atoms ADD COLUMN {col} {definition}")
+    conn.commit()
 
 
 # Run on module import
@@ -316,6 +332,7 @@ def list_atoms(
     atom_type: str | None = None,
     tag: str | None = None,
     date_str: str | None = None,
+    status: str | None = "active",
     limit: int = 200,
     offset: int = 0,
 ) -> list[dict]:
@@ -324,6 +341,9 @@ def list_atoms(
     ``user_id=None`` returns atoms for ALL users (admin use).
     Pass an explicit integer (including 0 for the default/system user) to
     scope results to that user only.
+
+    ``status`` defaults to 'active' to hide archived/hidden atoms.
+    Pass ``status=None`` to return atoms of all statuses (admin/pipeline use).
     """
     conn = _connect()
     try:
@@ -344,6 +364,9 @@ def list_atoms(
         if date_str:
             clauses.append("date_str = ?")
             params.append(date_str)
+        if status is not None:
+            clauses.append("status = ?")
+            params.append(status)
         where = " AND ".join(clauses)
         rows = conn.execute(
             f"SELECT * FROM idea_atoms WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -396,10 +419,13 @@ def update_atom(user_id: int, atom_id: int, **kwargs) -> dict | None:
 
         updates = []
         params: list = []
-        for key in ("atom_type", "content", "section"):
+        for key in ("atom_type", "content", "section", "status", "source_scope"):
             if key in kwargs:
                 updates.append(f"{key} = ?")
                 params.append(kwargs[key])
+        if "confidence" in kwargs:
+            updates.append("confidence = ?")
+            params.append(float(kwargs["confidence"]))
         if "tags" in kwargs:
             updates.append("tags_json = ?")
             params.append(json.dumps(kwargs["tags"], ensure_ascii=False))
@@ -503,10 +529,27 @@ def count_atoms(user_id: int | None = None) -> int:
         conn.close()
 
 
+def count_atoms_for_date(user_id: int, date_str: str) -> int:
+    """Return atom count ingested for a specific user on a specific date."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as cnt FROM idea_atoms WHERE user_id = ? AND date_str = ?",
+            (user_id, date_str),
+        ).fetchone()
+        return row["cnt"]
+    finally:
+        conn.close()
+
+
 def _atom_row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["tags"] = json.loads(d.pop("tags_json", "[]"))
     d["evidence"] = json.loads(d.pop("evidence_json", "[]"))
+    # Provide defaults for research memory fields added via migration
+    d.setdefault("confidence", 0.0)
+    d.setdefault("status", "active")
+    d.setdefault("source_scope", "kb")
     return d
 
 

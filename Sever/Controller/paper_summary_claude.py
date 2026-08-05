@@ -73,6 +73,9 @@ def write_gather(single_dir: Path, gather_dir: Path, date_str: str) -> Path:
 
 
 def make_client() -> OpenAI:
+    # This script targets a fixed provider (gptgod.cloud) with a dedicated key.
+    # It is a standalone script not invoked by any scheduler pipeline service,
+    # so OpenRouter Key Pool is not applicable here.
     key = (summary_gptgod_apikey or "").strip()
     if not key:
         raise SystemExit("summary_gptgod_apikey missing in config.config")

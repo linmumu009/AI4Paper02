@@ -29,6 +29,12 @@ _CONFIG_JSON_PATH = os.path.join(_BASE_DIR, "database", "config.json")
 
 # 配置项分组定义（基于 config.py 的注释结构）
 _CONFIG_GROUPS = {
+    "PDF 清理配置": [
+        "PDF_CLEANUP_RETENTION_DAYS",
+        "PDF_CLEANUP_AUTO_ENABLED",
+        "PDF_CLEANUP_HOUR",
+        "PDF_CLEANUP_MINUTE",
+    ],
     "数据与流程基础配置": [
         "API_URL",
         "SEARCH_CATEGORIES",
@@ -321,6 +327,10 @@ def get_config_with_groups() -> Dict[str, Any]:
 def _get_config_description(key: str) -> str:
     """获取配置项的描述（基于 config.py 中的注释）。"""
     descriptions = {
+        "PDF_CLEANUP_RETENTION_DAYS": "推荐 PDF 缓存保留天数（超过此天数且无用户收藏则可被清理）",
+        "PDF_CLEANUP_AUTO_ENABLED": "是否启用自动定时清理（False = 仅手动触发）",
+        "PDF_CLEANUP_HOUR": "自动清理触发时间（小时，本地时区，0-23）",
+        "PDF_CLEANUP_MINUTE": "自动清理触发时间（分钟，0-59）",
         "API_URL": "arXiv API 基础地址",
         "SEARCH_CATEGORIES": "检索学科分类（arXiv 分类代码）",
         "USER_AGENT": "请求 User-Agent",

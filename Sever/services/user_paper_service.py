@@ -379,17 +379,46 @@ def count_papers(user_id: int) -> int:
 def fetch_arxiv_metadata(arxiv_id: str) -> dict:
     """Fetch paper metadata from arXiv API. Returns a dict with title, authors, abstract, year."""
     import re
+    import time
+    import urllib.error
     import urllib.request
+
+    from config.config import ARXIV_USER_AGENT
+    from services.arxiv_rate_limit import (
+        compute_429_wait,
+        parse_retry_after,
+        wait_before_request,
+    )
 
     clean_id = re.sub(r"^https?://arxiv\.org/(abs|pdf)/", "", arxiv_id.strip())
     clean_id = clean_id.rstrip("/").replace(".pdf", "")
 
     url = f"https://export.arxiv.org/api/query?id_list={clean_id}&max_results=1"
-    try:
-        with urllib.request.urlopen(url, timeout=15) as resp:
-            xml = resp.read().decode("utf-8")
-    except Exception as exc:
-        raise ValueError(f"无法连接 arXiv API: {exc}") from exc
+    req = urllib.request.Request(
+        url,
+        headers={"User-Agent": ARXIV_USER_AGENT},
+    )
+
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            wait_before_request()
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                xml = resp.read().decode("utf-8")
+            break  # success
+        except urllib.error.HTTPError as exc:
+            if exc.code == 429:
+                if attempt < max_attempts - 1:
+                    retry_after = parse_retry_after(exc.headers.get("Retry-After"))
+                    wait = compute_429_wait(attempt, retry_after)
+                    time.sleep(wait)
+                    continue
+                raise ValueError(
+                    "arXiv 请求过于频繁（429），请稍等片刻后重试，或改用 PDF 上传方式导入。"
+                ) from exc
+            raise ValueError(f"无法连接 arXiv API: HTTP {exc.code} {exc.reason}") from exc
+        except Exception as exc:
+            raise ValueError(f"无法连接 arXiv API: {exc}") from exc
 
     # Parse with xml.etree (no extra deps)
     import xml.etree.ElementTree as ET
@@ -656,6 +685,42 @@ def move_papers(user_id: int, paper_ids: list[str], target_folder_id: int | None
         )
         conn.commit()
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Task-center helpers (read-only aggregation)
+# ---------------------------------------------------------------------------
+
+def list_papers_with_active_tasks(
+    user_id: int,
+    include_completed: bool = False,
+) -> list[dict]:
+    """Return user_uploaded_papers rows that have a non-trivial process or translate status.
+
+    By default only pending/running/failed rows are returned.
+    Pass include_completed=True to also include completed statuses.
+    """
+    if include_completed:
+        proc_clause = "process_status != 'none'"
+        trans_clause = "translate_status != 'none'"
+    else:
+        proc_clause = "process_status IN ('pending', 'processing', 'failed')"
+        trans_clause = "translate_status IN ('processing', 'failed', 'cancelled')"
+
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM user_uploaded_papers
+            WHERE user_id = ? AND ({proc_clause} OR {trans_clause})
+            ORDER BY created_at DESC
+            LIMIT 200
+            """,
+            (user_id,),
+        ).fetchall()
+        return [_row_to_dict(r) for r in rows]
     finally:
         conn.close()
 

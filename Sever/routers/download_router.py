@@ -11,6 +11,7 @@ Registered in api.py via app.include_router(download_router)
 """
 
 import os
+import re
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,6 +22,48 @@ from services import auth_service, entitlement_service, kb_service, translate_se
 from routers._deps import _KB_FILES_DIR, _EXE_RELEASE_DIR
 
 router = APIRouter(prefix="/api/download", tags=["download"])
+
+_INSTALLER_SUFFIXES = (".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".appimage")
+_VERSION_RE = re.compile(
+    r"(?<!\d)v?(\d+(?:\.\d+){1,3})(?:[-_.]?(alpha|beta|rc)[-_.]?(\d+)?)?",
+    re.IGNORECASE,
+)
+
+
+def _installer_rank(file_name: str, base_dir: str) -> tuple:
+    """
+    Rank installer files by:
+    1) prefer .exe
+    2) files with semantic-like version in name
+    3) higher version numbers
+    4) stable > rc > beta > alpha
+    5) newer mtime as tie-breaker
+    """
+    lower_name = file_name.lower()
+    is_exe = 1 if lower_name.endswith(".exe") else 0
+
+    version_match = _VERSION_RE.search(file_name)
+    has_version = 1 if version_match else 0
+    version_tuple = (0, 0, 0, 0)
+    stability_rank = 0
+    pre_num = 0
+
+    if version_match:
+        nums = tuple(int(x) for x in version_match.group(1).split("."))
+        version_tuple = (nums + (0, 0, 0, 0))[:4]
+        tag = (version_match.group(2) or "").lower()
+        pre_num = int(version_match.group(3) or 0)
+        if not tag:
+            stability_rank = 3
+        elif tag == "rc":
+            stability_rank = 2
+        elif tag == "beta":
+            stability_rank = 1
+        else:  # alpha
+            stability_rank = 0
+
+    mtime = os.path.getmtime(os.path.join(base_dir, file_name))
+    return (is_exe, has_version, version_tuple, stability_rank, pre_num, mtime)
 
 
 # ---------------------------------------------------------------------------
@@ -312,17 +355,19 @@ def api_download_batch(
 
 @router.get("/latest-installer")
 async def download_latest_installer():
-    """返回 exe_release 文件夹中最新的安装包文件（按修改时间排序）。"""
+    """返回 exe_release 中版本号最高（优先 .exe）的安装包。"""
     if not os.path.isdir(_EXE_RELEASE_DIR):
         raise HTTPException(status_code=404, detail="安装包目录不存在")
-    exes = [
+
+    installers = [
         f for f in os.listdir(_EXE_RELEASE_DIR)
-        if f.lower().endswith((".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".AppImage"))
+        if f.lower().endswith(_INSTALLER_SUFFIXES)
     ]
-    if not exes:
+    if not installers:
         raise HTTPException(status_code=404, detail="未找到安装包文件")
-    exes.sort(key=lambda f: os.path.getmtime(os.path.join(_EXE_RELEASE_DIR, f)), reverse=True)
-    latest = exes[0]
+
+    installers.sort(key=lambda f: _installer_rank(f, _EXE_RELEASE_DIR), reverse=True)
+    latest = installers[0]
     file_path = os.path.join(_EXE_RELEASE_DIR, latest)
     return FileResponse(
         path=file_path,

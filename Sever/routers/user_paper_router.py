@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
-from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from services.safe_logging_service import safe_stored_error
+from services.upload_guard import UploadTooLarge, read_upload_with_limit
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 
@@ -147,14 +147,16 @@ def api_user_paper_import_arxiv(
     body: UserPaperArxivBody,
     _user=Depends(auth_service.require_user),
 ):
-    # Quota check: consume one upload credit
-    entitlement_service.consume_quota(_user["id"], "upload")
+    # Fetch metadata first — consume quota only on success to avoid charging for failed requests
     try:
         meta = user_paper_service.fetch_arxiv_metadata(body.arxiv_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"arXiv 请求失败: {exc}")
+
+    # Quota check: consume one upload credit (Free: 5 total, Pro: 30/month)
+    entitlement_service.consume_quota(_user["id"], "upload")
 
     paper = user_paper_service.create_paper(
         _user["id"],
@@ -465,10 +467,10 @@ def api_user_paper_translate(
     paper_id: str,
     _user=Depends(auth_service.require_user),
 ):
-    # Gate check: translation is Pro/Pro+ only
+    # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
-        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
-    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+        raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
+    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
     entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
@@ -484,10 +486,10 @@ def api_user_paper_retranslate(
     paper_id: str,
     _user=Depends(auth_service.require_user),
 ):
-    # Gate check: translation is Pro/Pro+ only
+    # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
-        raise HTTPException(status_code=403, detail="论文全文翻译仅 Pro 及以上套餐可用，请升级以继续使用")
-    # Quota check: consume one translation credit (Pro: 10/month, Pro+: unlimited)
+        raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
+    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
     entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:

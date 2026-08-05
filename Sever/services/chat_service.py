@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Generator, Optional
 
 from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -684,6 +685,9 @@ def stream_chat(
             cfg["llm_base_url"] = preset.get("base_url", "")
             cfg["llm_api_key"] = preset.get("api_key", "")
             cfg["llm_model"] = preset.get("model", "")
+            cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+            if "use_openrouter_free_pool" in preset:
+                cfg["use_openrouter_free_pool"] = bool(preset["use_openrouter_free_pool"])
             if preset.get("max_tokens") is not None:
                 cfg["max_tokens"] = preset["max_tokens"]
             if preset.get("temperature") is not None:
@@ -705,12 +709,30 @@ def stream_chat(
         base_limit = int(cfg.get("input_hard_limit", 129024))
         cfg["input_hard_limit"] = int(base_limit * input_multiplier)
 
-    llm_url = (cfg.get("llm_base_url") or "").strip()
-    llm_key = (cfg.get("llm_api_key") or "").strip()
+    # System-level fallback: if user has no usable credentials, try admin feature default then system defaults
+    from services.llm_client_factory import has_llm_credentials
+    if not has_llm_credentials(cfg):
+        from services import user_settings_service as _uss
+        _admin_llm = _uss.resolve_admin_llm_for_feature("paper_chat")
+        if _admin_llm and has_llm_credentials(_admin_llm):
+            cfg.update(_admin_llm)
+        else:
+            import config.config as _sys_cfg
+            _sys_key = (getattr(_sys_cfg, "paper_chat_api_key", "") or "").strip()
+            _sys_mdl = (getattr(_sys_cfg, "paper_chat_model", "") or "").strip()
+            if _sys_key and _sys_mdl:
+                cfg["llm_base_url"] = (getattr(_sys_cfg, "paper_chat_base_url", "") or "").strip()
+                cfg["llm_api_key"] = _sys_key
+                cfg["llm_model"] = _sys_mdl
+                cfg.setdefault("max_tokens", getattr(_sys_cfg, "paper_chat_max_tokens", 4096))
+                cfg.setdefault("temperature", getattr(_sys_cfg, "paper_chat_temperature", 0.7))
+                cfg.setdefault("input_hard_limit", getattr(_sys_cfg, "paper_chat_input_hard_limit", 129024))
+                cfg.setdefault("input_safety_margin", getattr(_sys_cfg, "paper_chat_input_safety_margin", 4096))
+
     llm_model = (cfg.get("llm_model") or "").strip()
 
-    if not llm_url or not llm_key or not llm_model:
-        yield f"data: {json.dumps('请先在「个人中心 → AI 问答」中配置 LLM 的 URL、API Key 和 Model，或选择一个模型预设。', ensure_ascii=False)}\n\n"
+    if not has_llm_credentials(cfg):
+        yield f"data: {json.dumps('请先在「个人中心 → AI 问答」中配置 LLM 的 API Key 和 Model，或选择一个模型预设。', ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
         return
 
@@ -775,7 +797,8 @@ def stream_chat(
             system_content = base_system_prompt
 
     # Build LLM client (needed by summary strategy for compression)
-    client = OpenAI(api_key=llm_key, base_url=llm_url)
+    from services.llm_client_factory import build_llm_client
+    client = build_llm_client(cfg)
 
     # Build context messages using the configured strategy
     messages = _build_context_messages(session_id, session, cfg, system_content, client, llm_model)
@@ -790,6 +813,7 @@ def stream_chat(
         max_tokens = cfg.get("max_tokens")
         if max_tokens is not None:
             kwargs["max_tokens"] = int(max_tokens)
+        kwargs.update(build_thinking_kwargs(cfg))
 
         response = client.chat.completions.create(
             model=llm_model,

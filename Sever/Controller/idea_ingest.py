@@ -33,10 +33,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from openai import OpenAI
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# Allow importing from Sever root
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 
 import config.config as _config_module  # noqa: E402
 from config.config import (  # noqa: E402
@@ -130,10 +130,12 @@ def _make_client(user_id: Optional[int] = None) -> Tuple[Optional[OpenAI], Dict[
     }
     key = ""
     base = ""
+    use_pool: bool = False
 
     # --- 1. Try system-level config (per-module → global fallback) ---
     sys_base, sys_key, sys_model = _sys_model_cfg()
-    if sys_base and sys_key and sys_model:
+    sys_pool = bool(getattr(_config_module, "idea_ingest_use_openrouter_free_pool", False))
+    if sys_model and (sys_key or sys_pool):
         base = sys_base
         key = sys_key
         cfg["model"] = sys_model
@@ -141,6 +143,7 @@ def _make_client(user_id: Optional[int] = None) -> Tuple[Optional[OpenAI], Dict[
         cfg["temperature"] = getattr(_config_module, "idea_generate_temperature", 0.7)
         cfg["input_hard_limit"] = getattr(_config_module, "idea_generate_input_hard_limit", 129024)
         cfg["input_safety_margin"] = getattr(_config_module, "idea_generate_input_safety_margin", 4096)
+        use_pool = sys_pool
         print("[IDEA_INGEST] Using system-level idea_ingest/idea_generate config.", flush=True)
     elif user_id is not None:
         # --- 2. Fallback: per-user settings ---
@@ -152,6 +155,9 @@ def _make_client(user_id: Optional[int] = None) -> Tuple[Optional[OpenAI], Dict[
                 key = (preset.get("api_key") or "").strip()
                 base = (preset.get("base_url") or "").strip()
                 cfg["model"] = (preset.get("model") or "").strip()
+                cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if preset.get(k) is not None:
                         cfg[k] = preset[k]
@@ -159,6 +165,8 @@ def _make_client(user_id: Optional[int] = None) -> Tuple[Optional[OpenAI], Dict[
                 key = (ucfg.get("llm_api_key") or "").strip()
                 base = (ucfg.get("llm_base_url") or "").strip()
                 cfg["model"] = (ucfg.get("llm_model") or "").strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if ucfg.get(k) is not None:
                         cfg[k] = ucfg[k]
@@ -170,13 +178,17 @@ def _make_client(user_id: Optional[int] = None) -> Tuple[Optional[OpenAI], Dict[
                 if content:
                     cfg["system_prompt"] = content
 
-        if key:
+        if key or use_pool:
             print(f"[IDEA_INGEST] Using per-user idea_generate config (user_id={user_id}).", flush=True)
 
-    if not key or not base or not cfg["model"]:
+    if (not key and not use_pool) or not cfg["model"]:
         return None, cfg
 
-    client = OpenAI(api_key=key, base_url=base)
+    cfg.setdefault("llm_base_url", base)
+    cfg.setdefault("enable_thinking", False)
+    cfg["use_openrouter_free_pool"] = use_pool
+    from services.llm_client_factory import build_llm_client
+    client = build_llm_client({"api_key": key, "base_url": base, "use_openrouter_free_pool": use_pool})
     return client, cfg
 
 
@@ -231,6 +243,7 @@ def _extract_atoms_llm(
         kwargs["temperature"] = float(cfg["temperature"])
     if cfg.get("max_tokens") is not None:
         kwargs["max_tokens"] = int(cfg["max_tokens"])
+    kwargs.update(build_thinking_kwargs(cfg))
 
     # Try with response_format=json_object first (forces valid JSON output).
     # Fall back to plain text if the model/endpoint doesn't support it.

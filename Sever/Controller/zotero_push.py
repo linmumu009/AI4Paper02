@@ -135,9 +135,17 @@ def infer_arxiv_url(stem: str) -> str:
 def fetch_arxiv_metadata(arxiv_id: str, timeout: int = 20) -> Tuple[str, str]:
     if not is_arxiv_id(arxiv_id):
         return "", ""
+    from config.config import ARXIV_USER_AGENT
+    from services.arxiv_rate_limit import wait_before_request
+
     api = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
     try:
-        r = requests.get(api, timeout=timeout, headers={"User-Agent": "arxiv-daily-paper/1.0"})
+        wait_before_request()
+        r = requests.get(
+            api,
+            timeout=timeout,
+            headers={"User-Agent": ARXIV_USER_AGENT},
+        )
         if r.status_code != 200 or not r.text:
             return "", ""
         root = ET.fromstring(r.text)

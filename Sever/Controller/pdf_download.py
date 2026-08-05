@@ -161,6 +161,7 @@ def download_one_pdf(
 
     for attempt in range(1, retries + 1):
         try:
+            wait_before_request()
             session.get(
                 f"https://arxiv.org/abs/{arxiv_id}",
                 headers={"Accept": "text/html", "Referer": "https://arxiv.org/"},
@@ -169,6 +170,7 @@ def download_one_pdf(
             time.sleep(0.2)
             for url in urls:
                 logger.debug("Downloading %s (attempt %d/%d): %s", arxiv_id, attempt, retries, url)
+                wait_before_request()
                 r = session.get(
                     url,
                     headers={"Accept": "application/pdf", "Referer": "https://arxiv.org/"},
@@ -255,6 +257,7 @@ from config.config import (
     MANIFEST_FILENAME,
 )  # noqa: E402
 from Controller.http_session import build_session
+from services.arxiv_rate_limit import wait_before_request
 
 
 def setup_logging():
@@ -354,6 +357,7 @@ def download_pdf(session, arxiv_id, out_path, logger):
     url = f"https://arxiv.org/pdf/{arxiv_id}.pdf?download=1"
     logger.info("Download %s -> %s", arxiv_id, out_path)
     try:
+        wait_before_request()
         session.get(
             f"https://arxiv.org/abs/{arxiv_id}",
             headers={"Accept": "text/html", "Referer": "https://arxiv.org/"},
@@ -362,6 +366,7 @@ def download_pdf(session, arxiv_id, out_path, logger):
         time.sleep(0.3)
     except Exception:
         pass
+    wait_before_request()
     r = session.get(
         url,
         headers={"Accept": "application/pdf", "Referer": "https://arxiv.org/"},

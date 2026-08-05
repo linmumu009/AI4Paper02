@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 _translate_jobs: set[str] = set()
 _translate_lock = threading.Lock()
 
+# Cooperative cancel: callers add a paper_id here to request stop.
+# The running thread checks this after each batch and exits cleanly.
+_cancel_requests: set[str] = set()
+_cancel_lock = threading.Lock()
+
+
+class _TranslationCancelled(Exception):
+    """Raised internally when a cancel request is detected."""
+
+
+def _request_cancel(paper_id: str) -> None:
+    with _cancel_lock:
+        _cancel_requests.add(paper_id)
+
+
+def _is_cancel_requested(paper_id: str) -> bool:
+    with _cancel_lock:
+        return paper_id in _cancel_requests
+
+
+def _clear_cancel(paper_id: str) -> None:
+    with _cancel_lock:
+        _cancel_requests.discard(paper_id)
+
 _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 
 TRANSLATE_SYSTEM_PROMPT = (
@@ -230,30 +254,107 @@ def _split_into_chunks(text: str, max_chars: int) -> List[str]:
     return chunks
 
 
-def _resolve_llm_config() -> dict:
+def _resolve_llm_config(user_id: int = 0) -> dict:
+    """Resolve LLM configuration for translation.
+
+    Priority:
+      1. Per-user settings (feature='translate') — llm_preset_id or manual llm_* fields.
+      2. System environment variables (TRANSLATE_API_KEY, QWEN_API_KEY).
+      3. config.translate_* / config.qwen_* hardcoded defaults.
+
+    Numeric parameters (temperature, max_tokens, chunk_size, concurrency, limits) always
+    fall back to system config so callers never receive None for those fields.
+    ``use_openrouter_free_pool`` is also resolved and included in the returned dict.
+    """
     import config.config as cfg
 
-    api_key = (
+    # ------------------------------------------------------------------
+    # System-level defaults (used as fallback for every field)
+    # ------------------------------------------------------------------
+    sys_api_key = (
         (os.environ.get("TRANSLATE_API_KEY") or "").strip()
         or (getattr(cfg, "translate_api_key", None) or "").strip()
         or (os.environ.get("QWEN_API_KEY") or "").strip()
         or (getattr(cfg, "qwen_api_key", None) or "").strip()
     )
-    base_url = (getattr(cfg, "translate_base_url", None) or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    # Default to qwen-turbo: it is substantially faster than qwen-plus for
-    # straight translation tasks (no complex reasoning needed), with comparable
-    # output quality.  Override via config.translate_model if you prefer a
-    # heavier model (e.g. "qwen-plus", "qwen-max").
-    model = getattr(cfg, "translate_model", None) or "qwen-turbo"
-    max_tokens = int(getattr(cfg, "translate_max_tokens", 4096) or 4096)
-    temperature = float(getattr(cfg, "translate_temperature", 0.3) or 0.3)
-    # chunk_size of 6000 chars balances batch count vs per-request latency.
-    # Increasing to ~8000 reduces total API calls but may hit token limits on
-    # some models.  Decreasing improves parallelism but adds overhead.
-    chunk_size = int(getattr(cfg, "translate_chunk_size", 6000) or 6000)
-    concurrency = int(getattr(cfg, "translate_concurrency", 8) or 8)
-    hard = int(getattr(cfg, "translate_input_hard_limit", 120000) or 120000)
-    margin = int(getattr(cfg, "translate_input_safety_margin", 4096) or 4096)
+    sys_base_url = (getattr(cfg, "translate_base_url", None) or "").strip() or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    sys_model = getattr(cfg, "translate_model", None) or "qwen-turbo"
+    sys_max_tokens = int(getattr(cfg, "translate_max_tokens", 4096) or 4096)
+    sys_temperature = float(getattr(cfg, "translate_temperature", 0.3) or 0.3)
+    sys_chunk_size = int(getattr(cfg, "translate_chunk_size", 6000) or 6000)
+    sys_concurrency = int(getattr(cfg, "translate_concurrency", 8) or 8)
+    sys_hard = int(getattr(cfg, "translate_input_hard_limit", 120000) or 120000)
+    sys_margin = int(getattr(cfg, "translate_input_safety_margin", 4096) or 4096)
+    sys_use_pool = bool(getattr(cfg, "translate_use_openrouter_free_pool", False))
+
+    api_key = sys_api_key
+    base_url = sys_base_url
+    model = sys_model
+    max_tokens = sys_max_tokens
+    temperature = sys_temperature
+    chunk_size = sys_chunk_size
+    concurrency = sys_concurrency
+    hard = sys_hard
+    margin = sys_margin
+    use_pool = sys_use_pool
+
+    # ------------------------------------------------------------------
+    # Per-user override (if user_id is provided and valid)
+    # ------------------------------------------------------------------
+    enable_thinking: bool = False
+    if user_id:
+        try:
+            from services import user_settings_service as _uss
+            from services import user_presets_service as _ups
+            ucfg = _uss.get_settings(user_id, "translate")
+
+            # Resolve LLM preset if configured
+            preset_id = ucfg.get("llm_preset_id")
+            if preset_id:
+                try:
+                    preset = _ups.get_llm_preset(user_id, int(preset_id))
+                    if preset:
+                        api_key = (preset.get("api_key") or "").strip() or api_key
+                        base_url = (preset.get("base_url") or "").strip() or base_url
+                        model = (preset.get("model") or "").strip() or model
+                        enable_thinking = bool(preset.get("enable_thinking", False))
+                        use_pool = bool(preset.get("use_openrouter_free_pool", use_pool))
+                        if preset.get("max_tokens") is not None:
+                            max_tokens = int(preset["max_tokens"])
+                        if preset.get("temperature") is not None:
+                            temperature = float(preset["temperature"])
+                except Exception:
+                    pass
+            else:
+                # Manual per-user fields
+                u_key = (ucfg.get("llm_api_key") or "").strip()
+                u_base = (ucfg.get("llm_base_url") or "").strip()
+                u_model = (ucfg.get("llm_model") or "").strip()
+                if u_key:
+                    api_key = u_key
+                if u_base:
+                    base_url = u_base
+                if u_model:
+                    model = u_model
+                if ucfg.get("use_openrouter_free_pool") is not None:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
+
+            # Numeric parameters: user can override independently
+            if ucfg.get("temperature") is not None:
+                temperature = float(ucfg["temperature"])
+            if ucfg.get("max_tokens") is not None:
+                max_tokens = int(ucfg["max_tokens"])
+            if ucfg.get("chunk_size") is not None:
+                chunk_size = int(ucfg["chunk_size"])
+            if ucfg.get("concurrency") is not None:
+                concurrency = int(ucfg["concurrency"])
+            if ucfg.get("input_hard_limit") is not None:
+                hard = int(ucfg["input_hard_limit"])
+            if ucfg.get("input_safety_margin") is not None:
+                margin = int(ucfg["input_safety_margin"])
+        except Exception:
+            pass  # Any failure falls back to system config silently
+
     return {
         "api_key": api_key,
         "base_url": base_url.rstrip("/"),
@@ -263,6 +364,8 @@ def _resolve_llm_config() -> dict:
         "chunk_size": max(500, chunk_size),
         "concurrency": max(1, min(16, concurrency)),
         "input_budget": max(8000, hard - margin),
+        "enable_thinking": enable_thinking,
+        "use_openrouter_free_pool": use_pool,
     }
 
 
@@ -274,6 +377,7 @@ def _translate_one_chunk(
     model: str,
     max_tokens: int,
     temperature: float,
+    extra_kwargs: dict | None = None,
 ) -> Tuple[int, str]:
     user_msg = (
         "\u8bf7\u5c06\u4ee5\u4e0b\u82f1\u6587\u5b66\u672f\u8bba\u6587 Markdown "
@@ -290,6 +394,7 @@ def _translate_one_chunk(
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
+            **(extra_kwargs or {}),
         )
         choice = resp.choices[0].message.content
         text = (choice or "").strip()
@@ -435,6 +540,7 @@ def _translate_blocks_batch(
     model: str,
     max_tokens: int,
     temperature: float,
+    extra_kwargs: dict | None = None,
 ) -> Tuple[int, dict]:
     """
     Translate a batch of CanonicalBlocks via LLM.
@@ -465,6 +571,7 @@ def _translate_blocks_batch(
             temperature=temperature,
             max_tokens=max_tokens,
             stream=False,
+            **(extra_kwargs or {}),
         )
         response_text = (resp.choices[0].message.content or "").strip()
     except Exception as exc:
@@ -589,6 +696,71 @@ def _assemble_bilingual_from_blocks(blocks: list, zh_map: dict) -> str:
     return "".join(parts)
 
 
+def _assemble_bilingual_partial_from_blocks(blocks: list, zh_map: dict) -> str:
+    """
+    Assemble a partial _bilingual.md for in-progress previews.
+
+    Same layout as _assemble_bilingual_from_blocks, but blocks whose translation
+    has NOT arrived yet show a lightweight pending marker instead of the final
+    "（翻译缺失）" so readers know the section is still being processed.
+    """
+    parts: List[str] = []
+    for blk in blocks:
+        if blk.type in ("image", "equation"):
+            if blk.render_md.strip():
+                parts.append(blk.render_md.strip() + "\n\n")
+        elif blk.type == "table":
+            if blk.render_md.strip():
+                parts.append(blk.render_md.strip() + "\n\n")
+        elif blk.translatable:
+            en_quoted = _quote_block_as_md(blk.render_md)
+            zh = zh_map.get(blk.block_id, "").strip()
+            if zh:
+                parts.append(f"{en_quoted}\n\n**[\u8bd1]**\n\n{zh}\n\n---\n\n")
+            else:
+                parts.append(f"{en_quoted}\n\n**[\u8bd1]**\n\n> *[\u7ffb\u8bd1\u4e2d\u2026]*\n\n---\n\n")
+    return "".join(parts)
+
+
+def _assemble_partial_zh_from_chunks(
+    results: List, orig_chunks: List[str], global_fences: List[str]
+) -> str:
+    """
+    Assemble a partial _zh.md from legacy chunk results.
+    Completed chunks emit their translation; pending chunks show an English
+    blockquote with a "翻译中…" marker so document order is preserved.
+    """
+    parts: List[str] = []
+    for i, res in enumerate(results):
+        if res is not None:
+            if res.strip():
+                parts.append(res.strip())
+        else:
+            orig = _restore_placeholders(orig_chunks[i], global_fences)
+            quoted_lines = "\n".join(f"> {line}" for line in orig.strip().splitlines())
+            parts.append(f"> *[\u7ffb\u8bd1\u4e2d\u2026]*\n{quoted_lines}")
+    return "\n\n".join(p for p in parts if p.strip())
+
+
+def _assemble_partial_bilingual_from_chunks(
+    results: List, orig_chunks: List[str], global_fences: List[str]
+) -> str:
+    """
+    Assemble a partial _bilingual.md from legacy chunk results.
+    Completed chunks show English blockquote + [译] + Chinese.
+    Pending chunks show English blockquote + [译] + pending marker.
+    """
+    parts: List[str] = []
+    for i, res in enumerate(results):
+        orig = _restore_placeholders(orig_chunks[i], global_fences)
+        en_quoted = _quote_block_as_md(orig.strip())
+        if res is not None and res.strip():
+            parts.append(f"{en_quoted}\n\n**[\u8bd1]**\n\n{res.strip()}\n\n---\n\n")
+        else:
+            parts.append(f"{en_quoted}\n\n**[\u8bd1]**\n\n> *[\u7ffb\u8bd1\u4e2d\u2026]*\n\n---\n\n")
+    return "".join(parts)
+
+
 def _save_blocks_json(blocks: list, zh_map: dict, path: str) -> None:
     """Save a compact audit record: block_id → source_text + zh_text."""
     import json as _json
@@ -619,48 +791,85 @@ def _safe_progress(fn, paper_id: str, pct: int) -> None:
         logger.warning("set_translate_progress failed: %s", exc)
 
 
+def _make_progress_cb(base_cb, paper_id: str):
+    """Wrap a progress callback(pct) so it raises _TranslationCancelled if cancelled.
+
+    base_cb must accept a single int (pct 0-100).
+    """
+    def _cb(pct: int) -> None:
+        if _is_cancel_requested(paper_id):
+            raise _TranslationCancelled(f"cancelled:{paper_id}")
+        try:
+            base_cb(pct)
+        except Exception as exc:
+            logger.warning("progress callback failed: %s", exc)
+    return _cb
+
+
 def _run_block_translation(
     blocks: list,
     cfg: dict,
     client: object,
     progress_cb,
     partial_write_fn=None,
+    partial_bilingual_write_fn=None,
 ) -> dict:
     """
     Translate canonical blocks in parallel.
     Returns merged {block_id: zh_text} map.
 
     partial_write_fn: optional callable(snapshot: dict) → None, called after
-    every completed batch so callers can write an incremental partial file for
-    the user to preview while the rest is still processing.
+    every completed batch to write an incremental _zh.md for preview.
+
+    partial_bilingual_write_fn: optional callable(snapshot: dict) → None,
+    called after every completed batch to write an incremental _bilingual.md.
+
+    Progress is reported weighted by character count so that large batches
+    move the needle more than tiny ones, giving a more accurate visual speed.
     """
     batches = _group_blocks_into_batches(blocks, cfg["chunk_size"])
     if not batches:
         return {}
 
+    # Pre-compute per-batch character weight for progress calculation.
+    batch_chars = [
+        sum(len(blk.render_md) for blk in batch)
+        for batch in batches
+    ]
+    total_chars = sum(batch_chars) or 1  # guard against zero-length edge case
+
     n_total = len(batches)
     batch_results: List[dict | None] = [None] * n_total
     live_zh_map: dict = {}  # accumulated translations, updated under prog_lock
     prog_lock = threading.Lock()
-    done_count = [0]
+    done_chars = [0]
 
-    def _bump(batch_partial: dict) -> None:
+    def _bump(batch_idx: int, batch_partial: dict) -> None:
         with prog_lock:
-            done_count[0] += 1
-            d = done_count[0]
+            done_chars[0] += batch_chars[batch_idx]
+            dc = done_chars[0]
             live_zh_map.update(batch_partial)
-            snapshot = dict(live_zh_map) if partial_write_fn else None
-        pct = min(99, int(100 * d / n_total)) if n_total else 0
+            need_snapshot = partial_write_fn is not None or partial_bilingual_write_fn is not None
+            snapshot = dict(live_zh_map) if need_snapshot else None
+        pct = min(99, int(100 * dc / total_chars))
         progress_cb(pct)
-        # Write a partial preview file after every batch so the frontend can
-        # show incremental progress without the user needing to wait for the
-        # full translation to finish.
-        if partial_write_fn and snapshot is not None:
-            try:
-                partial_write_fn(snapshot)
-            except Exception:
-                pass  # Partial writes are non-fatal
+        # Write partial preview files after every batch so the frontend can
+        # show incremental progress without waiting for the full translation.
+        if snapshot is not None:
+            if partial_write_fn:
+                try:
+                    partial_write_fn(snapshot)
+                except Exception:
+                    pass
+            if partial_bilingual_write_fn:
+                try:
+                    partial_bilingual_write_fn(snapshot)
+                except Exception:
+                    pass
 
+    from services.llm_request_options import build_thinking_kwargs as _btk
+    _thinking_kwargs = _btk({"llm_base_url": cfg["base_url"], "llm_model": cfg["model"],
+                              "enable_thinking": cfg.get("enable_thinking", False)})
     n_workers = min(cfg["concurrency"], n_total)
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
         futs = {
@@ -671,6 +880,7 @@ def _run_block_translation(
                 model=cfg["model"],
                 max_tokens=cfg["max_tokens"],
                 temperature=cfg["temperature"],
+                extra_kwargs=_thinking_kwargs,
             ): i
             for i, batch in enumerate(batches)
         }
@@ -679,7 +889,7 @@ def _run_block_translation(
             try:
                 idx, partial = fut.result()
                 batch_results[idx] = partial
-                _bump(partial)
+                _bump(idx, partial)
             except Exception as exc:
                 raise RuntimeError(
                     f"\u5757\u7ffb\u8bd1\u5931\u8d25\uff08\u6279\u6b21 {submit_idx}\uff09: {exc}"
@@ -698,23 +908,41 @@ def _run_chunk_translation(
     client: object,
     global_fences: List[str],
     progress_cb,
+    partial_write_fn=None,
 ) -> List[str]:
     """
     Legacy chunk-based translation (fallback when no bundle is available).
     Returns list of translated strings in the same order as chunks.
+
+    partial_write_fn: optional callable(results_snapshot, chunks, global_fences)
+    called after each completed chunk so callers can write incremental preview files.
+
+    Progress is weighted by character count so large chunks advance the
+    indicator more than short ones.
     """
     n_total = len(chunks)
     results: List[str | None] = [None] * n_total
+    chunk_chars = [len(ch) for ch in chunks]
+    total_chars = sum(chunk_chars) or 1
     prog_lock = threading.Lock()
-    done_count = [0]
+    done_chars = [0]
 
-    def _bump() -> None:
+    def _bump(chunk_idx: int) -> None:
         with prog_lock:
-            done_count[0] += 1
-            d = done_count[0]
-        pct = min(99, int(100 * d / n_total)) if n_total else 0
+            done_chars[0] += chunk_chars[chunk_idx]
+            dc = done_chars[0]
+            snapshot = list(results) if partial_write_fn else None
+        pct = min(99, int(100 * dc / total_chars))
         progress_cb(pct)
+        if partial_write_fn and snapshot is not None:
+            try:
+                partial_write_fn(snapshot, chunks, global_fences)
+            except Exception:
+                pass
 
+    from services.llm_request_options import build_thinking_kwargs as _btk
+    _thinking_kwargs = _btk({"llm_base_url": cfg["base_url"], "llm_model": cfg["model"],
+                              "enable_thinking": cfg.get("enable_thinking", False)})
     n_workers = min(cfg["concurrency"], n_total)
     with ThreadPoolExecutor(max_workers=n_workers) as pool:
         futs = {
@@ -725,6 +953,7 @@ def _run_chunk_translation(
                 model=cfg["model"],
                 max_tokens=cfg["max_tokens"],
                 temperature=cfg["temperature"],
+                extra_kwargs=_thinking_kwargs,
             ): i
             for i, ch in enumerate(chunks)
         }
@@ -733,7 +962,7 @@ def _run_chunk_translation(
             try:
                 i2, translated = fut.result()
                 results[i2] = _restore_placeholders(translated, global_fences)
-                _bump()
+                _bump(i2)
             except Exception as exc:
                 raise RuntimeError(
                     f"\u5206\u5757\u7ffb\u8bd1\u5931\u8d25\uff08\u5757 {submit_idx}\uff09: {exc}"
@@ -747,13 +976,16 @@ def _run_chunk_translation(
 
 def run_translation(user_id: int, paper_id: str) -> None:
     """Synchronous full translation run (invoke from background thread)."""
-    from openai import OpenAI
+    from services.llm_client_factory import build_llm_client, has_llm_credentials
 
     import services.user_paper_service as svc
 
+    zh_path = bi_path = ""
+    _preview_files_created = False
     try:
-        cfg = _resolve_llm_config()
-        if not cfg["api_key"]:
+        cfg = _resolve_llm_config(user_id)
+        if not has_llm_credentials({"api_key": cfg["api_key"], "model": cfg["model"],
+                                    "use_openrouter_free_pool": cfg.get("use_openrouter_free_pool")}):
             svc.set_translate_status(
                 paper_id,
                 status="failed",
@@ -787,9 +1019,17 @@ def run_translation(user_id: int, paper_id: str) -> None:
         if not os.path.isfile(mineru_path):
             raise FileNotFoundError("\u672a\u627e\u5230 MinerU \u89e3\u6790\u6587\u4ef6\uff0c\u8bf7\u5148\u5b8c\u6210\u8bba\u6587\u5904\u7406\uff08\u751f\u6210 _mineru.md\uff09")
 
+        # Track whether we created preview files this run so we can clean them up on failure.
+        _preview_files_created = not os.path.isfile(zh_path) and not os.path.isfile(bi_path)
+
         svc.set_translate_status(paper_id, status="processing", error="", started=True)
-        client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
-        progress_cb = lambda pct: _safe_progress(svc.set_translate_progress, paper_id, pct)
+        client = build_llm_client(cfg)
+        progress_cb = _make_progress_cb(lambda pct: _safe_progress(svc.set_translate_progress, paper_id, pct), paper_id)
+        logger.info(
+            "Translation started for %s | model=%s chunk_size=%d concurrency=%d max_tokens=%d pool=%s",
+            paper_id, cfg["model"], cfg["chunk_size"], cfg["concurrency"], cfg["max_tokens"],
+            cfg.get("use_openrouter_free_pool", False),
+        )
 
         # ---- Method A: block-based (preferred when bundle exists) ----
         from services.mineru_blocks_service import load_canonical_blocks
@@ -816,7 +1056,34 @@ def run_translation(user_id: int, paper_id: str) -> None:
                 except Exception as _exc:
                     logger.debug("Partial zh write failed for %s: %s", paper_id, _exc)
 
-            zh_map = _run_block_translation(blocks, cfg, client, progress_cb, partial_write_fn=_partial_write_zh)
+            def _partial_write_bilingual(partial_zh_map: dict) -> None:
+                """Write an ordered partial _bilingual.md so the frontend can preview while translating."""
+                try:
+                    partial_bi = _assemble_bilingual_partial_from_blocks(blocks, partial_zh_map)
+                    if partial_bi.strip():
+                        with open(bi_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_bi)
+                        logger.debug("Partial bilingual written for %s (%d chars)", paper_id, len(partial_bi))
+                except Exception as _exc:
+                    logger.debug("Partial bilingual write failed for %s: %s", paper_id, _exc)
+
+            # Write an all-pending snapshot immediately so static URLs appear on
+            # the very next tree poll, before any LLM batch has returned.
+            _partial_write_zh({})
+            _partial_write_bilingual({})
+
+            _est_batches = len(_group_blocks_into_batches(blocks, cfg["chunk_size"]))
+            logger.info(
+                "Block-based: %s | translatable_blocks=%d est_batches=%d workers=%d",
+                paper_id, sum(1 for b in blocks if b.translatable), _est_batches,
+                min(cfg["concurrency"], _est_batches),
+            )
+
+            zh_map = _run_block_translation(
+                blocks, cfg, client, progress_cb,
+                partial_write_fn=_partial_write_zh,
+                partial_bilingual_write_fn=_partial_write_bilingual,
+            )
             _save_blocks_json(blocks, zh_map, blocks_path)
             zh_full = _assemble_zh_from_blocks(blocks, zh_map)
             bi_full = _assemble_bilingual_from_blocks(blocks, zh_map)
@@ -837,7 +1104,31 @@ def run_translation(user_id: int, paper_id: str) -> None:
             chunks = _split_into_chunks(protected, cfg["chunk_size"])
             if not chunks:
                 raise ValueError("\u6ca1\u6709\u53ef\u7ffb\u8bd1\u7684\u5185\u5bb9")
-            translated = _run_chunk_translation(chunks, cfg, client, global_fences, progress_cb)
+
+            def _chunk_partial_write(results_snapshot, chunks_list, fences) -> None:
+                try:
+                    partial_zh = _assemble_partial_zh_from_chunks(results_snapshot, chunks_list, fences)
+                    if partial_zh.strip():
+                        with open(zh_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_zh)
+                    partial_bi = _assemble_partial_bilingual_from_chunks(results_snapshot, chunks_list, fences)
+                    if partial_bi.strip():
+                        with open(bi_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_bi)
+                except Exception as _exc:
+                    logger.debug("Partial chunk write failed for %s: %s", paper_id, _exc)
+
+            logger.info(
+                "Chunk-based: %s | chunks=%d workers=%d",
+                paper_id, len(chunks), min(cfg["concurrency"], len(chunks)),
+            )
+            # Write all-pending snapshot immediately so URLs appear before LLM starts
+            _chunk_partial_write([None] * len(chunks), chunks, global_fences)
+
+            translated = _run_chunk_translation(
+                chunks, cfg, client, global_fences, progress_cb,
+                partial_write_fn=_chunk_partial_write,
+            )
             zh_parts: List[str] = []
             bi_parts: List[str] = []
             for orig, zh in zip(chunks, translated):
@@ -854,6 +1145,16 @@ def run_translation(user_id: int, paper_id: str) -> None:
             paper_id, status="completed", error="", finished=True, progress=100
         )
         logger.info("Translation completed for %s", paper_id)
+    except _TranslationCancelled:
+        logger.info("Translation cancelled for %s", paper_id)
+        # DB status was already written to 'cancelled' by cancel_translation(); just clean up preview files.
+        if _preview_files_created:
+            for _p in (zh_path, bi_path):
+                try:
+                    if os.path.isfile(_p):
+                        os.remove(_p)
+                except Exception:
+                    pass
     except Exception as exc:
         public_error = safe_failure_detail(
             logger,
@@ -861,6 +1162,15 @@ def run_translation(user_id: int, paper_id: str) -> None:
             exc,
             operation="user_paper_translation",
         )
+        # Clean up preview files we created this run so the UI doesn't show permanent "translating..." placeholders.
+        if _preview_files_created:
+            for _p in (zh_path, bi_path):
+                try:
+                    if os.path.isfile(_p):
+                        os.remove(_p)
+                        logger.info("Removed stale pending preview file: %s", _p)
+                except Exception:
+                    pass
         try:
             import services.user_paper_service as svc2
 
@@ -874,6 +1184,7 @@ def run_translation(user_id: int, paper_id: str) -> None:
         except Exception:
             pass
     finally:
+        _clear_cancel(paper_id)
         _release(paper_id)
 
 
@@ -890,6 +1201,10 @@ def start_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
 
     if not _claim(paper_id):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
+
+    # Set processing status before starting the thread so the frontend sees it
+    # in the very next tree poll and can start its per-paper poller immediately.
+    svc.set_translate_status(paper_id, status="processing", error="", progress=0)
 
     t = threading.Thread(
         target=run_translation,
@@ -973,12 +1288,15 @@ def delete_derivative(user_id: int, paper_id: str, derivative_type: str) -> Tupl
 
 def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
     """Synchronous full translation run for KB paper (invoke from background thread)."""
-    from openai import OpenAI
+    from services.llm_client_factory import build_llm_client, has_llm_credentials
     import services.kb_service as kbs
 
+    zh_path = bi_path = ""
+    _preview_files_created = False
     try:
-        cfg = _resolve_llm_config()
-        if not cfg["api_key"]:
+        cfg = _resolve_llm_config(user_id)
+        if not has_llm_credentials({"api_key": cfg["api_key"], "model": cfg["model"],
+                                    "use_openrouter_free_pool": cfg.get("use_openrouter_free_pool")}):
             kbs.set_kb_paper_translate_status(
                 user_id, paper_id,
                 status="failed",
@@ -1004,16 +1322,26 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
         if not os.path.isfile(mineru_path):
             raise FileNotFoundError("\u672a\u627e\u5230 MinerU \u89e3\u6790\u6587\u4ef6\uff0c\u8bf7\u5148\u5b8c\u6210\u8bba\u6587\u5904\u7406\uff08\u751f\u6210 _mineru.md\uff09")
 
+        # Track whether we created preview files this run so we can clean them up on failure.
+        _preview_files_created = not os.path.isfile(zh_path) and not os.path.isfile(bi_path)
+
         kbs.set_kb_paper_translate_status(
             user_id, paper_id, status="processing", error="", progress=0, scope=scope
         )
-        client = OpenAI(api_key=cfg["api_key"], base_url=cfg["base_url"])
+        client = build_llm_client(cfg)
+        logger.info(
+            "KB translation started for %s | model=%s chunk_size=%d concurrency=%d max_tokens=%d pool=%s",
+            paper_id, cfg["model"], cfg["chunk_size"], cfg["concurrency"], cfg["max_tokens"],
+            cfg.get("use_openrouter_free_pool", False),
+        )
 
-        def _kb_progress(pct: int) -> None:
+        def _kb_progress_base(pct: int) -> None:
             try:
                 kbs.set_kb_paper_translate_progress(user_id, paper_id, pct, scope=scope)
             except Exception as pe:
                 logger.warning("set_kb_paper_translate_progress failed: %s", pe)
+
+        _kb_progress = _make_progress_cb(_kb_progress_base, paper_id)
 
         # ---- Method A: block-based ----
         from services.mineru_blocks_service import load_canonical_blocks
@@ -1040,7 +1368,34 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
                 except Exception as _exc:
                     logger.debug("Partial KB zh write failed for %s: %s", paper_id, _exc)
 
-            zh_map = _run_block_translation(blocks, cfg, client, _kb_progress, partial_write_fn=_kb_partial_write_zh)
+            def _kb_partial_write_bilingual(partial_zh_map: dict) -> None:
+                """Write an ordered partial _bilingual.md so the frontend can preview during translation."""
+                try:
+                    partial_bi = _assemble_bilingual_partial_from_blocks(blocks, partial_zh_map)
+                    if partial_bi.strip():
+                        os.makedirs(os.path.dirname(bi_path), exist_ok=True)
+                        with open(bi_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_bi)
+                        logger.debug("Partial KB bilingual written for %s (%d chars)", paper_id, len(partial_bi))
+                except Exception as _exc:
+                    logger.debug("Partial KB bilingual write failed for %s: %s", paper_id, _exc)
+
+            # Write all-pending snapshot immediately so URLs appear before LLM starts
+            _kb_partial_write_zh({})
+            _kb_partial_write_bilingual({})
+
+            _est_kb_batches = len(_group_blocks_into_batches(blocks, cfg["chunk_size"]))
+            logger.info(
+                "KB block-based: %s | translatable_blocks=%d est_batches=%d workers=%d",
+                paper_id, sum(1 for b in blocks if b.translatable), _est_kb_batches,
+                min(cfg["concurrency"], _est_kb_batches),
+            )
+
+            zh_map = _run_block_translation(
+                blocks, cfg, client, _kb_progress,
+                partial_write_fn=_kb_partial_write_zh,
+                partial_bilingual_write_fn=_kb_partial_write_bilingual,
+            )
             _save_blocks_json(blocks, zh_map, blocks_path)
             zh_full = _assemble_zh_from_blocks(blocks, zh_map)
             bi_full = _assemble_bilingual_from_blocks(blocks, zh_map)
@@ -1061,7 +1416,32 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
             chunks = _split_into_chunks(protected, cfg["chunk_size"])
             if not chunks:
                 raise ValueError("\u6ca1\u6709\u53ef\u7ffb\u8bd1\u7684\u5185\u5bb9")
-            translated = _run_chunk_translation(chunks, cfg, client, global_fences, _kb_progress)
+
+            def _kb_chunk_partial_write(results_snapshot, chunks_list, fences) -> None:
+                try:
+                    os.makedirs(os.path.dirname(zh_path), exist_ok=True)
+                    partial_zh = _assemble_partial_zh_from_chunks(results_snapshot, chunks_list, fences)
+                    if partial_zh.strip():
+                        with open(zh_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_zh)
+                    partial_bi = _assemble_partial_bilingual_from_chunks(results_snapshot, chunks_list, fences)
+                    if partial_bi.strip():
+                        with open(bi_path, "w", encoding="utf-8") as _pf:
+                            _pf.write(partial_bi)
+                except Exception as _exc:
+                    logger.debug("Partial KB chunk write failed for %s: %s", paper_id, _exc)
+
+            logger.info(
+                "KB chunk-based: %s | chunks=%d workers=%d",
+                paper_id, len(chunks), min(cfg["concurrency"], len(chunks)),
+            )
+            # Write all-pending snapshot immediately so URLs appear before LLM starts
+            _kb_chunk_partial_write([None] * len(chunks), chunks, global_fences)
+
+            translated = _run_chunk_translation(
+                chunks, cfg, client, global_fences, _kb_progress,
+                partial_write_fn=_kb_chunk_partial_write,
+            )
             zh_parts: List[str] = []
             bi_parts: List[str] = []
             for orig, zh in zip(chunks, translated):
@@ -1079,6 +1459,15 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
             user_id, paper_id, status="completed", error="", progress=100, scope=scope
         )
         logger.info("KB translation completed for %s", paper_id)
+    except _TranslationCancelled:
+        logger.info("KB translation cancelled for %s", paper_id)
+        if _preview_files_created:
+            for _p in (zh_path, bi_path):
+                try:
+                    if os.path.isfile(_p):
+                        os.remove(_p)
+                except Exception:
+                    pass
     except Exception as exc:
         public_error = safe_failure_detail(
             logger,
@@ -1086,6 +1475,15 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
             exc,
             operation="kb_paper_translation",
         )
+        # Clean up preview files we created this run so the UI doesn't show permanent "translating..." placeholders.
+        if _preview_files_created:
+            for _p in (zh_path, bi_path):
+                try:
+                    if os.path.isfile(_p):
+                        os.remove(_p)
+                        logger.info("Removed stale pending KB preview file: %s", _p)
+                except Exception:
+                    pass
         try:
             import services.kb_service as kbs2
             kbs2.set_kb_paper_translate_status(
@@ -1097,7 +1495,62 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
         except Exception:
             pass
     finally:
+        _clear_cancel(paper_id)
         _release(paper_id)
+
+
+def cancel_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
+    """
+    Cancel an in-progress user-paper translation.
+
+    Immediately writes 'cancelled' to the DB (so the UI updates right away) and
+    sets the cooperative cancel flag so the background thread exits after its
+    current LLM batch instead of writing 'completed'.
+    """
+    import services.user_paper_service as svc
+
+    paper = svc.get_paper(user_id, paper_id)
+    if not paper:
+        return False, "论文不存在"
+
+    current = paper.get("translate_status", "none")
+    if current not in ("processing",):
+        return False, f"当前状态 {current!r} 不支持取消"
+
+    _request_cancel(paper_id)
+    try:
+        svc.set_translate_status(paper_id, status="cancelled", error="", finished=True, progress=0)
+    except Exception as exc:
+        logger.warning("cancel_translation: failed to write cancelled status: %s", exc)
+    _release(paper_id)
+    return True, "翻译已停止"
+
+
+def cancel_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tuple[bool, str]:
+    """
+    Cancel an in-progress KB paper translation.
+
+    Same semantics as cancel_translation() but for KB papers.
+    """
+    import services.kb_service as kbs
+
+    paper = kbs.get_kb_paper(user_id, paper_id, scope=scope)
+    if not paper:
+        return False, "论文不存在"
+
+    current = paper.get("translate_status", "none")
+    if current not in ("processing",):
+        return False, f"当前状态 {current!r} 不支持取消"
+
+    _request_cancel(paper_id)
+    try:
+        kbs.set_kb_paper_translate_status(
+            user_id, paper_id, status="cancelled", error="", progress=0, scope=scope
+        )
+    except Exception as exc:
+        logger.warning("cancel_kb_translation: failed to write cancelled status: %s", exc)
+    _release(paper_id)
+    return True, "翻译已停止"
 
 
 def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tuple[bool, str]:
@@ -1110,6 +1563,11 @@ def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tupl
 
     if not _claim(paper_id):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
+
+    # Set status immediately so the UI shows progress before thread starts
+    kbs.set_kb_paper_translate_status(
+        user_id, paper_id, status="processing", error="", progress=0, scope=scope
+    )
 
     t = threading.Thread(
         target=run_kb_translation,

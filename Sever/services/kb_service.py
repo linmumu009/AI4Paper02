@@ -1219,6 +1219,20 @@ def auto_attach_pdf(user_id: int, paper_id: str, scope: str = _DEFAULT_SCOPE) ->
     if os.path.isfile(mineru_dest):
         # Mark process as completed so the sidebar shows the MinerU link immediately
         set_kb_paper_process_status(user_id, paper_id, status="completed", step="done", scope=scope)
+    else:
+        # MinerU cache was likely cleaned up by the post-idea cleanup step before the user
+        # added this paper to the KB.  Auto-trigger re-processing in the background so that
+        # the MinerU markdown is regenerated via the MinerU API / PyMuPDF fallback.
+        try:
+            import services.kb_pipeline_service as _kbp
+            _kbp.start_kb_paper_process(user_id, paper_id, scope=scope)
+            logger.info(
+                "auto_attach_pdf: MinerU md not found for %s — triggered background re-process", paper_id
+            )
+        except Exception as _exc:
+            logger.warning(
+                "auto_attach_pdf: failed to trigger background re-process for %s: %s", paper_id, _exc
+            )
 
     return note
 
@@ -1788,5 +1802,54 @@ def count_unclassified_papers(user_id: int, scope: str = _DEFAULT_SCOPE) -> int:
             (user_id, scope),
         ).fetchone()
         return row["cnt"] if row else 0
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Task-center helpers (read-only aggregation)
+# ---------------------------------------------------------------------------
+
+def list_papers_with_active_tasks(
+    user_id: int,
+    scope: str = _DEFAULT_SCOPE,
+    include_completed: bool = False,
+) -> list[dict]:
+    """Return kb_papers rows that have a non-trivial process, translate or classify status.
+
+    By default only pending/running/failed rows are returned so the caller
+    surfaces active work items without scanning all completed entries.
+    Pass include_completed=True to also include completed/done statuses.
+    """
+    if include_completed:
+        proc_clause = "process_status != 'none'"
+        trans_clause = "translate_status != 'none'"
+        classify_clause = "classify_status NOT IN ('none', 'skipped')"
+    else:
+        proc_clause = "process_status IN ('pending', 'processing', 'failed')"
+        trans_clause = "translate_status IN ('processing', 'failed', 'cancelled')"
+        classify_clause = "classify_status IN ('pending', 'running', 'failed')"
+
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM kb_papers
+            WHERE user_id = ? AND scope = ?
+              AND ({proc_clause} OR {trans_clause} OR {classify_clause})
+            ORDER BY id DESC
+            LIMIT 200
+            """,
+            (user_id, scope),
+        ).fetchall()
+        result = []
+        for row in rows:
+            r = _row_to_dict(row)
+            try:
+                r["paper_data"] = json.loads(r["paper_data"])
+            except Exception:
+                pass
+            result.append(r)
+        return result
     finally:
         conn.close()

@@ -42,6 +42,19 @@ class RuntimeModuleRecoveryTests(unittest.TestCase):
             source = (_ROOT / relative).read_text(encoding="utf-8")
             self.assertIsNone(_LITERAL_SECRET_RE.search(source), relative)
 
+    def test_api_wires_all_runtime_routers(self) -> None:
+        source = (_ROOT / "Sever/api.py").read_text(encoding="utf-8")
+        for router_name in (
+            "preference_router",
+            "radar_router",
+            "recap_router",
+            "task_center_router",
+        ):
+            self.assertIn(
+                f"from routers.{router_name} import router as {router_name}", source
+            )
+            self.assertIn(f"app.include_router({router_name})", source)
+
     def test_admin_diagnostics_do_not_return_raw_exceptions(self) -> None:
         preference = (_ROOT / "Sever/services/preference_service.py").read_text(
             encoding="utf-8"

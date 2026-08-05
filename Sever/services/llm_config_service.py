@@ -72,6 +72,7 @@ def init_db() -> None:
                 completion_window TEXT,
                 out_root          TEXT,
                 jsonl_root        TEXT,
+                enable_thinking   INTEGER NOT NULL DEFAULT 0,
                 created_at        TEXT    NOT NULL,
                 updated_at        TEXT    NOT NULL
             );
@@ -90,6 +91,10 @@ def _ensure_llm_config_columns(conn: sqlite3.Connection) -> None:
     existing = {r["name"] for r in rows}
     if "username" not in existing:
         conn.execute("ALTER TABLE llm_config ADD COLUMN username TEXT")
+    if "enable_thinking" not in existing:
+        conn.execute("ALTER TABLE llm_config ADD COLUMN enable_thinking INTEGER NOT NULL DEFAULT 0")
+    if "use_openrouter_free_pool" not in existing:
+        conn.execute("ALTER TABLE llm_config ADD COLUMN use_openrouter_free_pool INTEGER NOT NULL DEFAULT 0")
 
 
 def seed_default_idea_llm_configs() -> int:
@@ -240,18 +245,19 @@ def create_config(data: Dict[str, Any]) -> Dict[str, Any]:
     """创建新的模型配置。
     
     Args:
-        data: 配置数据字典，必须包含 name, base_url, api_key, model；
-              可选 username 字段以绑定特定用户。
+        data: 配置数据字典，必须包含 name, model；
+              base_url 和 api_key 在 use_openrouter_free_pool=True 时可为空。
         
     Returns:
         创建后的配置字典（包含id）
     """
-    # 验证必填字段
-    required_fields = ["name", "base_url", "api_key", "model"]
-    for field in required_fields:
-        if field not in data or not data[field]:
+    use_pool = bool(data.get("use_openrouter_free_pool"))
+    for field in ("name", "model"):
+        if not data.get(field):
             raise ValueError(f"必填字段 {field} 不能为空")
-    
+    if not use_pool and not data.get("api_key"):
+        raise ValueError("必填字段 api_key 不能为空（未启用 OpenRouter Key 池时必须提供）")
+
     now = _now_iso()
     conn = _connect()
     try:
@@ -262,15 +268,15 @@ def create_config(data: Dict[str, Any]) -> Dict[str, Any]:
                 max_tokens, temperature, concurrency,
                 input_hard_limit, input_safety_margin,
                 endpoint, completion_window, out_root, jsonl_root,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                enable_thinking, use_openrouter_free_pool, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 data.get("username"),
                 data["name"],
                 data.get("remark"),
-                data["base_url"],
-                encrypt_secret(data["api_key"]),
+                data.get("base_url") or "",
+                encrypt_secret(data.get("api_key") or ""),
                 data["model"],
                 data.get("max_tokens"),
                 data.get("temperature"),
@@ -281,6 +287,8 @@ def create_config(data: Dict[str, Any]) -> Dict[str, Any]:
                 data.get("completion_window"),
                 data.get("out_root"),
                 data.get("jsonl_root"),
+                1 if data.get("enable_thinking") else 0,
+                1 if use_pool else 0,
                 now,
                 now,
             ),
@@ -302,23 +310,22 @@ def update_config(config_id: int, data: Dict[str, Any]) -> Optional[Dict[str, An
     Returns:
         更新后的配置字典，如果配置不存在则返回None
     """
+    # 检查配置是否存在
+    existing = get_config(config_id)
+    if not existing:
+        return None
+
     data = dict(data)
     if data.get("api_key") == SECRET_MASK:
         data.pop("api_key")
 
     # 验证必填字段（如果提供了）
-    if "base_url" in data and not data["base_url"]:
-        raise ValueError("base_url 不能为空")
-    if "api_key" in data and not data["api_key"]:
-        raise ValueError("api_key 不能为空")
+    use_pool = bool(data.get("use_openrouter_free_pool", existing.get("use_openrouter_free_pool", False)))
+    if "api_key" in data and not data["api_key"] and not use_pool:
+        raise ValueError("api_key 不能为空（未启用 OpenRouter Key 池时必须提供）")
     if "model" in data and not data["model"]:
         raise ValueError("model 不能为空")
-    
-    # 检查配置是否存在
-    existing = get_config(config_id)
-    if not existing:
-        return None
-    
+
     # 构建更新字段
     updates = []
     values = []
@@ -326,11 +333,17 @@ def update_config(config_id: int, data: Dict[str, Any]) -> Optional[Dict[str, An
         "username", "name", "remark", "base_url", "api_key", "model",
         "max_tokens", "temperature", "concurrency",
         "input_hard_limit", "input_safety_margin",
-        "endpoint", "completion_window", "out_root", "jsonl_root"
+        "endpoint", "completion_window", "out_root", "jsonl_root",
     ]:
         if key in data:
             updates.append(f"{key} = ?")
             values.append(encrypt_secret(data[key]) if key == "api_key" else data[key])
+    if "enable_thinking" in data:
+        updates.append("enable_thinking = ?")
+        values.append(1 if data["enable_thinking"] else 0)
+    if "use_openrouter_free_pool" in data:
+        updates.append("use_openrouter_free_pool = ?")
+        values.append(1 if data["use_openrouter_free_pool"] else 0)
     
     if not updates:
         return existing
