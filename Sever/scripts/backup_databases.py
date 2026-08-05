@@ -25,6 +25,14 @@ _PROJECT_ROOT = _SEVER_ROOT.parent
 _DEFAULT_DB_DIR = _SEVER_ROOT / "database"
 _DEFAULT_BACKUP_ROOT = _PROJECT_ROOT / "backups"
 _MIN_HEADROOM_BYTES = 128 * 1024 * 1024
+_RECOVERY_SECRET_NAMES = (".secret_storage_key", "kb_file_signing.key")
+
+
+def _chmod_private(path: Path, mode: int) -> None:
+    try:
+        path.chmod(mode)
+    except OSError as exc:
+        raise RuntimeError(f"Unable to secure backup path: {path}") from exc
 
 
 def _quick_check(db_path: Path) -> str:
@@ -66,6 +74,7 @@ def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
         compressed_path, "wb", compresslevel=6
     ) as compressed_handle:
         shutil.copyfileobj(source_handle, compressed_handle, length=1024 * 1024)
+    _chmod_private(compressed_path, 0o600)
     plain_path.unlink()
 
     # Reading the whole gzip stream verifies its CRC and confirms it is not
@@ -82,6 +91,17 @@ def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
         "compressed_bytes": compressed_path.stat().st_size,
         "compressed_sha256": _sha256(compressed_path),
         "quick_check": "ok",
+    }
+
+
+def _backup_recovery_secret(source: Path, staging_dir: Path) -> dict[str, Any]:
+    destination = staging_dir / source.name
+    shutil.copyfile(source, destination)
+    _chmod_private(destination, 0o600)
+    return {
+        "name": source.name,
+        "bytes": destination.stat().st_size,
+        "sha256": _sha256(destination),
     }
 
 
@@ -117,8 +137,9 @@ def create_backup(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     db_dir = db_dir.resolve()
-    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     backup_root = backup_root.resolve()
+    _chmod_private(backup_root, 0o700)
 
     sources = sorted(path for path in db_dir.glob("*.db") if path.is_file())
     if not sources:
@@ -138,21 +159,30 @@ def create_backup(
     if final_dir.exists():
         raise RuntimeError(f"Backup destination already exists: {final_dir}")
     staging_dir = backup_root / f".incomplete-{timestamp}-{uuid.uuid4().hex[:8]}"
-    staging_dir.mkdir(parents=False)
+    staging_dir.mkdir(parents=False, mode=0o700)
+    _chmod_private(staging_dir, 0o700)
 
     try:
         database_results = [_backup_one(source, staging_dir) for source in sources]
+        recovery_secret_results = [
+            _backup_recovery_secret(source, staging_dir)
+            for source in (db_dir / name for name in _RECOVERY_SECRET_NAMES)
+            if source.is_file()
+        ]
         manifest = {
-            "version": 1,
+            "version": 2,
             "created_at": (now or datetime.now(timezone.utc)).isoformat(),
             "db_dir": str(db_dir),
             "host_only": True,
             "databases": database_results,
+            "recovery_secrets": recovery_secret_results,
         }
-        (staging_dir / "manifest.json").write_text(
+        manifest_path = staging_dir / "manifest.json"
+        manifest_path.write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        _chmod_private(manifest_path, 0o600)
         staging_dir.rename(final_dir)
     except Exception:
         shutil.rmtree(staging_dir, ignore_errors=True)
@@ -163,6 +193,7 @@ def create_backup(
         "ok": True,
         "backup_dir": str(final_dir),
         "database_count": len(database_results),
+        "recovery_secret_count": len(recovery_secret_results),
         "compressed_bytes": sum(item["compressed_bytes"] for item in database_results),
         "removed_backups": removed,
     }
@@ -191,7 +222,22 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
             temp_path.unlink(missing_ok=True)
         verified.append(name)
 
-    return {"ok": True, "backup_dir": str(backup_dir), "verified": verified}
+    verified_recovery_secrets: list[str] = []
+    for item in manifest.get("recovery_secrets") or []:
+        name = str(item["name"])
+        secret_path = backup_dir / name
+        if _sha256(secret_path) != item.get("sha256"):
+            raise RuntimeError(f"Checksum mismatch: {secret_path}")
+        if secret_path.stat().st_size != int(item.get("bytes", -1)):
+            raise RuntimeError(f"Size mismatch: {secret_path}")
+        verified_recovery_secrets.append(name)
+
+    return {
+        "ok": True,
+        "backup_dir": str(backup_dir),
+        "verified": verified,
+        "verified_recovery_secrets": verified_recovery_secrets,
+    }
 
 
 def main() -> None:

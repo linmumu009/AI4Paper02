@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -30,6 +31,8 @@ class TestBackupDatabases(unittest.TestCase):
             conn.execute("INSERT INTO sample(value) VALUES ('verified')")
             conn.commit()
             conn.close()
+        (self.db_dir / ".secret_storage_key").write_bytes(b"secret-storage-key\n")
+        (self.db_dir / "kb_file_signing.key").write_bytes(b"k" * 32)
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
@@ -45,14 +48,32 @@ class TestBackupDatabases(unittest.TestCase):
         backup_dir = Path(result["backup_dir"])
         manifest = json.loads((backup_dir / "manifest.json").read_text(encoding="utf-8"))
         self.assertTrue(manifest["host_only"])
+        self.assertEqual(manifest["version"], 2)
         self.assertEqual(result["database_count"], 2)
+        self.assertEqual(result["recovery_secret_count"], 2)
         self.assertTrue((backup_dir / "paper_analysis.db.gz").is_file())
         self.assertFalse((backup_dir / "paper_analysis.db").exists())
+        self.assertTrue((backup_dir / ".secret_storage_key").is_file())
+        self.assertTrue((backup_dir / "kb_file_signing.key").is_file())
+        if os.name != "nt":
+            self.assertEqual(backup_dir.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(
+                (backup_dir / "manifest.json").stat().st_mode & 0o777,
+                0o600,
+            )
+            self.assertEqual(
+                (backup_dir / ".secret_storage_key").stat().st_mode & 0o777,
+                0o600,
+            )
 
         verification = backup_databases.verify_backup(backup_dir)
         self.assertTrue(verification["ok"])
         self.assertEqual(
             verification["verified"], ["paper_analysis.db", "user_papers.db"]
+        )
+        self.assertEqual(
+            verification["verified_recovery_secrets"],
+            [".secret_storage_key", "kb_file_signing.key"],
         )
 
     def test_retention_removes_only_completed_old_backups(self) -> None:

@@ -204,6 +204,7 @@ BACKUP_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.servic
 BACKUP_TIMER_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.timer"
 if [[ -f "$BACKUP_SERVICE_SOURCE" && -f "$BACKUP_TIMER_SOURCE" ]]; then
   echo "==== Installing database backup timer ===="
+  install -d -o root -g root -m 0700 "${PROJECT_ROOT}/backups"
   install -m 0644 "$BACKUP_SERVICE_SOURCE" /etc/systemd/system/ai4papers-db-backup.service
   install -m 0644 "$BACKUP_TIMER_SOURCE" /etc/systemd/system/ai4papers-db-backup.timer
   systemctl daemon-reload

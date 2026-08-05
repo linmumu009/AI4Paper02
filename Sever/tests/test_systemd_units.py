@@ -99,6 +99,25 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertNotIn("EnvironmentFile", service)
         self.assertIn("systemctl enable --now ai4papers-healthcheck.timer", script)
 
+    def test_backup_service_is_private_and_host_local(self) -> None:
+        service = (
+            _ROOT / "deploy" / "systemd" / "ai4papers-db-backup.service"
+        ).read_text(encoding="utf-8")
+        script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")
+        self.assertIn("User=root", service)
+        self.assertIn("Group=root", service)
+        self.assertIn("UMask=0077", service)
+        self.assertIn("PrivateNetwork=true", service)
+        self.assertIn("ProtectSystem=strict", service)
+        self.assertIn("RestrictAddressFamilies=AF_UNIX", service)
+        self.assertIn(
+            "ReadWritePaths=/projects/ArxivPaper4/backups", service
+        )
+        self.assertIn(
+            'install -d -o root -g root -m 0700 "${PROJECT_ROOT}/backups"',
+            script,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
