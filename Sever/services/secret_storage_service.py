@@ -58,7 +58,9 @@ def is_sensitive_key(key: str) -> bool:
     normalized = str(key or "").strip().lower()
     return (
         normalized == "api_key"
+        or normalized == "apikey"
         or normalized.endswith("_api_key")
+        or normalized.endswith("_apikey")
         or normalized.endswith("_token")
         or normalized.endswith("_secret")
         or normalized.endswith("_password")

@@ -10,6 +10,13 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from services.secret_storage_service import (
+    SECRET_MASK,
+    decrypt_secret,
+    encrypt_secret,
+    mask_secret_mapping,
+)
+
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
 
@@ -27,6 +34,19 @@ def _connect() -> sqlite3.Connection:
 def _now_iso() -> str:
     """返回当前时间的ISO格式字符串。"""
     return datetime.now(timezone.utc).isoformat()
+
+
+def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    data = dict(row) if row else {}
+    if "api_key" in data:
+        data["api_key"] = decrypt_secret(data.get("api_key"))
+    return data
+
+
+def to_public_llm_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    public = mask_secret_mapping(config)
+    public["has_api_key"] = bool(config.get("api_key"))
+    return public
 
 
 def init_db() -> None:
@@ -136,7 +156,7 @@ def seed_default_idea_llm_configs() -> int:
                     """,
                     (
                         name, remark,
-                        _QWEN_BASE_URL, _QWEN_API_KEY, _QWEN_MODEL,
+                        _QWEN_BASE_URL, encrypt_secret(_QWEN_API_KEY), _QWEN_MODEL,
                         8192, 0.7, 129024, 4096,
                         now, now,
                     ),
@@ -199,7 +219,7 @@ def list_configs(username: Optional[str] = None) -> List[Dict[str, Any]]:
             rows = conn.execute(
                 "SELECT * FROM llm_config ORDER BY created_at DESC"
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [_row_to_dict(row) for row in rows]
     finally:
         conn.close()
 
@@ -211,7 +231,7 @@ def get_config(config_id: int) -> Optional[Dict[str, Any]]:
         row = conn.execute(
             "SELECT * FROM llm_config WHERE id = ?", (config_id,)
         ).fetchone()
-        return dict(row) if row else None
+        return _row_to_dict(row) if row else None
     finally:
         conn.close()
 
@@ -250,7 +270,7 @@ def create_config(data: Dict[str, Any]) -> Dict[str, Any]:
                 data["name"],
                 data.get("remark"),
                 data["base_url"],
-                data["api_key"],
+                encrypt_secret(data["api_key"]),
                 data["model"],
                 data.get("max_tokens"),
                 data.get("temperature"),
@@ -282,6 +302,10 @@ def update_config(config_id: int, data: Dict[str, Any]) -> Optional[Dict[str, An
     Returns:
         更新后的配置字典，如果配置不存在则返回None
     """
+    data = dict(data)
+    if data.get("api_key") == SECRET_MASK:
+        data.pop("api_key")
+
     # 验证必填字段（如果提供了）
     if "base_url" in data and not data["base_url"]:
         raise ValueError("base_url 不能为空")
@@ -306,7 +330,7 @@ def update_config(config_id: int, data: Dict[str, Any]) -> Optional[Dict[str, An
     ]:
         if key in data:
             updates.append(f"{key} = ?")
-            values.append(data[key])
+            values.append(encrypt_secret(data[key]) if key == "api_key" else data[key])
     
     if not updates:
         return existing

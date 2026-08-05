@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from services import analytics_service, auth_service
 from services import config_service, config_mapper, llm_config_service, prompt_config_service
+from services.secret_storage_service import mask_secret_mapping
 from routers._deps import _admin_error_response
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -402,7 +403,7 @@ def api_admin_update_config(
 ):
     try:
         updated = config_service.update_config(body.config)
-        return {"ok": True, "config": updated}
+        return {"ok": True, "config": mask_secret_mapping(updated)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -435,7 +436,7 @@ def api_admin_batch_apply_configs(
             "message": f"批量应用完成，共更新 {result['applied_count']} 项配置",
             "applied_count": result["applied_count"],
             "errors": result["errors"],
-            "config": result["config"],
+            "config": mask_secret_mapping(result["config"]),
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -453,7 +454,10 @@ def api_admin_list_llm_configs(
 ):
     try:
         configs = llm_config_service.list_configs()
-        return {"ok": True, "configs": configs}
+        return {
+            "ok": True,
+            "configs": [llm_config_service.to_public_llm_config(item) for item in configs],
+        }
     except Exception as e:
         raise _admin_error_response("获取配置列表", e)
 
@@ -467,7 +471,7 @@ def api_admin_get_llm_config(
         config = llm_config_service.get_config(config_id)
         if not config:
             raise HTTPException(status_code=404, detail=f"模型配置 {config_id} 不存在")
-        return {"ok": True, "config": config}
+        return {"ok": True, "config": llm_config_service.to_public_llm_config(config)}
     except HTTPException:
         raise
     except Exception as e:
@@ -481,7 +485,7 @@ def api_admin_create_llm_config(
 ):
     try:
         config = llm_config_service.create_config(body.dict())
-        return {"ok": True, "config": config}
+        return {"ok": True, "config": llm_config_service.to_public_llm_config(config)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -498,7 +502,7 @@ def api_admin_update_llm_config(
         config = llm_config_service.update_config(config_id, body.dict(exclude_unset=True))
         if not config:
             raise HTTPException(status_code=404, detail=f"模型配置 {config_id} 不存在")
-        return {"ok": True, "config": config}
+        return {"ok": True, "config": llm_config_service.to_public_llm_config(config)}
     except HTTPException:
         raise
     except ValueError as e:
@@ -531,7 +535,7 @@ def api_admin_apply_llm_config(
 ):
     try:
         updated = config_mapper.apply_llm_config(config_id, body.usage_prefix)
-        return {"ok": True, "message": f"配置已应用到 {body.usage_prefix} 前缀", "config": updated}
+        return {"ok": True, "message": f"配置已应用到 {body.usage_prefix} 前缀", "config": mask_secret_mapping(updated)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -626,7 +630,7 @@ def api_admin_apply_prompt_config(
 ):
     try:
         updated = config_mapper.apply_prompt_config(config_id, body.variable_name)
-        return {"ok": True, "message": f"配置已应用到变量 {body.variable_name}", "config": updated}
+        return {"ok": True, "message": f"配置已应用到变量 {body.variable_name}", "config": mask_secret_mapping(updated)}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

@@ -18,6 +18,13 @@ sys.path.insert(0, _BASE_DIR)
 # Import config module to inspect its attributes
 import config.config as config_module
 
+from services.secret_storage_service import (
+    SECRET_MASK,
+    mask_secret_mapping,
+    protect_secret_mapping,
+    unprotect_secret_mapping,
+)
+
 _CONFIG_JSON_PATH = os.path.join(_BASE_DIR, "database", "config.json")
 
 # 配置项分组定义（基于 config.py 的注释结构）
@@ -185,7 +192,8 @@ def _load_config_json() -> Dict[str, Any]:
     if os.path.isfile(_CONFIG_JSON_PATH):
         try:
             with open(_CONFIG_JSON_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
+                loaded = json.load(f)
+                return unprotect_secret_mapping(loaded) if isinstance(loaded, dict) else {}
         except (json.JSONDecodeError, OSError) as e:
             print(f"警告: 无法加载配置文件 {_CONFIG_JSON_PATH}: {e}")
             return {}
@@ -195,8 +203,9 @@ def _load_config_json() -> Dict[str, Any]:
 def _save_config_json(config_dict: Dict[str, Any]) -> None:
     """保存配置到 JSON 文件。"""
     os.makedirs(os.path.dirname(_CONFIG_JSON_PATH), exist_ok=True)
+    protected = protect_secret_mapping(config_dict)
     with open(_CONFIG_JSON_PATH, "w", encoding="utf-8") as f:
-        json.dump(config_dict, f, ensure_ascii=False, indent=2)
+        json.dump(protected, f, ensure_ascii=False, indent=2)
 
 
 def _apply_config_to_module(config_dict: Dict[str, Any]) -> None:
@@ -258,6 +267,8 @@ def get_config_with_groups() -> Dict[str, Any]:
                 all_keys.add(key)
                 value = current_values.get(key, defaults[key])
                 value_type = type(value).__name__
+                if _is_sensitive_key(key):
+                    value = SECRET_MASK if value else ""
                 
                 # 生成描述（基于注释，这里简化处理）
                 description = _get_config_description(key)
@@ -283,7 +294,13 @@ def get_config_with_groups() -> Dict[str, Any]:
             value_type = type(value).__name__
             ungrouped.append({
                 "key": key,
-                "value": current_values.get(key, value),
+                "value": (
+                    SECRET_MASK
+                    if _is_sensitive_key(key) and current_values.get(key, value)
+                    else ""
+                    if _is_sensitive_key(key)
+                    else current_values.get(key, value)
+                ),
                 "type": value_type,
                 "description": _get_config_description(key),
                 "is_sensitive": _is_sensitive_key(key),
@@ -297,7 +314,7 @@ def get_config_with_groups() -> Dict[str, Any]:
     
     return {
         "groups": groups,
-        "defaults": defaults,
+        "defaults": mask_secret_mapping(defaults),
     }
 
 
@@ -390,6 +407,8 @@ def update_config(updates: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in updates.items():
         if key not in defaults:
             raise ValueError(f"未知的配置项: {key}")
+        if _is_sensitive_key(key) and value == SECRET_MASK:
+            continue
         
         # 类型验证（简化版）
         default_type = type(defaults[key])

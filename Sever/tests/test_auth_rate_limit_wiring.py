@@ -33,6 +33,11 @@ class AuthRateLimitWiringTests(unittest.TestCase):
         self.assertGreaterEqual(source.count("mask_secret_mapping("), 4)
         self.assertEqual(source.count("to_public_llm_preset("), 3)
 
+    def test_admin_model_secrets_are_masked_before_api_response(self) -> None:
+        source = (_SEVER / "routers" / "admin_router.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("to_public_llm_config("), 4)
+        self.assertEqual(source.count("mask_secret_mapping("), 4)
+
 
 if __name__ == "__main__":
     unittest.main()
