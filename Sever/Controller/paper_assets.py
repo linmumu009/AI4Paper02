@@ -10,11 +10,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
-from openai import OpenAI
-
 import sys
 
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from openai import OpenAI
+from services.llm_request_options import build_thinking_kwargs
 from config.config import (  # noqa: E402
     qwen_api_key,
     summary_base_url,
@@ -41,10 +42,10 @@ from config.config import (  # noqa: E402
 # User-config helpers
 # ---------------------------------------------------------------------------
 
-def _load_user_config(user_id: int) -> Dict[str, Any]:
+def _load_user_config(user_id: int, feature: str = "paper_recommend") -> Dict[str, Any]:
     try:
         from services.user_settings_service import get_settings
-        return get_settings(user_id, "paper_recommend")
+        return get_settings(user_id, feature)
     except Exception:
         return {}
 
@@ -90,7 +91,7 @@ def _global_sllm_connection() -> Tuple[str, str, str]:
     return (qwen_api_key or "").strip(), (summary_base_url or "").strip(), summary_model
 
 
-def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[str, Any]]:
+def make_client_for_user(user_id: Optional[int] = None, feature: str = "paper_recommend") -> Tuple[Any, Dict[str, Any]]:
     """Return (client, effective_cfg) honouring user overrides when *user_id* is given.
 
     effective_cfg keys: model, temperature, max_tokens, input_hard_limit,
@@ -108,37 +109,70 @@ def make_client_for_user(user_id: Optional[int] = None) -> Tuple[OpenAI, Dict[st
     }
     key: str = g_key
     base: str = g_base
+    import config.config as _sys_cfg_pa
+    use_pool: bool = bool(getattr(_sys_cfg_pa, "summary_use_openrouter_free_pool", False))
+    user_llm_configured = False
 
     if user_id is not None:
-        ucfg = _load_user_config(user_id)
+        ucfg = _load_user_config(user_id, feature)
         if ucfg:
             # paper_assets processes the output of paper_summary → reuse summary preset, then cascade from first step
             preset_id = ucfg.get("summary_llm_preset_id") or ucfg.get("llm_preset_id") or ucfg.get("theme_select_llm_preset_id")
             preset = _resolve_llm_preset(user_id, preset_id) if preset_id else {}
             if preset:
+                user_llm_configured = True
                 key = (preset.get("api_key") or key).strip()
                 base = (preset.get("base_url") or base).strip()
                 cfg["model"] = (preset.get("model") or cfg["model"]).strip()
+                cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
+                if "use_openrouter_free_pool" in preset:
+                    use_pool = bool(preset["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if preset.get(k) is not None:
                         cfg[k] = preset[k]
             else:
+                user_llm_configured = any(
+                    (ucfg.get(k) not in (None, ""))
+                    for k in ("llm_api_key", "llm_base_url", "llm_model", "use_openrouter_free_pool")
+                )
                 key = (ucfg.get("llm_api_key") or key).strip()
                 base = (ucfg.get("llm_base_url") or base).strip()
                 cfg["model"] = (ucfg.get("llm_model") or cfg["model"]).strip()
+                if "use_openrouter_free_pool" in ucfg:
+                    use_pool = bool(ucfg["use_openrouter_free_pool"])
                 for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
                     if ucfg.get(k) is not None:
                         cfg[k] = ucfg[k]
+
+    if user_id is not None and not user_llm_configured:
+        try:
+            from services import user_settings_service as _uss
+            admin_llm = _uss.resolve_admin_llm_for_feature(feature)
+        except Exception:
+            admin_llm = {}
+        if admin_llm:
+            key = (admin_llm.get("llm_api_key") or key).strip()
+            base = (admin_llm.get("llm_base_url") or base).strip()
+            cfg["model"] = (admin_llm.get("llm_model") or cfg["model"]).strip()
+            if "use_openrouter_free_pool" in admin_llm:
+                use_pool = bool(admin_llm["use_openrouter_free_pool"])
+            for k in ("temperature", "max_tokens", "input_hard_limit", "input_safety_margin"):
+                if admin_llm.get(k) is not None:
+                    cfg[k] = admin_llm[k]
+            if admin_llm.get("enable_thinking") is not None:
+                cfg["enable_thinking"] = bool(admin_llm["enable_thinking"])
 
     # User presets may carry a small max_tokens suited for paper_summary;
     # paper_assets requires a much larger budget for its 13-key JSON output.
     cfg["max_tokens"] = max(int(cfg["max_tokens"]), paper_assets_max_tokens)
 
-    if not key:
+    if not key and not use_pool:
         raise SystemExit("paper_assets: no api_key available (global config or user preset)")
-    if not base:
-        raise SystemExit("paper_assets: no base_url available (global config or user preset)")
-    client = OpenAI(api_key=key, base_url=base)
+    cfg.setdefault("llm_base_url", base)
+    cfg.setdefault("enable_thinking", False)
+    cfg["use_openrouter_free_pool"] = use_pool
+    from services.llm_client_factory import build_llm_client
+    client = build_llm_client({"api_key": key, "base_url": base, "use_openrouter_free_pool": use_pool})
     return client, cfg
 
 
@@ -434,6 +468,8 @@ def extract_blocks_with_llm(
         kwargs["temperature"] = float(temp)
     if max_tok is not None:
         kwargs["max_tokens"] = int(max_tok)
+    if cfg:
+        kwargs.update(build_thinking_kwargs(cfg))
 
     model_name = (cfg.get("model") or get_assets_model()) if cfg else get_assets_model()
 
@@ -564,16 +600,28 @@ def run() -> None:
             output_mode = "file"
 
     if output_mode == "db" and _pdb is not None:
-        # Read raw summaries from DB as virtual .md files
+        # Read raw summaries from DB as virtual .md files.  Only retry missing
+        # or structurally empty assets so a recovery run cannot overwrite
+        # already validated content with a later empty model response.
         summaries_map = _pdb.get_summaries_map(uid, date_str)
         if not summaries_map:
             print(f"[PAPER_ASSETS] No summaries in DB for user={uid} date={date_str}; skip", flush=True)
+            return
+        coverage = _pdb.get_db_step_coverage("paper_assets", uid, date_str)
+        retry_ids = set(coverage.get("missing_ids") or []) | set(
+            coverage.get("invalid_ids") or []
+        )
+        if coverage.get("complete"):
+            print(
+                f"[PAPER_ASSETS] DB coverage already complete for user={uid} date={date_str}; skip",
+                flush=True,
+            )
             return
         import tempfile
         tmp_dir = Path(tempfile.mkdtemp(prefix="paper_assets_"))
         for arxiv_id, row in summaries_map.items():
             raw = row.get("summary_raw", "")
-            if raw:
+            if raw and arxiv_id in retry_ids:
                 (tmp_dir / f"{arxiv_id}.md").write_text(raw, encoding="utf-8")
         in_dir = tmp_dir
     else:
@@ -659,4 +707,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-
