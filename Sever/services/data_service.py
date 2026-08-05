@@ -358,10 +358,19 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
             paper_id = dp.get("paper_id", "")
             # Parse limit markdown if available
             limit_text = dp.get("summary_limit", "") or dp.get("summary_raw", "")
-            if limit_text:
-                parsed = _parse_limit_md(limit_text, paper_id)
-            else:
-                parsed = {"paper_id": paper_id}
+            if not limit_text.strip():
+                # A selected paper is not publication-ready until its summary
+                # exists. Never expose a blank, half-built card to users.
+                continue
+            parsed = _parse_limit_md(limit_text, paper_id)
+            intro = parsed.get("🛎️文章简介") or {}
+            if not (intro.get("🔸研究问题") or intro.get("🔸主要贡献")):
+                continue
+            full_title = parsed.get("📖标题") or dp.get("title") or paper_id
+            parsed["📖标题"] = full_title
+            parsed["title"] = full_title
+            parsed["short_title"] = parsed.get("short_title") or full_title
+            parsed["🌐来源"] = parsed.get("🌐来源") or f"arXiv, {paper_id}"
             parsed["institution"] = dp.get("institution", parsed.get("institution", ""))
             parsed["is_large_institution"] = dp.get("is_large_institution", False)
             parsed["institution_tier"] = dp.get("institution_tier") or 4

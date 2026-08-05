@@ -1055,6 +1055,12 @@ def get_digest_papers(
             f"WHERE user_id=? AND date_str=? AND paper_arxiv_id IN ({placeholders})",
             [effective_uid, date_str] + selected_ids,
         ).fetchall()
+        meta_rows = conn.execute(
+            f"SELECT paper_arxiv_id, title, abstract_text FROM pipeline_arxiv_list "
+            f"WHERE date_str=? AND paper_arxiv_id IN ({placeholders})",
+            [date_str] + selected_ids,
+        ).fetchall()
+        arxiv_meta = {row["paper_arxiv_id"]: dict(row) for row in meta_rows}
     finally:
         conn.close()
 
@@ -1064,6 +1070,7 @@ def get_digest_papers(
         info   = info_map.get(arxiv_id, {})
         summ   = sum_map.get(arxiv_id, {})
         assets = asset_map.get(arxiv_id, {})
+        meta   = arxiv_meta.get(arxiv_id, {})
 
         raw_tier = int(info.get("institution_tier") or 0)
         is_large = bool(info.get("is_large", 0))
@@ -1076,8 +1083,8 @@ def get_digest_papers(
             "institution": info.get("institution", ""),
             "is_large_institution": is_large,
             "institution_tier": effective_tier,
-            "abstract": info.get("abstract", ""),
-            "title": info.get("title", ""),
+            "abstract": info.get("abstract") or meta.get("abstract_text", ""),
+            "title": info.get("title") or meta.get("title") or arxiv_id,
             "summary_raw": summ.get("summary_raw", ""),
             "summary_limit": summ.get("summary_limit", ""),
             "headline": summ.get("headline", ""),

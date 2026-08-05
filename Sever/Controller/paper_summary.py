@@ -251,18 +251,25 @@ def summarize_one(
     if max_tok is not None:
         kwargs["max_tokens"] = int(max_tok)
 
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        stream=False,
-        **kwargs,
+    from services.llm_summary_response import create_nonempty_completion
+
+    content = create_nonempty_completion(
+        client,
+        request_kwargs={
+            "model": model_name,
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "stream": False,
+            **kwargs,
+        },
+        paper_id=md_path.stem,
+        content_validator=lambda text: (
+            "🛎️文章简介" in text
+            and ("研究问题" in text or "主要贡献" in text)
+        ),
     )
-    content = resp.choices[0].message.content if resp.choices else ""
-    if not content:
-        return md_path, ""
     lines = content.splitlines()
     for i, line in enumerate(lines):
         if line.strip().startswith("🌐来源"):
@@ -452,6 +459,7 @@ def run() -> None:
     start = time.monotonic()
     done = 0
     empty = 0
+    failures: List[str] = []
 
     def task(md_path: Path) -> Tuple[Path, str]:
         path, content = summarize_one(client, md_path, effective_cfg=effective_cfg)
@@ -476,6 +484,7 @@ def run() -> None:
                     except Exception as db_exc:
                         print(f"\n[WARN] DB write summary failed for {src.stem}: {db_exc!r}", flush=True)
             except Exception as e:
+                failures.append(src.stem)
                 print(f"\r[SUMMARY] error on {src.name}: {e!r}", end="", flush=True)
             done += 1
             elapsed = time.monotonic() - start
@@ -489,6 +498,12 @@ def run() -> None:
         print(f"[SUMMARY] gather_path={gather_path}", flush=True)
     else:
         print(f"[SUMMARY] DB output complete for user={uid} date={date_str}", flush=True)
+    if empty or failures:
+        failed_ids = sorted(set(failures))
+        raise RuntimeError(
+            f"summary generation incomplete: empty={empty}, errors={len(failures)}, "
+            f"paper_ids={failed_ids}"
+        )
     print("============结束生成精选论文中文摘要==============", flush=True)
 
 
