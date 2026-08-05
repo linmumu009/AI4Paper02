@@ -328,3 +328,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_response
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\llm_select_theme.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_structured_response_contract.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pdf_info_db_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_pipeline_contract.py

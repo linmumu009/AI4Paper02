@@ -32,6 +32,11 @@ from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
+from services.llm_response_guard import (
+    has_meaningful_text,
+    require_meaningful_structure,
+    require_nonempty_text,
+)
 from services.safe_logging_service import safe_failure_detail
 
 # Ensure Sever root is in sys.path so Controller imports work
@@ -432,35 +437,33 @@ def _run_pdf_info(text: str, user_id: int) -> Dict[str, Any]:
 
     Returns dict with keys: instution, is_large, abstract.
     """
-    try:
-        from Controller.pdf_info import _resolve_llm_for_user, call_qwen, parse_json_or_fallback
-    except Exception:
-        return {"instution": "", "is_large": False, "abstract": ""}
+    from Controller.pdf_info import _resolve_llm_for_user, call_qwen, parse_json_or_fallback
 
     cfg = _resolve_llm_for_user(user_id, feature=USER_PAPER_SETTINGS_FEATURE)
-    sys_prompt = cfg.get("system_prompt", "")
-    if not sys_prompt or not text.strip():
-        return {"instution": "", "is_large": False, "abstract": ""}
+    sys_prompt = require_nonempty_text(
+        cfg.get("system_prompt"),
+        operation="user_paper_pdf_info_prompt",
+    )
+    text = require_nonempty_text(
+        text,
+        operation="user_paper_pdf_info_input",
+    )
 
     max_chars = 120_000
     content = text[:max_chars] if len(text) > max_chars else text
     user_content = f"文本：\n{content}"
 
-    try:
-        raw = call_qwen(
-            api_key=cfg["api_key"],
-            base_url=cfg["base_url"],
-            model=cfg["model"],
-            system_prompt=sys_prompt,
-            user_content=user_content,
-            temperature=cfg.get("temperature", 1.0),
-            max_tokens=cfg.get("max_tokens", 1024),
-            use_openrouter_free_pool=bool(cfg.get("use_openrouter_free_pool", False)),
-        )
-        return parse_json_or_fallback(raw)
-    except Exception as exc:
-        logger.warning("pdf_info LLM call failed: %s", exc)
-        return {"instution": "", "is_large": False, "abstract": ""}
+    raw = call_qwen(
+        api_key=cfg["api_key"],
+        base_url=cfg["base_url"],
+        model=cfg["model"],
+        system_prompt=sys_prompt,
+        user_content=user_content,
+        temperature=cfg.get("temperature", 1.0),
+        max_tokens=cfg.get("max_tokens", 1024),
+        use_openrouter_free_pool=bool(cfg.get("use_openrouter_free_pool", False)),
+    )
+    return parse_json_or_fallback(raw)
 
 
 # ---------------------------------------------------------------------------
@@ -469,24 +472,21 @@ def _run_pdf_info(text: str, user_id: int) -> Dict[str, Any]:
 
 def _run_paper_summary(text: str, paper_id: str, user_id: int) -> str:
     """Generate full structured summary from paper text. Returns markdown string."""
-    if not text.strip():
-        return ""
-    try:
-        from Controller.paper_summary import make_client_for_user, summarize_one
-    except Exception as exc:
-        logger.warning("paper_summary import failed: %s", exc)
-        return ""
+    text = require_nonempty_text(
+        text,
+        operation="user_paper_summary_input",
+    )
+    from Controller.paper_summary import make_client_for_user, summarize_one
 
     with tempfile.TemporaryDirectory() as tmpdir:
         md_path = Path(tmpdir) / f"{paper_id}.md"
         md_path.write_text(text, encoding="utf-8")
-        try:
-            client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
-            _, summary_text = summarize_one(client, md_path, effective_cfg=ecfg)
-            return summary_text or ""
-        except Exception as exc:
-            logger.warning("paper_summary LLM call failed: %s", exc)
-            return ""
+        client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
+        _, summary_text = summarize_one(client, md_path, effective_cfg=ecfg)
+        return require_nonempty_text(
+            summary_text,
+            operation="user_paper_summary_generation",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -498,19 +498,17 @@ def _run_summary_limit(
     paper_id: str,
     user_id: int,
     meta: Dict[str, Any],
-) -> str:
+) -> Tuple[str, str]:
     """Produce condensed/structured summary from full summary markdown."""
-    if not summary_text.strip():
-        return ""
-    try:
-        from Controller.summary_limit import (
-            build_effective_cfg,
-            make_client_from_cfg,
-            process_one,
-        )
-    except Exception as exc:
-        logger.warning("summary_limit import failed: %s", exc)
-        return ""
+    summary_text = require_nonempty_text(
+        summary_text,
+        operation="user_paper_summary_limit_input",
+    )
+    from Controller.summary_limit import (
+        build_effective_cfg,
+        make_client_from_cfg,
+        process_one_with_fallback,
+    )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         in_path = Path(tmpdir) / f"{paper_id}.md"
@@ -530,19 +528,16 @@ def _run_summary_limit(
             }
 
         in_path.write_text(summary_text, encoding="utf-8")
-        try:
-            ecfg = build_effective_cfg(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
-            client = make_client_from_cfg(ecfg)
-            process_one(
-                client, in_path, out_path, pdf_info_map, effective_cfg=ecfg
-            )
-            # process_one writes output to out_path; return value is a status string, not content
-            if out_path.exists():
-                return out_path.read_text(encoding="utf-8")
-            return ""
-        except Exception as exc:
-            logger.warning("summary_limit LLM call failed: %s", exc)
-            return ""
+        ecfg = build_effective_cfg(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
+        client = make_client_from_cfg(ecfg)
+        _, status = process_one_with_fallback(
+            client, in_path, out_path, pdf_info_map, effective_cfg=ecfg
+        )
+        output = require_nonempty_text(
+            out_path.read_text(encoding="utf-8") if out_path.exists() else None,
+            operation="user_paper_summary_limit_output",
+        )
+        return output, status
 
 
 # ---------------------------------------------------------------------------
@@ -551,25 +546,24 @@ def _run_summary_limit(
 
 def _run_paper_assets(summary_text: str, user_id: int) -> Dict[str, Any]:
     """Generate structured asset blocks from summary markdown."""
-    if not summary_text.strip():
-        return {}
-    try:
-        from Controller.paper_assets import (
-            make_client_for_user,
-            extract_blocks_with_llm,
-            ensure_blocks_structure,
-        )
-    except Exception as exc:
-        logger.warning("paper_assets import failed: %s", exc)
-        return {}
+    summary_text = require_nonempty_text(
+        summary_text,
+        operation="user_paper_assets_input",
+    )
+    from Controller.paper_assets import (
+        make_client_for_user,
+        extract_blocks_with_llm,
+        ensure_blocks_structure,
+    )
 
-    try:
-        client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
-        blocks = extract_blocks_with_llm(client, summary_text, effective_cfg=ecfg)
-        return ensure_blocks_structure(blocks)
-    except Exception as exc:
-        logger.warning("paper_assets LLM call failed: %s", exc)
-        return {}
+    client, ecfg = make_client_for_user(user_id=user_id, feature=USER_PAPER_SETTINGS_FEATURE)
+    blocks = ensure_blocks_structure(
+        extract_blocks_with_llm(client, summary_text, effective_cfg=ecfg)
+    )
+    return require_meaningful_structure(
+        blocks,
+        operation="user_paper_assets_generation",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -819,6 +813,7 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         institution = paper.get("institution") or ""
         abstract = paper.get("abstract") or ""
         raw_summary = ""
+        degraded_steps: list[str] = []
 
         with _TPE(max_workers=2, thread_name_prefix=f"pipeline-l1-{paper_id[:8]}") as _pool:
             _f_info = _pool.submit(_run_pdf_info, text, user_id)
@@ -834,12 +829,16 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
                         paper["institution"] = institution
                         paper["abstract"] = abstract
                     except Exception as _exc:
-                        logger.warning("pdf_info failed (non-fatal, continuing pipeline): %s", _exc)
+                        degraded_steps.append("pdf_info")
+                        logger.warning(
+                            "pdf_info failed (non-fatal, existing metadata retained): %s",
+                            type(_exc).__name__,
+                        )
                 else:
                     try:
                         raw_summary = _fut.result() or ""
                     except Exception as _exc:
-                        logger.warning("paper_summary failed: %s", _exc)
+                        logger.warning("paper_summary failed: %s", type(_exc).__name__)
                         raw_summary = ""
 
         if not raw_summary.strip():
@@ -856,8 +855,10 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         # Both depend only on raw_summary, so they can run concurrently.
         # ------------------------------------------------------------------
         _set("processing", step="summary_limit")
-        limit_summary = raw_summary  # safe fallback if both fail
+        limit_summary = raw_summary
+        limit_status = "fallback"
         blocks: Dict[str, Any] = {}
+        assets_error: Optional[BaseException] = None
 
         with _TPE(max_workers=2, thread_name_prefix=f"pipeline-l2-{paper_id[:8]}") as _pool:
             _f_limit = _pool.submit(_run_summary_limit, raw_summary, paper_id, user_id, paper)
@@ -865,24 +866,55 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         # Both futures are complete after the with-block exits.
 
         try:
-            limit_summary = _f_limit.result() or raw_summary
+            limit_summary, limit_status = _f_limit.result()
+            if limit_status == "fallback":
+                degraded_steps.append("summary_limit")
         except Exception as _exc:
-            logger.warning("summary_limit failed (falling back to raw summary): %s", _exc)
+            degraded_steps.append("summary_limit")
+            logger.warning(
+                "summary_limit failed (falling back to raw summary): %s",
+                type(_exc).__name__,
+            )
             limit_summary = raw_summary
 
         try:
-            blocks = _f_assets.result() or {}
+            blocks = _f_assets.result()
         except Exception as _exc:
-            logger.warning("paper_assets failed (using empty blocks): %s", _exc)
-            blocks = {}
+            assets_error = _exc
+
+        if assets_error is None and not has_meaningful_text(blocks):
+            assets_error = RuntimeError("paper assets contain no meaningful content")
 
         if not limit_summary.strip():
             limit_summary = raw_summary
 
+        # Persist the best non-empty summary even if paper-assets generation
+        # failed, so a retry never replaces useful content with a blank card.
+        summary_json = _parse_summary_to_json(limit_summary, raw_summary, paper)
+        if assets_error is not None:
+            svc.update_summary_and_assets(
+                paper_id,
+                summary_json=summary_json,
+                institution=institution,
+                abstract=abstract,
+            )
+            public_error = safe_failure_detail(
+                logger,
+                "论文结构化分析生成失败，请重试",
+                assets_error,
+                operation="user_paper_assets_generation",
+            )
+            _set(
+                "failed",
+                step="paper_assets",
+                error=public_error,
+                finished=True,
+            )
+            return
+
         # ------------------------------------------------------------------
         # Persist final results
         # ------------------------------------------------------------------
-        summary_json = _parse_summary_to_json(limit_summary, raw_summary, paper)
         paper_assets_obj = {
             "paper_id": paper_id,
             "title": paper.get("title", ""),
@@ -902,7 +934,11 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
             abstract=abstract,
         )
         _set("completed", step="done", finished=True)
-        logger.info("User paper pipeline completed: %s", paper_id)
+        logger.info(
+            "User paper pipeline completed: %s degraded_steps=%s",
+            paper_id,
+            degraded_steps,
+        )
 
     except Exception as exc:
         public_error = safe_failure_detail(
