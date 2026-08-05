@@ -25,6 +25,11 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from services.secret_storage_service import (
+    protect_secret_mapping,
+    unprotect_secret_mapping,
+)
+
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
 
@@ -394,7 +399,7 @@ def get_settings(user_id: int, feature: str) -> dict[str, Any]:
         user_vals: dict[str, Any] = {}
         if row:
             try:
-                user_vals = json.loads(row["settings_json"])
+                user_vals = unprotect_secret_mapping(json.loads(row["settings_json"]))
             except (json.JSONDecodeError, TypeError):
                 user_vals = {}
 
@@ -422,7 +427,7 @@ def get_raw_settings(user_id: int, feature: str) -> dict[str, Any]:
         ).fetchone()
         if row:
             try:
-                return json.loads(row["settings_json"])
+                return unprotect_secret_mapping(json.loads(row["settings_json"]))
             except (json.JSONDecodeError, TypeError):
                 return {}
         return {}
@@ -437,7 +442,11 @@ def save_settings(user_id: int, feature: str, settings: dict[str, Any]) -> dict[
     Returns the merged settings after saving.
     """
     now = _now_iso()
-    settings_str = json.dumps(settings, ensure_ascii=False)
+    protected = protect_secret_mapping(
+        settings,
+        existing=get_raw_settings(user_id, feature),
+    )
+    settings_str = json.dumps(protected, ensure_ascii=False)
     conn = _connect()
     try:
         conn.execute(

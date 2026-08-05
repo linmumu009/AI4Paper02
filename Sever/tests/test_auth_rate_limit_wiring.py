@@ -28,6 +28,11 @@ class AuthRateLimitWiringTests(unittest.TestCase):
         self.assertIn('if "llm_base_url" in body.settings:', source)
         self.assertEqual(source.count("_validate_user_llm_url(body.base_url)"), 2)
 
+    def test_user_secrets_are_masked_before_api_response(self) -> None:
+        source = (_SEVER / "routers" / "auth_router.py").read_text(encoding="utf-8")
+        self.assertGreaterEqual(source.count("mask_secret_mapping("), 4)
+        self.assertEqual(source.count("to_public_llm_preset("), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

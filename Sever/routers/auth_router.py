@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from services import announcement_service, auth_service, entitlement_service, sms_service, user_presets_service, user_settings_service
 from services.network_target_guard import OutboundURLRejected, validate_user_llm_base_url
+from services.secret_storage_service import mask_secret_mapping
 from routers._deps import (
     _clear_session_cookie,
     _login_account_limiter,
@@ -411,7 +412,12 @@ def api_admin_delete_announcement(
 def api_get_user_settings(feature: str, _user=Depends(auth_service.require_user)):
     settings = user_settings_service.get_settings(_user["id"], feature)
     defaults = user_settings_service.get_defaults(feature)
-    return {"ok": True, "feature": feature, "settings": settings, "defaults": defaults}
+    return {
+        "ok": True,
+        "feature": feature,
+        "settings": mask_secret_mapping(settings),
+        "defaults": mask_secret_mapping(defaults),
+    }
 
 
 @router.put("/user/settings/{feature}", summary="Save user settings for a feature")
@@ -422,7 +428,12 @@ def api_save_user_settings(feature: str, body: UserSettingsBody, _user=Depends(a
         )
     merged = user_settings_service.save_settings(_user["id"], feature, body.settings)
     defaults = user_settings_service.get_defaults(feature)
-    return {"ok": True, "feature": feature, "settings": merged, "defaults": defaults}
+    return {
+        "ok": True,
+        "feature": feature,
+        "settings": mask_secret_mapping(merged),
+        "defaults": mask_secret_mapping(defaults),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -432,7 +443,10 @@ def api_save_user_settings(feature: str, body: UserSettingsBody, _user=Depends(a
 @router.get("/user/llm-presets", summary="List user LLM presets")
 def api_user_list_llm_presets(_user=Depends(auth_service.require_user)):
     presets = user_presets_service.list_llm_presets(_user["id"])
-    return {"ok": True, "presets": presets}
+    return {
+        "ok": True,
+        "presets": [user_presets_service.to_public_llm_preset(item) for item in presets],
+    }
 
 
 @router.post("/user/llm-presets", summary="Create LLM preset")
@@ -442,7 +456,7 @@ def api_user_create_llm_preset(body: UserLlmPresetBody, _user=Depends(auth_servi
     data = body.dict()
     data["base_url"] = _validate_user_llm_url(body.base_url)
     preset = user_presets_service.create_llm_preset(_user["id"], data)
-    return {"ok": True, "preset": preset}
+    return {"ok": True, "preset": user_presets_service.to_public_llm_preset(preset)}
 
 
 @router.put("/user/llm-presets/{preset_id}", summary="Update LLM preset")
@@ -454,7 +468,7 @@ def api_user_update_llm_preset(preset_id: int, body: UserLlmPresetBody, _user=De
     preset = user_presets_service.update_llm_preset(_user["id"], preset_id, data)
     if preset is None:
         raise HTTPException(status_code=404, detail="预设不存在")
-    return {"ok": True, "preset": preset}
+    return {"ok": True, "preset": user_presets_service.to_public_llm_preset(preset)}
 
 
 @router.delete("/user/llm-presets/{preset_id}", summary="Delete LLM preset")

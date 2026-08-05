@@ -36,6 +36,13 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+from services.secret_storage_service import (
+    SECRET_MASK,
+    decrypt_secret,
+    encrypt_secret,
+    mask_secret_mapping,
+)
+
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
 
@@ -54,7 +61,16 @@ def _now_iso() -> str:
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
-    return dict(row) if row else {}
+    data = dict(row) if row else {}
+    if "api_key" in data:
+        data["api_key"] = decrypt_secret(data.get("api_key"))
+    return data
+
+
+def to_public_llm_preset(preset: dict) -> dict:
+    public = mask_secret_mapping(preset)
+    public["has_api_key"] = bool(preset.get("api_key"))
+    return public
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +157,7 @@ def create_llm_preset(user_id: int, data: dict) -> dict:
                 user_id,
                 data.get("name", "未命名配置"),
                 data.get("base_url", ""),
-                data.get("api_key", ""),
+                encrypt_secret(data.get("api_key", "")),
                 data.get("model", ""),
                 data.get("max_tokens"),
                 data.get("temperature"),
@@ -161,6 +177,9 @@ def update_llm_preset(user_id: int, preset_id: int, data: dict) -> Optional[dict
     existing = get_llm_preset(user_id, preset_id)
     if not existing:
         return None
+    incoming_api_key = data.get("api_key", SECRET_MASK)
+    if incoming_api_key == SECRET_MASK:
+        incoming_api_key = existing.get("api_key", "")
     now = _now_iso()
     conn = _connect()
     try:
@@ -174,7 +193,7 @@ def update_llm_preset(user_id: int, preset_id: int, data: dict) -> Optional[dict
             (
                 data.get("name", existing["name"]),
                 data.get("base_url", existing["base_url"]),
-                data.get("api_key", existing["api_key"]),
+                encrypt_secret(incoming_api_key),
                 data.get("model", existing["model"]),
                 data.get("max_tokens", existing.get("max_tokens")),
                 data.get("temperature", existing.get("temperature")),
