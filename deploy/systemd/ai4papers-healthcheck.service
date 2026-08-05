@@ -10,5 +10,4 @@ User=root
 Group=root
 UMask=0077
 Environment=PYTHONUNBUFFERED=1
-EnvironmentFile=-/etc/ai4papers/healthcheck.env
-ExecStart=/usr/bin/python3 /projects/ArxivPaper4/Sever/scripts/check_system_health.py
+ExecStart=/usr/bin/python3 /projects/ArxivPaper4/Sever/scripts/check_system_health.py --no-alert

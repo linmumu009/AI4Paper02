@@ -27,9 +27,14 @@ class SystemdUnitTests(unittest.TestCase):
         timer = (
             _ROOT / "deploy" / "systemd" / "ai4papers-healthcheck.timer"
         ).read_text(encoding="utf-8")
+        service = (
+            _ROOT / "deploy" / "systemd" / "ai4papers-healthcheck.service"
+        ).read_text(encoding="utf-8")
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")
         self.assertIn("OnCalendar=*-*-* *:00/10:00", timer)
         self.assertIn("Persistent=true", timer)
+        self.assertIn("check_system_health.py --no-alert", service)
+        self.assertNotIn("EnvironmentFile", service)
         self.assertIn("systemctl enable --now ai4papers-healthcheck.timer", script)
 
 
