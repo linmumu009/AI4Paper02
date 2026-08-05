@@ -13,6 +13,7 @@ from openai import OpenAI
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+from services.llm_response_guard import require_nonempty_text  # noqa: E402
 from config.config import (  # noqa: E402
     summary_base_url_2,
     summary_gptgod_apikey,
@@ -88,7 +89,7 @@ def make_client() -> OpenAI:
 def summarize_one(client: OpenAI, md_path: Path) -> Tuple[Path, str]:
     md_text = md_path.read_text(encoding="utf-8", errors="ignore")
     if not md_text.strip():
-        return md_path, ""
+        raise RuntimeError(f"summary input is empty: {md_path.name}")
     sys_prompt = system_prompt
     user_content = md_text
     hard_limit = int(summary_input_hard_limit)
@@ -111,9 +112,10 @@ def summarize_one(client: OpenAI, md_path: Path) -> Tuple[Path, str]:
         stream=False,
         **kwargs,
     )
-    content = resp.choices[0].message.content if resp.choices else ""
-    if not content:
-        return md_path, ""
+    content = require_nonempty_text(
+        resp.choices[0].message.content if resp.choices else None,
+        operation=f"secondary_paper_summary:{md_path.stem}",
+    )
     lines = content.splitlines()
     for i, line in enumerate(lines):
         if line.strip().startswith("🌐来源"):
@@ -196,6 +198,7 @@ def run() -> None:
     start = time.monotonic()
     done = 0
     empty = 0
+    failures: List[str] = []
 
     def task(md_path: Path) -> Tuple[Path, str]:
         path, content = summarize_one(client, md_path)
@@ -214,7 +217,8 @@ def run() -> None:
                 if not content.strip():
                     empty += 1
             except Exception as e:
-                print(f"\r[SUMMARY] error on {src.name}: {e!r}", end="", flush=True)
+                failures.append(src.name)
+                print(f"\r[SUMMARY] error on {src.name}", end="", flush=True)
             done += 1
             elapsed = time.monotonic() - start
             rate = done / elapsed if elapsed > 0 else 0.0
@@ -224,6 +228,11 @@ def run() -> None:
     gather_path = write_gather(single_dir, gather_dir, date_str)
     print(f"[SUMMARY] single_dir={single_dir}", flush=True)
     print(f"[SUMMARY] gather_path={gather_path}", flush=True)
+    if empty or failures:
+        raise RuntimeError(
+            f"secondary summary generation incomplete: empty={empty}, "
+            f"errors={len(failures)}, total={total}"
+        )
     print("============结束生成精选论文中文摘要==============", flush=True)
 
 

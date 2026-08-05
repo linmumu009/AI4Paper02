@@ -24,6 +24,7 @@ from typing import Any, Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -419,16 +420,24 @@ def _sse_error(msg: str) -> Generator[str, None, None]:
 
 def _sse_stream_llm(client: OpenAI, cfg: dict, system_prompt: str, user_content: str) -> Generator[str, None, None]:
     """Stream LLM response as SSE events."""
+    full_reply = ""
     try:
         response = _call_llm(client, cfg, system_prompt, user_content, stream=True)
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
                 text = chunk.choices[0].delta.content
+                full_reply += text
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
+        require_nonempty_text(full_reply, operation="idea_stream_generation")
     except Exception as exc:
+        action = (
+            "模型未返回有效内容，请重试"
+            if isinstance(exc, EmptyLlmResponseError)
+            else "生成失败，请稍后重试"
+        )
         message = safe_failure_detail(
             _logger,
-            "生成失败，请稍后重试",
+            action,
             exc,
             operation="idea_stream_generation",
         )

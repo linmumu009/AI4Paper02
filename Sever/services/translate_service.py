@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from services.safe_logging_service import safe_failure_detail
+from services.llm_response_guard import require_nonempty_text
 
 logger = logging.getLogger(__name__)
 
@@ -396,8 +397,11 @@ def _translate_one_chunk(
             stream=False,
             **(extra_kwargs or {}),
         )
-        choice = resp.choices[0].message.content
-        text = (choice or "").strip()
+        choice = resp.choices[0].message.content if resp.choices else None
+        text = require_nonempty_text(
+            choice,
+            operation=f"translate_chunk_{index}",
+        )
         return index, text
     except Exception as exc:
         logger.exception("translate chunk %d failed: %s", index, exc)
@@ -573,11 +577,24 @@ def _translate_blocks_batch(
             stream=False,
             **(extra_kwargs or {}),
         )
-        response_text = (resp.choices[0].message.content or "").strip()
+        choice = resp.choices[0].message.content if resp.choices else None
+        response_text = require_nonempty_text(
+            choice,
+            operation=f"translate_block_batch_{index}",
+        )
     except Exception as exc:
         logger.exception("Block batch %d translation failed: %s", index, exc)
         raise
-    return index, _parse_block_response(response_text, batch)
+    parsed = _parse_block_response(response_text, batch)
+    expected_ids = {str(blk.block_id) for blk in batch}
+    missing_count = sum(
+        1 for block_id in expected_ids if not str(parsed.get(block_id) or "").strip()
+    )
+    if missing_count:
+        raise RuntimeError(
+            f"model response omitted {missing_count} translated blocks"
+        )
+    return index, parsed
 
 
 def _parse_block_response(response_text: str, batch: list) -> dict:

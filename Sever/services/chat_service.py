@@ -35,6 +35,7 @@ from typing import Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -828,10 +829,20 @@ def stream_chat(
                 full_reply += text
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
 
+        full_reply = require_nonempty_text(
+            full_reply,
+            operation="paper_chat_stream",
+        )
+
     except Exception as exc:
+        action = (
+            "模型未返回有效内容，请重试"
+            if isinstance(exc, EmptyLlmResponseError)
+            else "问答失败，请稍后重试"
+        )
         error_msg = safe_failure_detail(
             _logger,
-            "问答失败，请稍后重试",
+            action,
             exc,
             operation="paper_chat_stream",
         )
@@ -840,20 +851,19 @@ def stream_chat(
         return
 
     # Persist the complete assistant reply
-    if full_reply:
-        cited_sources = _extract_referenced_sources(full_reply, evidence_sources if paper_id != GENERAL_CHAT_PAPER_ID else [])
-        metadata = {
-            "evidence": cited_sources,
-            "data_source": evidence_data_source if paper_id != GENERAL_CHAT_PAPER_ID else None,
+    cited_sources = _extract_referenced_sources(full_reply, evidence_sources if paper_id != GENERAL_CHAT_PAPER_ID else [])
+    metadata = {
+        "evidence": cited_sources,
+        "data_source": evidence_data_source if paper_id != GENERAL_CHAT_PAPER_ID else None,
+    }
+    add_message(session_id, "assistant", full_reply, metadata=metadata)
+    if paper_id != GENERAL_CHAT_PAPER_ID:
+        event = {
+            "type": "evidence",
+            "sources": cited_sources,
+            "data_source": evidence_data_source,
         }
-        add_message(session_id, "assistant", full_reply, metadata=metadata)
-        if paper_id != GENERAL_CHAT_PAPER_ID:
-            event = {
-                "type": "evidence",
-                "sources": cited_sources,
-                "data_source": evidence_data_source,
-            }
-            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
     yield "data: [DONE]\n\n"
 
