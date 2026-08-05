@@ -252,3 +252,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_private_file
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\kb_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\user_paper_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\kb.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\arxiv-api.service
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_systemd_units.py

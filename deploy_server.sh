@@ -121,6 +121,13 @@ case "$TARGET" in
 esac
 
 echo "==== Restarting services ===="
+API_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/arxiv-api.service"
+if [[ -f "$API_SERVICE_SOURCE" ]]; then
+  echo "==== Installing API service unit ===="
+  install -m 0644 "$API_SERVICE_SOURCE" /etc/systemd/system/arxiv-api.service
+  systemctl daemon-reload
+  systemctl enable arxiv-api.service
+fi
 systemctl restart arxiv-api
 
 BACKUP_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.service"

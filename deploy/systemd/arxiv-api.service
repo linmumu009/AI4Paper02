@@ -1,0 +1,26 @@
+[Unit]
+Description=ArxivPaper4 FastAPI (uvicorn)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/projects/ArxivPaper4/Sever
+User=root
+Group=root
+
+# Keep one API process while maintenance schedulers still live in api.py.
+# Multiple workers would each start calibration, reward, and cleanup threads.
+ExecStart=/usr/local/bin/uvicorn api:app --host 127.0.0.1 --port 8000 --workers 1 --root-path /api --proxy-headers
+
+Restart=always
+RestartSec=3
+TimeoutStopSec=45
+KillMode=mixed
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=SITE_BASE_URL=https://ai4papers.com
+Environment=CORS_ORIGINS=https://ai4papers.com,https://www.ai4papers.com
+
+[Install]
+WantedBy=multi-user.target
