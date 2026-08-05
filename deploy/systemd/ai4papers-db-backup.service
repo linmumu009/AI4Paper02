@@ -27,3 +27,4 @@ RestrictNamespaces=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX
 ReadWritePaths=/projects/ArxivPaper4/backups
+ReadWritePaths=/projects/ArxivPaper4/Sever/database
