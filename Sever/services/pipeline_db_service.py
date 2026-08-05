@@ -1617,6 +1617,20 @@ def _get_theme_candidate_ids(
         }
         candidate_ids.discard("")
     else:
+        # Older successful runs may already have removed the deduplicated
+        # input file.  Their stored score set is the only authoritative record
+        # of the user-specific model candidates; do not expand those runs back
+        # to the much larger acquisition table during a recovery check.
+        candidate_ids = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT paper_arxiv_id FROM pipeline_theme_scores "
+                "WHERE user_id=? AND date_str=?",
+                (user_id, date_str),
+            ).fetchall()
+            if row[0]
+        }
+    if not candidate_ids:
         candidate_ids = {
             str(row[0])
             for row in conn.execute(
