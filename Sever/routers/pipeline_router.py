@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from services import auth_service
+from services.safe_logging_service import redact_sensitive_data, redact_sensitive_text
 
 router = APIRouter(prefix="/api/admin", tags=["pipeline"])
 
@@ -209,7 +210,7 @@ def _get_log_tail(log_file: str, n: int = 300) -> list:
     try:
         with open(log_file, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-        return [ln.rstrip("\n") for ln in lines[-n:]]
+        return [redact_sensitive_text(ln.rstrip("\n")) for ln in lines[-n:]]
     except OSError:
         return []
 
@@ -409,7 +410,7 @@ def _run_pipeline_thread(
 
         current_step = "启动中..."
         for line in proc.stdout:
-            line = line.rstrip("\n")
+            line = redact_sensitive_text(line.rstrip("\n"))
             log_line = f"[{datetime.now().strftime('%H:%M:%S')}] {line}"
 
             step_changed = False
@@ -456,7 +457,9 @@ def _run_pipeline_thread(
         exit_code = proc.returncode
     except Exception as exc:
         exit_code = -1
-        err_line = f"[{datetime.now().strftime('%H:%M:%S')}] [ERROR] {exc}"
+        err_line = redact_sensitive_text(
+            f"[{datetime.now().strftime('%H:%M:%S')}] [ERROR] {exc}"
+        )
         with _pipeline_lock:
             _pipeline_state["logs"].append(err_line)
         if log_fh:
@@ -541,7 +544,7 @@ def _run_pipeline_subprocess(cmd: list, env: dict, log_file: str) -> int:
         with _active_per_user_procs_lock:
             _active_per_user_procs.append(proc)
         for line in proc.stdout:
-            line = line.rstrip("\n")
+            line = redact_sensitive_text(line.rstrip("\n"))
             log_fh.write(f"[{datetime.now().strftime('%H:%M:%S')}] {line}\n")
         proc.wait()
         exit_code = proc.returncode
@@ -549,7 +552,7 @@ def _run_pipeline_subprocess(cmd: list, env: dict, log_file: str) -> int:
         exit_code = -1
         if log_fh:
             try:
-                log_fh.write(f"[ERROR] {exc}\n")
+                log_fh.write(redact_sensitive_text(f"[ERROR] {exc}") + "\n")
             except OSError:
                 pass
     finally:
@@ -583,6 +586,7 @@ def _run_multiuser_scheduler_thread(
     params = {"pipeline": "multi_user", "date": today, "sllm": sllm, "zo": zo}
 
     def _orch_log(msg: str) -> None:
+        msg = redact_sensitive_text(msg)
         log_line = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
         with _pipeline_lock:
             _pipeline_state["logs"].append(log_line)
@@ -1613,7 +1617,7 @@ def api_pipeline_runs(
     try:
         from services import pipeline_db_service as _pdb
         runs = _pdb.get_runs_recent_with_summary(limit=limit, date_str=date, user_id=user_id)
-        return {"runs": runs, "total": len(runs)}
+        return {"runs": redact_sensitive_data(runs), "total": len(runs)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -1628,7 +1632,7 @@ def api_pipeline_run_detail(
         run = _pdb.get_run_summary(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
-        return run
+        return redact_sensitive_data(run)
     except HTTPException:
         raise
     except Exception as exc:
@@ -1646,7 +1650,11 @@ def api_pipeline_run_steps(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         steps = _pdb.get_step_runs_for_run(run_id)
-        return {"run_id": run_id, "steps": steps, "total": len(steps)}
+        return {
+            "run_id": run_id,
+            "steps": redact_sensitive_data(steps),
+            "total": len(steps),
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -1666,7 +1674,11 @@ def api_pipeline_run_events(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         events = _pdb.get_events_for_run(run_id, step_run_id=step_run_id, limit=limit)
-        return {"run_id": run_id, "events": events, "total": len(events)}
+        return {
+            "run_id": run_id,
+            "events": redact_sensitive_data(events),
+            "total": len(events),
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -1684,7 +1696,11 @@ def api_pipeline_run_artifacts(
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
         artifacts = _pdb.get_artifacts_for_run(run_id)
-        return {"run_id": run_id, "artifacts": artifacts, "total": len(artifacts)}
+        return {
+            "run_id": run_id,
+            "artifacts": redact_sensitive_data(artifacts),
+            "total": len(artifacts),
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -1823,7 +1839,10 @@ def api_pipeline_rerun(
             try:
                 exit_code = _run_pipeline_subprocess(cmd, env, log_file)
             except Exception as exc:
-                print(f"[RERUN] error: {exc!r}", flush=True)
+                print(
+                    redact_sensitive_text(f"[RERUN] error: {exc!r}"),
+                    flush=True,
+                )
             finally:
                 try:
                     _pdb.update_run_status(

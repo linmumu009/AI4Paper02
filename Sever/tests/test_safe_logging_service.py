@@ -15,6 +15,7 @@ from services.safe_logging_service import (  # noqa: E402
     is_public_error_detail,
     log_internal_error,
     public_error_detail,
+    redact_sensitive_data,
     redact_sensitive_text,
     safe_failure_detail,
     safe_stored_error,
@@ -105,6 +106,16 @@ class SafeLoggingServiceTests(unittest.TestCase):
         )
         referenced = public_error_detail("abcdef123456", "翻译失败")
         self.assertEqual(safe_stored_error(referenced), referenced)
+
+    def test_structured_diagnostics_redact_secret_fields_and_nested_text(self) -> None:
+        redacted = redact_sensitive_data({
+            "api_key": "short",
+            "nested": [{"message": "password=q"}],
+            "token_usage": 42,
+        })
+        self.assertEqual(redacted["api_key"], "[REDACTED]")
+        self.assertEqual(redacted["nested"][0]["message"], "password=[REDACTED]")
+        self.assertEqual(redacted["token_usage"], 42)
 
 
 if __name__ == "__main__":

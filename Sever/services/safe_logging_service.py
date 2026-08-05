@@ -19,6 +19,19 @@ _QUERY_SECRET_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}")
 _ENCRYPTED_SECRET_RE = re.compile(r"enc:v1:[A-Za-z0-9_-]{12,}")
 _API_KEY_RE = re.compile(r"\bsk-(?:or-v1-)?[A-Za-z0-9._-]{8,}")
+_SECRET_FIELD_NAMES = {
+    "api_key",
+    "apikey",
+    "authorization",
+    "access_token",
+    "refresh_token",
+    "token",
+    "secret",
+    "password",
+    "signature",
+    "sig",
+    "llm_api_key",
+}
 _ASSIGNMENT_RE = re.compile(
     r"(?i)([\"']?(?:api[_-]?key|apikey|authorization|access[_-]?token|"
     r"refresh[_-]?token|token|secret|password|signature)[\"']?\s*[:=]\s*)"
@@ -42,6 +55,28 @@ def redact_sensitive_text(value: Any, *, max_length: int = 8000) -> str:
     if len(text) > max_length:
         text = text[:max_length] + "...[TRUNCATED]"
     return text
+
+
+def redact_sensitive_data(value: Any, *, _depth: int = 0) -> Any:
+    """Recursively sanitize structured diagnostic data before API exposure."""
+    if _depth > 20:
+        return "[TRUNCATED]"
+    if isinstance(value, dict):
+        result = {}
+        for key, item in value.items():
+            normalized = str(key).lower().replace("-", "_")
+            if normalized in _SECRET_FIELD_NAMES:
+                result[key] = _REDACTED
+            else:
+                result[key] = redact_sensitive_data(item, _depth=_depth + 1)
+        return result
+    if isinstance(value, list):
+        return [redact_sensitive_data(item, _depth=_depth + 1) for item in value]
+    if isinstance(value, tuple):
+        return tuple(redact_sensitive_data(item, _depth=_depth + 1) for item in value)
+    if isinstance(value, str):
+        return redact_sensitive_text(value)
+    return value
 
 
 def format_sanitized_exception(exc: BaseException) -> str:

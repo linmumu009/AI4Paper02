@@ -257,6 +257,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\config\logging_config.p
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\safe_logging_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_safe_logging_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_public_error_sanitization.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pipeline_log_redaction.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\idea_pipeline_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\compare_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\translate_service.py
