@@ -21,11 +21,19 @@ import os
 import re as _re
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from services.private_file_access_service import PrivateKbFilesMiddleware
+from services.safe_logging_service import (
+    is_error_reference,
+    is_public_error_detail,
+    log_internal_error,
+    public_error_detail,
+)
 
 from config.logging_config import configure_logging
 configure_logging()
@@ -71,6 +79,52 @@ app = FastAPI(
     description="Backend API for ArxivPaper4 paper digest system",
     version="1.0.0",
 )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def sanitized_http_exception_handler(
+    request: Request,
+    exc: StarletteHTTPException,
+):
+    if exc.status_code < 500:
+        return await http_exception_handler(request, exc)
+    existing_reference = str((exc.headers or {}).get("X-Error-ID") or "")
+    if (
+        is_error_reference(existing_reference)
+        and is_public_error_detail(exc.detail)
+        and existing_reference in str(exc.detail)
+    ):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers={"X-Error-ID": existing_reference},
+        )
+    reference = log_internal_error(
+        _logger,
+        "http_exception",
+        exc,
+        request_path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": public_error_detail(reference)},
+        headers={"X-Error-ID": reference},
+    )
+
+
+@app.exception_handler(Exception)
+async def sanitized_unhandled_exception_handler(request: Request, exc: Exception):
+    reference = log_internal_error(
+        _logger,
+        "unhandled_exception",
+        exc,
+        request_path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": public_error_detail(reference)},
+        headers={"X-Error-ID": reference},
+    )
 
 # ---------------------------------------------------------------------------
 # Startup hook

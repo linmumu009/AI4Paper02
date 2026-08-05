@@ -253,6 +253,10 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\kb_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\user_paper_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\kb.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\arxiv-api.service
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\config\logging_config.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\safe_logging_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_safe_logging_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_error_boundary_wiring.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_nginx_security.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\secret_storage_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\migrate_user_secrets.py

@@ -10,12 +10,16 @@ Provides:
 - Tier quota helpers (_tier_quota_limit, _tier_label)
 """
 
+import logging
 import os
 from typing import Optional
 
 from fastapi import HTTPException, Request, Response
 
 from services import auth_service, entitlement_service, rate_limit_service
+from services.safe_logging_service import log_internal_error, public_error_detail
+
+_logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Path constants
@@ -34,10 +38,12 @@ _EXE_RELEASE_DIR = os.path.normpath(os.path.join(_SEVER_DIR, "..", "exe_release"
 
 def _admin_error_response(action: str, exc: Exception, status_code: int = 500) -> HTTPException:
     """Log the real error server-side and return a sanitized HTTPException."""
-    import traceback
-    print(f"[ADMIN-ERROR] {action}: {exc!r}", flush=True)
-    traceback.print_exc()
-    return HTTPException(status_code=status_code, detail=f"{action}失败，请查看服务器日志")
+    reference = log_internal_error(_logger, action, exc)
+    return HTTPException(
+        status_code=status_code,
+        detail=public_error_detail(reference, f"{action}失败"),
+        headers={"X-Error-ID": reference},
+    )
 
 
 # ---------------------------------------------------------------------------

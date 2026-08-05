@@ -14,6 +14,13 @@ import logging
 import os
 import sys
 
+from services.safe_logging_service import redact_sensitive_text
+
+
+class _RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_sensitive_text(super().format(record))
+
 
 def configure_logging() -> None:
     """Configure root logger based on LOG_LEVEL and LOG_FORMAT env vars."""
@@ -24,7 +31,7 @@ def configure_logging() -> None:
     if fmt == "json":
         formatter = _JsonFormatter()
     else:
-        formatter = logging.Formatter(
+        formatter = _RedactingFormatter(
             fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
             datefmt="%Y-%m-%dT%H:%M:%S",
         )
@@ -54,15 +61,17 @@ class _JsonFormatter(logging.Formatter):
             "ts": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
             "level": record.levelname,
             "logger": record.name,
-            "msg": record.getMessage(),
+            "msg": redact_sensitive_text(record.getMessage()),
         }
         if record.exc_info:
-            payload["exc"] = self.formatException(record.exc_info)
+            payload["exc"] = redact_sensitive_text(
+                self.formatException(record.exc_info)
+            )
         elif record.exc_text:
-            payload["exc"] = record.exc_text
+            payload["exc"] = redact_sensitive_text(record.exc_text)
 
         # Attach extra fields (e.g. request_id, user_id) if callers pass them
-        for key in ("request_id", "user_id", "paper_id", "session_id"):
+        for key in ("request_id", "user_id", "paper_id"):
             if hasattr(record, key):
                 payload[key] = getattr(record, key)
 

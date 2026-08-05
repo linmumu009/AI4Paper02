@@ -41,6 +41,23 @@ class NginxSecurityTests(unittest.TestCase):
         )
         self.assertIn("server_tokens off;", config)
 
+    def test_access_log_omits_query_strings_and_referers(self) -> None:
+        config = (_ROOT / "nginx" / "arxivpaper4.conf").read_text(
+            encoding="utf-8"
+        )
+        start = config.index("log_format ai4papers_safe")
+        end = config.index(";", start)
+        safe_format = config[start:end]
+        self.assertIn("$request_method $uri $server_protocol", safe_format)
+        self.assertNotIn("$request ", safe_format)
+        self.assertNotIn("$args", safe_format)
+        self.assertNotIn("$request_uri", safe_format)
+        self.assertNotIn("$http_referer", safe_format)
+        self.assertEqual(
+            config.count("access_log /var/log/nginx/arxiv_access.log ai4papers_safe;"),
+            2,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
