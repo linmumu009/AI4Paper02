@@ -46,7 +46,8 @@ def _load_or_create_signing_key() -> bytes:
         os.makedirs(os.path.dirname(os.path.abspath(_KEY_PATH)), exist_ok=True)
         key = secrets.token_bytes(32)
         try:
-            fd = os.open(_KEY_PATH, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0)
+            fd = os.open(_KEY_PATH, flags, 0o600)
         except FileExistsError:
             with open(_KEY_PATH, "rb") as handle:
                 existing = handle.read()
@@ -54,7 +55,12 @@ def _load_or_create_signing_key() -> bytes:
                 raise RuntimeError("KB file signing key is invalid")
             return existing
         try:
-            os.write(fd, key)
+            remaining = memoryview(key)
+            while remaining:
+                written = os.write(fd, remaining)
+                if written <= 0:
+                    raise OSError("Failed to write KB file signing key")
+                remaining = remaining[written:]
             os.fsync(fd)
         finally:
             os.close(fd)
@@ -174,6 +180,9 @@ class PrivateKbFilesMiddleware:
             return
 
         path = str(scope.get("path") or "")
+        root_path = str(scope.get("root_path") or "").rstrip("/")
+        if root_path and (path == root_path or path.startswith(root_path + "/")):
+            path = path[len(root_path):] or "/"
         if not path.startswith(_STATIC_PREFIX):
             await self.app(scope, receive, send)
             return

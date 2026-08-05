@@ -40,7 +40,12 @@ class PrivateFileAccessServiceTests(unittest.TestCase):
         relative = unquote(parsed.path.removeprefix(service._STATIC_PREFIX))
         return relative, parse_qs(parsed.query)
 
-    def _middleware_status(self, path: str, query: str = "") -> int:
+    def _middleware_status(
+        self,
+        path: str,
+        query: str = "",
+        root_path: str = "",
+    ) -> int:
         messages: list[dict] = []
 
         async def downstream(scope, receive, send):
@@ -58,6 +63,7 @@ class PrivateFileAccessServiceTests(unittest.TestCase):
             "method": "GET",
             "scheme": "https",
             "path": path,
+            "root_path": root_path,
             "raw_path": path.encode("utf-8"),
             "query_string": query.encode("ascii"),
             "headers": [],
@@ -123,6 +129,20 @@ class PrivateFileAccessServiceTests(unittest.TestCase):
         parsed = urlsplit(signed_url)
 
         self.assertEqual(self._middleware_status(parsed.path, parsed.query), 200)
+
+    def test_middleware_respects_asgi_root_path(self) -> None:
+        target = self.root / "3" / "2608.00001" / "paper.pdf"
+        target.parent.mkdir(parents=True)
+        target.write_bytes(b"pdf")
+        signed_url = service.build_signed_kb_file_url(str(target), user_id=3)
+        parsed = urlsplit(signed_url)
+        rooted_path = "/api" + parsed.path
+
+        self.assertEqual(self._middleware_status(rooted_path, root_path="/api"), 401)
+        self.assertEqual(
+            self._middleware_status(rooted_path, parsed.query, root_path="/api"),
+            200,
+        )
 
 
 if __name__ == "__main__":
