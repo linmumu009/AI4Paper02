@@ -25,6 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+from services.private_file_access_service import PrivateKbFilesMiddleware
+
 from config.logging_config import configure_logging
 configure_logging()
 
@@ -141,6 +143,7 @@ _ALLOWED_HEADERS = [
     "Cookie", "X-CSRF-Token",
 ]
 
+app.add_middleware(PrivateKbFilesMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -166,10 +169,8 @@ _DATA_DIR = os.path.join(_SEVER_ROOT, "data")
 
 _KB_FILES_DIR = os.path.join(_DATA_DIR, "kb_files")
 os.makedirs(_KB_FILES_DIR, exist_ok=True)
-# SECURITY NOTE: /static/kb_files serves user-private content (KB files, translations, notes)
-# without any per-request authentication. In production this should be protected at the
-# reverse-proxy (nginx) level using auth_request, or migrated to signed download URLs.
-# See routers/download_router.py for the authenticated download endpoints.
+# PrivateKbFilesMiddleware authorizes every request by owner session or by the
+# short-lived HMAC URL returned from authenticated KB/user-paper endpoints.
 app.mount("/static/kb_files", StaticFiles(directory=_KB_FILES_DIR), name="kb_files")
 
 _PDFJS_DIR = os.path.join(_SEVER_ROOT, "static", "pdfjs")

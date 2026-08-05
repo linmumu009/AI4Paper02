@@ -247,3 +247,8 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\ai4papers-db-b
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\pipeline_lease_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pipeline_lease_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_digest_publication_gate.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\private_file_access_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_private_file_access_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\kb_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\user_paper_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\kb.ts

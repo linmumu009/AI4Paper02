@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
+from services.private_file_access_service import build_signed_kb_file_url
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 
@@ -53,20 +54,24 @@ class MoveUserPapersBody(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _enrich_user_paper(p: dict) -> dict:
-    if p.get("pdf_path"):
-        p["pdf_static_url"] = f"/static/kb_files/{p['pdf_path'].replace(chr(92), '/')}"
     uid = p.get("user_id")
     pid = p.get("paper_id")
+    if p.get("pdf_path") and uid is not None:
+        pdf_abs = os.path.join(user_paper_service._KB_FILES_DIR, p["pdf_path"])
+        try:
+            p["pdf_static_url"] = build_signed_kb_file_url(pdf_abs, int(uid))
+        except ValueError:
+            p["pdf_static_url"] = None
     if uid is not None and pid:
         try:
             paths = translate_service.paper_derivative_paths(int(uid), str(pid))
-            kb_root = os.path.normpath(user_paper_service._KB_FILES_DIR)
-
             def _kb_static_url(abs_path: str) -> str | None:
                 if not os.path.isfile(abs_path):
                     return None
-                rel = os.path.relpath(abs_path, kb_root).replace("\\", "/")
-                return f"/static/kb_files/{rel}"
+                try:
+                    return build_signed_kb_file_url(abs_path, int(uid))
+                except ValueError:
+                    return None
 
             p["mineru_static_url"] = (
                 _kb_static_url(paths["mineru_normalized"])
@@ -317,7 +322,11 @@ async def api_user_paper_upload_pdf(
         pdf_filename=file.filename or "paper.pdf",
     )
     if updated and updated.get("pdf_path"):
-        updated["pdf_static_url"] = f"/static/kb_files/{updated['pdf_path'].replace(chr(92), '/')}"
+        pdf_abs = os.path.join(user_paper_service._KB_FILES_DIR, updated["pdf_path"])
+        try:
+            updated["pdf_static_url"] = build_signed_kb_file_url(pdf_abs, _user["id"])
+        except ValueError:
+            updated["pdf_static_url"] = None
     return updated
 
 

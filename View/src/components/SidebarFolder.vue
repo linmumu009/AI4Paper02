@@ -89,6 +89,7 @@ function onNoteClick(note: KbNote) {
   if (note.type === 'link' && note.file_url) {
     openExternal(note.file_url)
   } else if (note.type === 'file' && note.file_path) {
+    const privateFileUrl = note.file_static_url || `/static/kb_files/${note.file_path}`
     const isPdf =
       (note.mime_type || '').toLowerCase() === 'application/pdf' ||
       note.file_path.toLowerCase().endsWith('.pdf') ||
@@ -96,12 +97,12 @@ function onNoteClick(note: KbNote) {
     if (isPdf) {
       emit('open-pdf', {
         paperId: note.paper_id,
-        filePath: note.file_path,
+        filePath: privateFileUrl,
         title: note.title,
       })
       return
     }
-    openExternal(`${API_ORIGIN}/static/kb_files/${note.file_path}`)
+    openExternal(`${API_ORIGIN}${privateFileUrl}`)
   } else {
     emit('open-note', { id: note.id, paperId: note.paper_id })
   }

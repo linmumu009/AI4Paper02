@@ -65,6 +65,7 @@ export interface KbNote {
   title: string
   content?: string
   file_path?: string
+  file_static_url?: string | null
   file_url?: string
   file_size?: number
   mime_type?: string

@@ -122,15 +122,18 @@ class UpdateAnnotationBody(BaseModel):
 # Enrichment helpers
 # ---------------------------------------------------------------------------
 
+from services.private_file_access_service import build_signed_kb_file_url
+
 def _enrich_kb_paper(p: dict, user_id: int) -> dict:
     paper_id = p.get("paper_id", "")
-    kb_root = os.path.normpath(_KB_FILES_DIR)
 
     def _kb_static(abs_path: str) -> str | None:
         if not os.path.isfile(abs_path):
             return None
-        rel = os.path.relpath(abs_path, kb_root).replace("\\", "/")
-        return f"/static/kb_files/{rel}"
+        try:
+            return build_signed_kb_file_url(abs_path, user_id)
+        except ValueError:
+            return None
 
     pdf_abs = os.path.join(_KB_FILES_DIR, str(user_id), paper_id, f"{paper_id}.pdf")
     p["pdf_static_url"] = _kb_static(pdf_abs)
@@ -151,6 +154,24 @@ def _enrich_kb_paper(p: dict, user_id: int) -> dict:
         p["bilingual_static_url"] = None
 
     return p
+
+
+def _enrich_kb_note(note: dict, user_id: int) -> dict:
+    note = dict(note)
+    file_path = note.get("file_path")
+    if file_path:
+        abs_path = os.path.join(_KB_FILES_DIR, str(file_path))
+        try:
+            note["file_static_url"] = (
+                build_signed_kb_file_url(abs_path, user_id)
+                if os.path.isfile(abs_path)
+                else None
+            )
+        except ValueError:
+            note["file_static_url"] = None
+    else:
+        note["file_static_url"] = None
+    return note
 
 
 def _enrich_kb_tree(tree: dict, user_id: int) -> dict:
@@ -312,7 +333,10 @@ def api_kb_move_papers(body: MovePapersBody, _user=Depends(auth_service.require_
 @router.get("/papers/{paper_id}/notes", summary="List notes for a paper")
 def api_kb_list_notes(paper_id: str, scope: str = Query("kb"), _user=Depends(auth_service.require_user)):
     notes = kb_service.list_notes(_user["id"], paper_id, scope=scope)
-    return {"paper_id": paper_id, "notes": notes}
+    return {
+        "paper_id": paper_id,
+        "notes": [_enrich_kb_note(note, _user["id"]) for note in notes],
+    }
 
 
 @router.post("/papers/{paper_id}/notes", summary="Create markdown note")
@@ -328,7 +352,7 @@ def api_kb_create_note(paper_id: str, body: CreateNoteBody, _user=Depends(auth_s
                 detail=f"笔记数量已达上限（{limit_check['limit']}），请升级套餐以继续创建",
             )
     note = kb_service.create_note(_user["id"], paper_id, body.title, body.content, scope=body.scope)
-    return note
+    return _enrich_kb_note(note, _user["id"])
 
 
 @router.get("/notes/{note_id}", summary="Get note detail")
@@ -336,7 +360,7 @@ def api_kb_get_note(note_id: int, _user=Depends(auth_service.require_user)):
     note = kb_service.get_note(_user["id"], note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    return _enrich_kb_note(note, _user["id"])
 
 
 @router.patch("/notes/{note_id}", summary="Update note")
@@ -344,7 +368,7 @@ def api_kb_update_note(note_id: int, body: UpdateNoteBody, _user=Depends(auth_se
     note = kb_service.update_note(_user["id"], note_id, body.title, body.content)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
-    return note
+    return _enrich_kb_note(note, _user["id"])
 
 
 @router.delete("/notes/{note_id}", summary="Delete note")
@@ -375,7 +399,7 @@ async def api_kb_upload_file(
 
     mime = file.content_type or "application/octet-stream"
     note = kb_service.add_note_file(_user["id"], paper_id, file.filename or "upload", file_bytes, mime, scope=scope)
-    return note
+    return _enrich_kb_note(note, _user["id"])
 
 
 @router.post("/papers/{paper_id}/notes/link", summary="Add link")
