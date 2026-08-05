@@ -5,6 +5,8 @@ PROJECT_ROOT="/projects/ArxivPaper4"
 TARGET=""
 INSTALL_NPM=false
 PREBUILT=false
+SERVICE_USER="ai4papers"
+SERVICE_GROUP="ai4papers"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,6 +41,44 @@ if [[ "$PREBUILT" == true && "$INSTALL_NPM" == true ]]; then
   echo "--prebuilt and --install-npm cannot be used together" >&2
   exit 2
 fi
+
+prepare_api_runtime_permissions() {
+  local server_root="${PROJECT_ROOT}/Sever"
+  local runtime_dirs=(
+    "${server_root}/data"
+    "${server_root}/database"
+    "${server_root}/logs"
+  )
+  local paper_list="${server_root}/config/paperList.json"
+
+  if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+    useradd --system --user-group --home-dir /nonexistent --shell /sbin/nologin "$SERVICE_USER"
+  fi
+
+  for runtime_dir in "${runtime_dirs[@]}"; do
+    install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$runtime_dir"
+    chown -R "$SERVICE_USER:$SERVICE_GROUP" "$runtime_dir"
+    find "$runtime_dir" -type d -exec chmod u+rwx {} +
+  done
+
+  touch "$paper_list"
+  chown "$SERVICE_USER:$SERVICE_GROUP" "$paper_list"
+  chmod u+rw,go-rwx "$paper_list"
+}
+
+api_is_ready() {
+  local attempt
+  for attempt in {1..20}; do
+    if systemctl is-active --quiet arxiv-api \
+      && curl --fail --silent --show-error --max-time 5 \
+        "http://127.0.0.1:8000/api/papers?date=$(date +%F)" \
+        --output /dev/null; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 
 build_client() {
   local label="$1"
@@ -121,14 +161,33 @@ case "$TARGET" in
 esac
 
 echo "==== Restarting services ===="
+echo "==== Preparing dedicated API service account ===="
+prepare_api_runtime_permissions
 API_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/arxiv-api.service"
+API_SERVICE_TARGET="/etc/systemd/system/arxiv-api.service"
+API_SERVICE_BACKUP="${API_SERVICE_TARGET}.ai4papers-deploy-backup"
 if [[ -f "$API_SERVICE_SOURCE" ]]; then
   echo "==== Installing API service unit ===="
-  install -m 0644 "$API_SERVICE_SOURCE" /etc/systemd/system/arxiv-api.service
+  if [[ -f "$API_SERVICE_TARGET" ]]; then
+    cp -f "$API_SERVICE_TARGET" "$API_SERVICE_BACKUP"
+  fi
+  install -m 0644 "$API_SERVICE_SOURCE" "$API_SERVICE_TARGET"
   systemctl daemon-reload
   systemctl enable arxiv-api.service
 fi
-systemctl restart arxiv-api
+if ! systemctl restart arxiv-api || ! api_is_ready; then
+  echo "API restart failed; restoring the previous service unit." >&2
+  if [[ -f "$API_SERVICE_BACKUP" ]]; then
+    mv -f "$API_SERVICE_BACKUP" "$API_SERVICE_TARGET"
+  else
+    rm -f "$API_SERVICE_TARGET"
+  fi
+  systemctl daemon-reload
+  systemctl restart arxiv-api || true
+  api_is_ready || true
+  exit 1
+fi
+rm -f "$API_SERVICE_BACKUP"
 
 BACKUP_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.service"
 BACKUP_TIMER_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.timer"

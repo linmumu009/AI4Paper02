@@ -6,8 +6,8 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/projects/ArxivPaper4/Sever
-User=root
-Group=root
+User=ai4papers
+Group=ai4papers
 
 # Keep one API process while maintenance schedulers still live in api.py.
 # Multiple workers would each start calibration, reward, and cleanup threads.
@@ -21,7 +21,7 @@ UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true
-ProtectSystem=full
+ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
@@ -32,6 +32,12 @@ RestrictRealtime=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/projects/ArxivPaper4/Sever/data
+ReadWritePaths=/projects/ArxivPaper4/Sever/database
+ReadWritePaths=/projects/ArxivPaper4/Sever/logs
+ReadWritePaths=/projects/ArxivPaper4/Sever/config/paperList.json
 Environment=PYTHONUNBUFFERED=1
 Environment=SITE_BASE_URL=https://ai4papers.com
 Environment=CORS_ORIGINS=https://ai4papers.com,https://www.ai4papers.com
