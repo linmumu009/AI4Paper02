@@ -774,6 +774,24 @@ def main(argv=None):
     if not steps:
         raise SystemExit(f"Unknown pipeline: {pipeline}")
 
+    # Acquisition and parsing can consume multiple gigabytes.  Refuse to start
+    # those pipelines when the host is already below the configured safety
+    # margin; cleanup and targeted per-user repair remain available.
+    if pipeline in {"shared", "default", "daily"}:
+        try:
+            from services.storage_health_service import require_pipeline_capacity
+
+            storage_health = require_pipeline_capacity(ROOT)
+            print(
+                f"[STORAGE] state={storage_health['state']} "
+                f"used={storage_health['used_percent']}% "
+                f"free={storage_health['free_bytes']}",
+                flush=True,
+            )
+        except RuntimeError as exc:
+            print(f"[STORAGE][BLOCKED] {exc}", flush=True)
+            raise SystemExit(75)
+
     # Remove zotero_push unless explicitly enabled
     if zo_value != "T":
         steps = [s for s in steps if s != "zotero_push"]

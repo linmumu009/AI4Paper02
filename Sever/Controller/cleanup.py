@@ -43,7 +43,7 @@ import argparse
 import os
 import shutil
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -234,13 +234,29 @@ def cleanup_slim_mineru(date_str: str, dry_run: bool = False) -> int:
     """
     Remove non-.md files and subdirs within full_mineru_cache/<date>/<arxiv_id>/.
     Keeps the <arxiv_id>.md file which is needed by paper_summary and idea_ingest.
-    Only runs if DB has summaries for that date.
+    Only runs if every configured user's final selections have complete limited
+    summaries for that date.  Saved KB papers are copied first.
     """
     try:
-        from services.pipeline_db_service import has_summaries_limit
-        if not has_summaries_limit(0, date_str):
+        from services.pipeline_db_service import get_db_step_coverage
+        from services.user_settings_service import list_users_with_custom_configs
+
+        user_ids = [0] + [
+            int(uid) for uid in list_users_with_custom_configs() if int(uid) != 0
+        ]
+        incomplete_users = []
+        for user_id in user_ids:
+            coverage = get_db_step_coverage("summary_limit", user_id, date_str)
+            if not coverage.get("complete"):
+                incomplete_users.append({
+                    "user_id": user_id,
+                    "expected": coverage.get("expected_count", 0),
+                    "valid": coverage.get("valid_count", 0),
+                })
+        if incomplete_users:
             _log(
-                f"SKIP slim-mineru for {date_str}: DB has no summaries yet",
+                f"SKIP slim-mineru for {date_str}: summaries incomplete for "
+                f"users={incomplete_users}",
                 dry_run=False,
             )
             return 0
@@ -251,6 +267,8 @@ def cleanup_slim_mineru(date_str: str, dry_run: bool = False) -> int:
     cache_date_dir = _DATA_ROOT / "full_mineru_cache" / date_str
     if not cache_date_dir.is_dir():
         return 0
+
+    _pre_copy_kb_mineru_for_date(date_str, dry_run=dry_run)
 
     freed = 0
     for paper_dir in cache_date_dir.iterdir():
@@ -451,6 +469,12 @@ def main() -> None:
     ap.add_argument("--date", default="", help="Target date (YYYY-MM-DD)")
     ap.add_argument("--all-dates", action="store_true", help="Clean all available dates")
     ap.add_argument(
+        "--older-than-days",
+        type=int,
+        default=None,
+        help="With --all-dates, only process YYYY-MM-DD directories older than N days",
+    )
+    ap.add_argument(
         "--mode",
         default="intermediate,deprecated",
         help=(
@@ -473,6 +497,15 @@ def main() -> None:
         ):
             date_set.update(_list_dates(_DATA_ROOT, subdir))
         dates = sorted(date_set)
+        if args.older_than_days is not None:
+            cutoff = datetime.now().date() - timedelta(
+                days=max(0, int(args.older_than_days))
+            )
+            dates = [
+                date_str
+                for date_str in dates
+                if datetime.strptime(date_str, "%Y-%m-%d").date() < cutoff
+            ]
     else:
         date_str = (args.date or "").strip()
         if not date_str:

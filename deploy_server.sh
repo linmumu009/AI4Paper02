@@ -123,6 +123,16 @@ esac
 echo "==== Restarting services ===="
 systemctl restart arxiv-api
 
+BACKUP_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.service"
+BACKUP_TIMER_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-db-backup.timer"
+if [[ -f "$BACKUP_SERVICE_SOURCE" && -f "$BACKUP_TIMER_SOURCE" ]]; then
+  echo "==== Installing database backup timer ===="
+  install -m 0644 "$BACKUP_SERVICE_SOURCE" /etc/systemd/system/ai4papers-db-backup.service
+  install -m 0644 "$BACKUP_TIMER_SOURCE" /etc/systemd/system/ai4papers-db-backup.timer
+  systemctl daemon-reload
+  systemctl enable --now ai4papers-db-backup.timer
+fi
+
 NGINX_SOURCE="${PROJECT_ROOT}/nginx/arxivpaper4.conf"
 NGINX_TARGET="/etc/nginx/conf.d/arxivpaper4.conf"
 NGINX_BACKUP="${NGINX_TARGET}.ai4papers-deploy-backup"

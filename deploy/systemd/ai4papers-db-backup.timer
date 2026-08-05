@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AI4Papers database backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:20:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=ai4papers-db-backup.service
+
+[Install]
+WantedBy=timers.target

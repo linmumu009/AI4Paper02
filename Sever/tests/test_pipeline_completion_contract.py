@@ -14,7 +14,7 @@ if str(_SEVER) not in sys.path:
 
 import app  # noqa: E402
 from Controller import cleanup  # noqa: E402
-from services import pipeline_db_service  # noqa: E402
+from services import pipeline_db_service, user_settings_service  # noqa: E402
 
 
 class TestPipelineCompletionContract(unittest.TestCase):
@@ -208,6 +208,33 @@ class TestPipelineCompletionContract(unittest.TestCase):
         self.assertTrue((raw_dir / "2608.00001.pdf").exists())
         self.assertTrue((raw_dir / "2608.00002.pdf").exists())
         self.assertFalse((raw_dir / "2608.00003.pdf").exists())
+
+    def test_slim_mineru_requires_complete_summaries_for_all_users(self) -> None:
+        for user_id in (0, 3):
+            self._select_final(user_id, ["2608.00001"])
+            pipeline_db_service.upsert_summary_limit(
+                user_id, self.date_str, "2608.00001", "complete limited summary"
+            )
+
+        paper_dir = (
+            self.tmp_path
+            / "full_mineru_cache"
+            / self.date_str
+            / "2608.00001"
+        )
+        paper_dir.mkdir(parents=True)
+        (paper_dir / "2608.00001.md").write_text("markdown", encoding="utf-8")
+        (paper_dir / "origin.pdf").write_bytes(b"pdf")
+
+        with (
+            patch.object(cleanup, "_DATA_ROOT", self.tmp_path),
+            patch.object(user_settings_service, "list_users_with_custom_configs", return_value=[3]),
+            patch.object(cleanup, "_pre_copy_kb_mineru_for_date"),
+        ):
+            cleanup.cleanup_slim_mineru(self.date_str)
+
+        self.assertTrue((paper_dir / "2608.00001.md").exists())
+        self.assertFalse((paper_dir / "origin.pdf").exists())
 
 
 if __name__ == "__main__":

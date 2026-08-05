@@ -1,0 +1,223 @@
+"""Create verified, compressed SQLite backups on the server.
+
+The script uses SQLite's online backup API, verifies every copy before
+compression, writes an integrity manifest, and retains only a bounded number
+of completed backup directories.  It never transfers data off the host.
+"""
+
+from __future__ import annotations
+
+import argparse
+import gzip
+import hashlib
+import json
+import os
+import shutil
+import sqlite3
+import tempfile
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+_SEVER_ROOT = Path(__file__).resolve().parents[1]
+_PROJECT_ROOT = _SEVER_ROOT.parent
+_DEFAULT_DB_DIR = _SEVER_ROOT / "database"
+_DEFAULT_BACKUP_ROOT = _PROJECT_ROOT / "backups"
+_MIN_HEADROOM_BYTES = 128 * 1024 * 1024
+
+
+def _quick_check(db_path: Path) -> str:
+    uri = f"file:{db_path.as_posix()}?mode=ro"
+    conn = sqlite3.connect(uri, uri=True)
+    try:
+        row = conn.execute("PRAGMA quick_check").fetchone()
+        result = str(row[0]) if row else "missing_result"
+    finally:
+        conn.close()
+    if result.lower() != "ok":
+        raise RuntimeError(f"SQLite quick_check failed for {db_path}: {result}")
+    return result
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
+    plain_path = staging_dir / source.name
+    compressed_path = staging_dir / f"{source.name}.gz"
+
+    source_uri = f"file:{source.as_posix()}?mode=ro"
+    source_conn = sqlite3.connect(source_uri, uri=True, timeout=30)
+    destination_conn = sqlite3.connect(plain_path)
+    try:
+        source_conn.backup(destination_conn, pages=2048, sleep=0.05)
+    finally:
+        destination_conn.close()
+        source_conn.close()
+
+    _quick_check(plain_path)
+    with plain_path.open("rb") as source_handle, gzip.open(
+        compressed_path, "wb", compresslevel=6
+    ) as compressed_handle:
+        shutil.copyfileobj(source_handle, compressed_handle, length=1024 * 1024)
+    plain_path.unlink()
+
+    # Reading the whole gzip stream verifies its CRC and confirms it is not
+    # merely a valid header around truncated data.
+    uncompressed_bytes = 0
+    with gzip.open(compressed_path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            uncompressed_bytes += len(chunk)
+
+    return {
+        "name": source.name,
+        "source_bytes": source.stat().st_size,
+        "backup_uncompressed_bytes": uncompressed_bytes,
+        "compressed_bytes": compressed_path.stat().st_size,
+        "compressed_sha256": _sha256(compressed_path),
+        "quick_check": "ok",
+    }
+
+
+def _completed_backup_dirs(backup_root: Path) -> list[Path]:
+    if not backup_root.is_dir():
+        return []
+    return sorted(
+        (
+            path
+            for path in backup_root.iterdir()
+            if path.is_dir()
+            and not path.name.startswith(".incomplete-")
+            and (path / "manifest.json").is_file()
+        ),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+
+
+def _prune_old_backups(backup_root: Path, retention_count: int) -> list[str]:
+    removed: list[str] = []
+    for path in _completed_backup_dirs(backup_root)[max(1, retention_count):]:
+        shutil.rmtree(path)
+        removed.append(path.name)
+    return removed
+
+
+def create_backup(
+    db_dir: Path,
+    backup_root: Path,
+    *,
+    retention_count: int = 3,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    db_dir = db_dir.resolve()
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup_root = backup_root.resolve()
+
+    sources = sorted(path for path in db_dir.glob("*.db") if path.is_file())
+    if not sources:
+        raise RuntimeError(f"No SQLite databases found in {db_dir}")
+
+    largest_db = max(path.stat().st_size for path in sources)
+    required_free = largest_db * 2 + _MIN_HEADROOM_BYTES
+    free_bytes = shutil.disk_usage(backup_root).free
+    if free_bytes < required_free:
+        raise RuntimeError(
+            f"Insufficient free space for safe backup: free={free_bytes} "
+            f"required={required_free}"
+        )
+
+    timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H%M%SZ")
+    final_dir = backup_root / timestamp
+    if final_dir.exists():
+        raise RuntimeError(f"Backup destination already exists: {final_dir}")
+    staging_dir = backup_root / f".incomplete-{timestamp}-{uuid.uuid4().hex[:8]}"
+    staging_dir.mkdir(parents=False)
+
+    try:
+        database_results = [_backup_one(source, staging_dir) for source in sources]
+        manifest = {
+            "version": 1,
+            "created_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "db_dir": str(db_dir),
+            "host_only": True,
+            "databases": database_results,
+        }
+        (staging_dir / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        staging_dir.rename(final_dir)
+    except Exception:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+    removed = _prune_old_backups(backup_root, retention_count)
+    return {
+        "ok": True,
+        "backup_dir": str(final_dir),
+        "database_count": len(database_results),
+        "compressed_bytes": sum(item["compressed_bytes"] for item in database_results),
+        "removed_backups": removed,
+    }
+
+
+def verify_backup(backup_dir: Path) -> dict[str, Any]:
+    backup_dir = backup_dir.resolve()
+    manifest_path = backup_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    verified: list[str] = []
+
+    for item in manifest.get("databases") or []:
+        name = str(item["name"])
+        compressed_path = backup_dir / f"{name}.gz"
+        if _sha256(compressed_path) != item.get("compressed_sha256"):
+            raise RuntimeError(f"Checksum mismatch: {compressed_path}")
+        temp_handle = tempfile.NamedTemporaryFile(
+            prefix=f"verify-{name}-", suffix=".db", dir=backup_dir, delete=False
+        )
+        temp_path = Path(temp_handle.name)
+        try:
+            with temp_handle, gzip.open(compressed_path, "rb") as source:
+                shutil.copyfileobj(source, temp_handle, length=1024 * 1024)
+            _quick_check(temp_path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+        verified.append(name)
+
+    return {"ok": True, "backup_dir": str(backup_dir), "verified": verified}
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Verified host-local SQLite backup")
+    parser.add_argument("--db-dir", type=Path, default=_DEFAULT_DB_DIR)
+    parser.add_argument("--backup-root", type=Path, default=_DEFAULT_BACKUP_ROOT)
+    parser.add_argument("--retention-count", type=int, default=3)
+    parser.add_argument("--verify", type=Path, default=None, help="Verify one backup directory")
+    parser.add_argument("--verify-latest", action="store_true")
+    args = parser.parse_args()
+
+    if args.verify is not None:
+        result = verify_backup(args.verify)
+    elif args.verify_latest:
+        completed = _completed_backup_dirs(args.backup_root.resolve())
+        if not completed:
+            raise SystemExit("No completed backup found")
+        result = verify_backup(completed[0])
+    else:
+        result = create_backup(
+            args.db_dir,
+            args.backup_root,
+            retention_count=max(1, args.retention_count),
+        )
+    print(json.dumps(result, ensure_ascii=False), flush=True)
+
+
+if __name__ == "__main__":
+    main()

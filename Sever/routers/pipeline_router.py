@@ -1213,6 +1213,17 @@ def api_admin_pipeline_run_status(
     except Exception:
         pass
 
+    try:
+        from services.storage_health_service import get_storage_health
+
+        base["storage"] = get_storage_health(_SEVER_DIR)
+    except Exception as exc:
+        base["storage"] = {
+            "state": "unknown",
+            "can_start_pipeline": False,
+            "reason": f"storage health check failed: {exc}",
+        }
+
     return base
 
 
