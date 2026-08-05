@@ -28,3 +28,4 @@ SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX
 ReadWritePaths=/projects/ArxivPaper4/backups
 ReadWritePaths=/projects/ArxivPaper4/Sever/database
+ReadOnlyPaths=-/etc/ai4papers/sms.env

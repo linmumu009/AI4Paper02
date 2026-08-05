@@ -26,6 +26,7 @@ _DEFAULT_DB_DIR = _SEVER_ROOT / "database"
 _DEFAULT_BACKUP_ROOT = _PROJECT_ROOT / "backups"
 _MIN_HEADROOM_BYTES = 128 * 1024 * 1024
 _RECOVERY_SECRET_NAMES = (".secret_storage_key", "kb_file_signing.key")
+_DEFAULT_EXTERNAL_RECOVERY_SECRETS = (Path("/etc/ai4papers/sms.env"),)
 
 
 def _chmod_private(path: Path, mode: int) -> None:
@@ -100,12 +101,25 @@ def _backup_one(source: Path, staging_dir: Path) -> dict[str, Any]:
     }
 
 
-def _backup_recovery_secret(source: Path, staging_dir: Path) -> dict[str, Any]:
-    destination = staging_dir / source.name
+def _backup_recovery_secret(
+    source: Path,
+    staging_dir: Path,
+    *,
+    archive_name: str,
+    restore_path: str,
+) -> dict[str, Any]:
+    if not archive_name or Path(archive_name).name != archive_name:
+        raise RuntimeError(f"Unsafe recovery-secret archive name: {archive_name!r}")
+    if source.is_symlink() or not source.is_file():
+        raise RuntimeError(f"Unsafe recovery-secret source: {source}")
+    if os.name != "nt" and source.stat().st_mode & 0o077:
+        raise RuntimeError(f"Recovery-secret source is not private: {source}")
+    destination = staging_dir / archive_name
     shutil.copyfile(source, destination)
     _chmod_private(destination, 0o600)
     return {
-        "name": source.name,
+        "name": archive_name,
+        "restore_path": restore_path,
         "bytes": destination.stat().st_size,
         "sha256": _sha256(destination),
     }
@@ -141,6 +155,7 @@ def create_backup(
     *,
     retention_count: int = 3,
     now: datetime | None = None,
+    external_recovery_secrets: tuple[Path, ...] | None = None,
 ) -> dict[str, Any]:
     db_dir = db_dir.resolve()
     backup_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -169,14 +184,36 @@ def create_backup(
     _chmod_private(staging_dir, 0o700)
 
     try:
+        recovery_sources = [
+            (db_dir / name, name, str(db_dir / name))
+            for name in _RECOVERY_SECRET_NAMES
+            if (db_dir / name).is_file()
+        ]
+        external_sources = (
+            _DEFAULT_EXTERNAL_RECOVERY_SECRETS
+            if external_recovery_secrets is None
+            else external_recovery_secrets
+        )
+        recovery_sources.extend(
+            (source, source.name, str(source))
+            for source in external_sources
+            if source.is_file()
+        )
+        archive_names = [archive_name for _, archive_name, _ in recovery_sources]
+        if len(archive_names) != len(set(archive_names)):
+            raise RuntimeError("Duplicate recovery-secret archive name")
         database_results = [_backup_one(source, staging_dir) for source in sources]
         recovery_secret_results = [
-            _backup_recovery_secret(source, staging_dir)
-            for source in (db_dir / name for name in _RECOVERY_SECRET_NAMES)
-            if source.is_file()
+            _backup_recovery_secret(
+                source,
+                staging_dir,
+                archive_name=archive_name,
+                restore_path=restore_path,
+            )
+            for source, archive_name, restore_path in recovery_sources
         ]
         manifest = {
-            "version": 2,
+            "version": 3,
             "created_at": (now or datetime.now(timezone.utc)).isoformat(),
             "db_dir": str(db_dir),
             "host_only": True,
@@ -232,6 +269,8 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
     verified_recovery_secrets: list[str] = []
     for item in manifest.get("recovery_secrets") or []:
         name = str(item["name"])
+        if not name or Path(name).name != name:
+            raise RuntimeError(f"Unsafe recovery-secret archive name: {name!r}")
         secret_path = backup_dir / name
         if _sha256(secret_path) != item.get("sha256"):
             raise RuntimeError(f"Checksum mismatch: {secret_path}")
