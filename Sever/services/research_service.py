@@ -45,6 +45,7 @@ from typing import Generator, Optional
 from openai import OpenAI
 from openai import APIConnectionError, AuthenticationError, RateLimitError, APIStatusError
 from services.llm_utils import approx_tokens as _approx_tokens, crop as _crop
+from services.llm_response_guard import require_nonempty_text
 from services import paper_data_utils as _pdu
 from services.safe_logging_service import safe_failure_detail
 
@@ -720,7 +721,10 @@ def _call_llm_sync(client: OpenAI, cfg: dict, messages: list[dict],
         stream=False,
         **kwargs,
     )
-    return resp.choices[0].message.content or ""
+    return require_nonempty_text(
+        resp.choices[0].message.content if resp.choices else None,
+        operation="deep_research_sync",
+    )
 
 
 def _stream_llm(client: OpenAI, cfg: dict, messages: list[dict],
@@ -748,11 +752,21 @@ def _stream_llm(client: OpenAI, cfg: dict, messages: list[dict],
             stream=True,
             **kwargs,
         )
+        full_reply = ""
+        cancelled = False
         for chunk in response:
             if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
                 break
             if chunk.choices and chunk.choices[0].delta.content:
-                yield _sse_text(round_num, chunk.choices[0].delta.content)
+                text = chunk.choices[0].delta.content
+                full_reply += text
+                yield _sse_text(round_num, text)
+        if not cancelled:
+            require_nonempty_text(
+                full_reply,
+                operation=f"deep_research_round_{round_num}",
+            )
     except Exception as exc:
         yield _sse({"type": "error", "round": round_num, "content": f"LLM 调用失败: {_friendly_llm_error(exc)}"})
         if error_state is not None:

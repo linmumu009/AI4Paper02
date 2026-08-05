@@ -17,6 +17,7 @@ from typing import Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -484,15 +485,23 @@ def stream_compare(
             **kwargs,
         )
 
+        full_reply = ""
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
                 text = chunk.choices[0].delta.content
+                full_reply += text
                 yield f"data: {json.dumps(text, ensure_ascii=False)}\n\n"
+        require_nonempty_text(full_reply, operation="paper_compare_stream")
 
     except Exception as exc:
+        action = (
+            "模型未返回有效内容，请重试"
+            if isinstance(exc, EmptyLlmResponseError)
+            else "分析失败，请稍后重试"
+        )
         message = safe_failure_detail(
             _logger,
-            "分析失败，请稍后重试",
+            action,
             exc,
             operation="paper_compare_stream",
         )

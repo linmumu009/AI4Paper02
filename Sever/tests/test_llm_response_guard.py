@@ -18,6 +18,7 @@ from services.translate_service import (  # noqa: E402
     _translate_blocks_batch,
     _translate_one_chunk,
 )
+from services.research_service import _call_llm_sync, _stream_llm  # noqa: E402
 
 
 class _FakeCompletions:
@@ -35,6 +36,11 @@ def _client(content):
     return SimpleNamespace(
         chat=SimpleNamespace(completions=_FakeCompletions(content))
     )
+
+
+def _stream_client(chunks):
+    completions = SimpleNamespace(create=lambda **_kwargs: iter(chunks))
+    return SimpleNamespace(chat=SimpleNamespace(completions=completions))
 
 
 class LlmResponseGuardTests(unittest.TestCase):
@@ -80,9 +86,37 @@ class LlmResponseGuardTests(unittest.TestCase):
         summary = (_SEVER / "Controller/paper_summary_claude.py").read_text(
             encoding="utf-8"
         )
+        compare = (_SEVER / "services/compare_service.py").read_text(
+            encoding="utf-8"
+        )
         self.assertIn('operation="paper_chat_stream"', chat)
         self.assertIn('operation="idea_stream_generation"', idea)
+        self.assertIn('operation="paper_compare_stream"', compare)
         self.assertIn("secondary summary generation incomplete", summary)
+
+    def test_research_sync_rejects_empty_success(self) -> None:
+        with self.assertRaises(EmptyLlmResponseError):
+            _call_llm_sync(
+                _client(None),
+                {"llm_model": "test"},
+                [{"role": "user", "content": "question"}],
+            )
+
+    def test_research_stream_records_empty_success_as_error(self) -> None:
+        errors = []
+        with self.assertLogs("services.research_service", level="ERROR"):
+            events = list(
+                _stream_llm(
+                    _stream_client([]),
+                    {"llm_model": "test"},
+                    [{"role": "user", "content": "question"}],
+                    round_num=2,
+                    error_state=errors,
+                )
+            )
+        self.assertEqual(len(errors), 1)
+        self.assertIsInstance(errors[0], EmptyLlmResponseError)
+        self.assertTrue(any('"type": "error"' in event for event in events))
 
 
 if __name__ == "__main__":
