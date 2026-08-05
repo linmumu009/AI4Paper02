@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +16,12 @@ if str(_SEVER) not in sys.path:
 from Controller.summary_limit import (  # noqa: E402
     _choice_text,
     load_pdf_info_map_for_run,
+    process_one_with_fallback,
     structure_matches_example,
+)
+from services.llm_response_guard import (  # noqa: E402
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
 )
 
 
@@ -37,19 +43,47 @@ class TestChoiceText(unittest.TestCase):
 
 
 class TestStructureMatchesExample(unittest.TestCase):
-    def test_none_content_treated_as_no(self):
+    def test_none_content_is_not_treated_as_business_no(self):
         client = MagicMock()
         client.chat.completions.create.return_value = _resp_with_content(None)
-        result = structure_matches_example(
-            client, "笔记标题：测试\n🛎️文章简介", paper_id="2605.20022"
-        )
-        self.assertFalse(result)
+        with self.assertRaises(EmptyLlmResponseError):
+            structure_matches_example(
+                client, "笔记标题：测试\n🛎️文章简介", paper_id="2605.20022"
+            )
 
     def test_yes_reply(self):
         client = MagicMock()
         client.chat.completions.create.return_value = _resp_with_content("yes")
         result = structure_matches_example(client, "some text", paper_id="x")
         self.assertTrue(result)
+
+    def test_unrecognized_reply_is_not_treated_as_no(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = _resp_with_content("UNKNOWN")
+        with self.assertRaises(InvalidLlmResponseError):
+            structure_matches_example(client, "some text", paper_id="x")
+
+
+class TestExplicitLocalFallback(unittest.TestCase):
+    def test_model_failure_returns_nonempty_labeled_fallback(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "paper.md"
+            output = root / "out.md"
+            source.write_text("标题\n\n🛎️文章简介\n有效内容", encoding="utf-8")
+            with patch(
+                "Controller.summary_limit.process_one",
+                side_effect=EmptyLlmResponseError("empty model result"),
+            ):
+                _, status = process_one_with_fallback(
+                    MagicMock(),
+                    source,
+                    output,
+                    {},
+                )
+
+            self.assertEqual(status, "fallback")
+            self.assertTrue(output.read_text(encoding="utf-8").strip())
 
 
 class TestLoadPdfInfoMapForRun(unittest.TestCase):

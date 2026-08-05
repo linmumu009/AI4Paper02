@@ -16,6 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import (
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
+from services.safe_logging_service import redact_sensitive_text
 from config.config import (  # noqa: E402
     qwen_api_key,
     summary_limit_base_url,
@@ -519,6 +525,7 @@ def rewrite_block(
     content = text.strip()
     if not content:
         return content
+    last_error: Optional[BaseException] = None
     for _ in range(max_retries):
         hard_limit = int(ecfg.get("input_hard_limit") or summary_limit_input_hard_limit)
         safety_margin = int(ecfg.get("input_safety_margin") or summary_limit_input_safety_margin)
@@ -543,13 +550,22 @@ def rewrite_block(
             stream=False,
             **kwargs,
         )
-        new_text = _choice_text(resp)
-        if not new_text:
-            new_text = content
+        try:
+            new_text = require_nonempty_text(
+                _choice_text(resp),
+                operation="summary_limit_block_rewrite",
+            )
+        except EmptyLlmResponseError as exc:
+            last_error = exc
+            continue
         content = new_text
         if non_ws_len(content) <= limit_chars:
-            break
-    return content
+            return content
+    if last_error is not None:
+        raise last_error
+    raise InvalidLlmResponseError(
+        "model did not satisfy the summary block length limit"
+    )
 
 
 def compress_headline(
@@ -581,8 +597,10 @@ def compress_headline(
         temperature=0,
         **build_thinking_kwargs(ecfg),
     )
-    new_text = _choice_text(resp)
-    return new_text if new_text else text
+    return require_nonempty_text(
+        _choice_text(resp),
+        operation="summary_limit_headline_rewrite",
+    )
 
 
 def apply_headline_limit(
@@ -759,15 +777,17 @@ def structure_matches_example(
         temperature=0,
         **build_thinking_kwargs(ecfg),
     )
-    reply = _choice_text(resp).upper()
-    if not reply:
-        label = paper_id or "unknown"
-        print(
-            f"[WARN] structure_matches_example empty LLM reply for {label}; treating as NO",
-            flush=True,
-        )
+    reply = require_nonempty_text(
+        _choice_text(resp),
+        operation="summary_limit_structure_check",
+    ).upper()
+    if reply.startswith("YES"):
+        return True
+    if reply.startswith("NO"):
         return False
-    return reply.startswith("YES")
+    raise InvalidLlmResponseError(
+        "model returned an invalid summary structure decision"
+    )
 
 
 def restructure_to_example(
@@ -801,8 +821,10 @@ def restructure_to_example(
         temperature=0,
         **build_thinking_kwargs(ecfg),
     )
-    new_text = _choice_text(resp)
-    return new_text if new_text else text
+    return require_nonempty_text(
+        _choice_text(resp),
+        operation="summary_limit_structure_rewrite",
+    )
 
 
 def local_normalize_summary(
@@ -831,16 +853,18 @@ def process_one_with_fallback(
             client, md_path, out_path, pdf_info_map, effective_cfg=effective_cfg
         )
     except Exception as exc:
-        fallback = local_normalize_summary(md_path, pdf_info_map)
-        if not fallback.strip():
-            raise exc
+        fallback = require_nonempty_text(
+            local_normalize_summary(md_path, pdf_info_map),
+            operation="summary_limit_local_fallback",
+        )
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(fallback, encoding="utf-8")
         print(
-            f"[SUMMARY_LIMIT] fallback=copied_local for {md_path.stem}: {exc!r}",
+            f"[SUMMARY_LIMIT] fallback=copied_local for {md_path.stem}: "
+            f"{redact_sensitive_text(repr(exc), max_length=500)}",
             flush=True,
         )
-        return md_path, "copied"
+        return md_path, "fallback"
 
 
 def process_one(
@@ -857,8 +881,7 @@ def process_one(
 
     text = md_path.read_text(encoding="utf-8", errors="ignore")
     if not text.strip():
-        out_path.write_text("", encoding="utf-8")
-        return md_path, ""
+        raise ValueError(f"summary_limit input is empty: {md_path.name}")
     status = "copied"
     text = inject_pdf_info(text, md_path, pdf_info_map)
     base_text = normalize_style(text)
@@ -898,6 +921,10 @@ def process_one(
         out_text = ensure_section_spacing(normalize_style(out_text))
         status = "rewritten"
 
+    out_text = require_nonempty_text(
+        out_text,
+        operation="summary_limit_output",
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(out_text, encoding="utf-8")
     return md_path, status
@@ -1012,6 +1039,8 @@ def run() -> None:
     empty = 0
     copied = 0
     rewritten = 0
+    fallbacks = 0
+    errors = 0
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         future_map = {
@@ -1036,16 +1065,23 @@ def run() -> None:
                         copied += 1
                     elif status == "rewritten":
                         rewritten += 1
+                    elif status == "fallback":
+                        fallbacks += 1
                     # In DB mode, read the written file and persist to DB
                     if output_mode == "db" and _pdb is not None:
                         limit_file = single_dir / f"{src.stem}.md"
                         if limit_file.exists():
                             try:
-                                limit_text = limit_file.read_text(encoding="utf-8", errors="ignore")
+                                limit_text = require_nonempty_text(
+                                    limit_file.read_text(encoding="utf-8", errors="ignore"),
+                                    operation="summary_limit_database_write",
+                                )
                                 _pdb.upsert_summary_limit(uid, date_str, src.stem, limit_text)
                             except Exception as db_exc:
+                                errors += 1
                                 print(f"\n[WARN] DB write summary_limit failed for {src.stem}: {db_exc!r}", flush=True)
             except Exception as e:
+                errors += 1
                 print(f"\r[SUMMARY_LIMIT] error on {src.name}: {e!r}", end="", flush=True)
             done += 1
             elapsed = time.monotonic() - start
@@ -1055,13 +1091,33 @@ def run() -> None:
     print()
     if output_mode != "db":
         gather_path = write_gather(single_dir, gather_dir, date_str)
-        print(f"[SUMMARY_LIMIT] stats copied={copied} rewritten={rewritten}", flush=True)
+        print(
+            f"[SUMMARY_LIMIT] stats copied={copied} rewritten={rewritten} "
+            f"fallbacks={fallbacks} errors={errors}",
+            flush=True,
+        )
         print(f"[SUMMARY_LIMIT] single_dir={single_dir}", flush=True)
         print(f"[SUMMARY_LIMIT] gather_path={gather_path}", flush=True)
     else:
         print(f"[SUMMARY_LIMIT] DB output complete for user={uid} date={date_str} "
-              f"copied={copied} rewritten={rewritten}", flush=True)
+              f"copied={copied} rewritten={rewritten} fallbacks={fallbacks} "
+              f"errors={errors}", flush=True)
+    if _pdb is not None and (fallbacks or errors):
+        try:
+            run_id = int(_os.environ.get("PIPELINE_RUN_ID") or 0)
+        except (TypeError, ValueError):
+            run_id = 0
+        if run_id:
+            _pdb.emit_event(
+                run_id,
+                "summary_limit completed with degraded or failed items",
+                level="warning" if not errors else "error",
+                event_type="summary_limit_quality",
+                payload={"fallbacks": fallbacks, "errors": errors},
+            )
     print("============结束生成 summary_limit ============", flush=True)
+    if errors:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
