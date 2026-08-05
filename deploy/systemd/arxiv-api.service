@@ -43,6 +43,7 @@ Environment=SITE_BASE_URL=https://ai4papers.com
 Environment=CORS_ORIGINS=https://ai4papers.com,https://www.ai4papers.com
 Environment=COOKIE_SECURE=true
 Environment=COOKIE_SAMESITE=lax
+EnvironmentFile=-/etc/ai4papers/sms.env
 
 [Install]
 WantedBy=multi-user.target

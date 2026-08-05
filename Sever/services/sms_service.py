@@ -8,6 +8,7 @@ sms_service.py - 阿里云短信验证码服务封装
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -15,15 +16,39 @@ import uuid
 from typing import Any, Optional
 
 try:
-    from config import sms_config1 as _cfg  # type: ignore[import]
+    from config import sms_config as _cfg  # type: ignore[import]
 except ImportError:
-    try:
-        from config import sms_config as _cfg  # type: ignore[import]
-    except ImportError:
-        _cfg = None  # type: ignore[assignment]
+    _cfg = None  # type: ignore[assignment]
+
+from services.safe_logging_service import redact_sensitive_text, safe_failure_detail
+
+
+_logger = logging.getLogger(__name__)
+
+_ENV_BY_CONFIG_ATTR = {
+    "ACCESS_KEY_ID": "ALIBABA_CLOUD_ACCESS_KEY_ID",
+    "ACCESS_KEY_SECRET": "ALIBABA_CLOUD_ACCESS_KEY_SECRET",
+    "ENDPOINT": "AI4PAPERS_SMS_ENDPOINT",
+    "SIGN_NAME": "AI4PAPERS_SMS_SIGN_NAME",
+    "TEMPLATE_CODE": "AI4PAPERS_SMS_TEMPLATE_CODE",
+    "SCHEME_NAME": "AI4PAPERS_SMS_SCHEME_NAME",
+    "COUNTRY_CODE": "AI4PAPERS_SMS_COUNTRY_CODE",
+    "MINUTES": "AI4PAPERS_SMS_MINUTES",
+    "INTERVAL": "AI4PAPERS_SMS_INTERVAL",
+    "CODE_LENGTH": "AI4PAPERS_SMS_CODE_LENGTH",
+    "CODE_TYPE": "AI4PAPERS_SMS_CODE_TYPE",
+    "CODE_PARAM_NAME": "AI4PAPERS_SMS_CODE_PARAM_NAME",
+    "MIN_PARAM_NAME": "AI4PAPERS_SMS_MIN_PARAM_NAME",
+    "VERIFY_TOKEN_TTL": "AI4PAPERS_SMS_VERIFY_TOKEN_TTL",
+}
 
 
 def _get_cfg(attr: str, default: Any = None) -> Any:
+    env_name = _ENV_BY_CONFIG_ATTR.get(attr)
+    if env_name:
+        env_value = os.environ.get(env_name)
+        if env_value is not None:
+            return env_value or default
     return getattr(_cfg, attr, default) if _cfg is not None else default
 
 
@@ -188,9 +213,20 @@ def send_verify_code(phone: str) -> dict:
             _mark_sent(phone)
             return {"success": True, "message": "验证码已发送", "biz_id": biz_id, "out_id": out_id, "wait_seconds": 0}
         else:
-            return {"success": False, "message": message or f"发送失败 ({code})", "biz_id": None, "out_id": out_id, "wait_seconds": 0}
+            _logger.warning(
+                "sms_send_rejected code=%s message=%s",
+                redact_sensitive_text(code, max_length=100),
+                redact_sensitive_text(message, max_length=300),
+            )
+            return {"success": False, "message": "短信发送失败，请稍后重试", "biz_id": None, "out_id": out_id, "wait_seconds": 0}
     except Exception as exc:
-        return {"success": False, "message": f"发送失败：{exc}", "biz_id": None, "out_id": "", "wait_seconds": 0}
+        message = safe_failure_detail(
+            _logger,
+            "短信发送失败，请稍后重试",
+            exc,
+            operation="sms_send_verify_code",
+        )
+        return {"success": False, "message": message, "biz_id": None, "out_id": "", "wait_seconds": 0}
 
 
 def check_verify_code(phone: str, code: str) -> dict:
@@ -232,7 +268,6 @@ def check_verify_code(phone: str, code: str) -> dict:
     except Exception as exc:
         # 尝试从异常中提取 code 字段，给出友好提示而不暴露 SDK 原始错误
         exc_str = str(exc)
-        print(f"[SMS] check_verify_code error: {exc_str}", flush=True)
         code_hint = ""
         try:
             data = getattr(exc, "data", None) or {}
@@ -249,4 +284,10 @@ def check_verify_code(phone: str, code: str) -> dict:
             msg = "验证码错误或已过期"
         else:
             msg = "验证码校验失败，请稍后重试"
-        return {"success": False, "message": msg, "verify_result": None}
+        message = safe_failure_detail(
+            _logger,
+            msg,
+            exc,
+            operation="sms_check_verify_code",
+        )
+        return {"success": False, "message": message, "verify_result": None}

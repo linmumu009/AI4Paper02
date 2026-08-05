@@ -19,6 +19,10 @@ _QUERY_SECRET_RE = re.compile(
 _BEARER_RE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/=-]{8,}")
 _ENCRYPTED_SECRET_RE = re.compile(r"enc:v1:[A-Za-z0-9_-]{12,}")
 _API_KEY_RE = re.compile(r"\bsk-(?:or-v1-)?[A-Za-z0-9._-]{8,}")
+_CLOUD_ACCESS_KEY_ID_RE = re.compile(
+    r"\b(?:LTAI[A-Za-z0-9]{12,}|AKIA[A-Z0-9]{12,})\b"
+)
+_PHONE_RE = re.compile(r"(?<!\d)(?:\+?86[- ]?)?1[3-9]\d{9}(?!\d)")
 _SECRET_FIELD_NAMES = {
     "api_key",
     "apikey",
@@ -45,6 +49,8 @@ def redact_sensitive_text(value: Any, *, max_length: int = 8000) -> str:
     text = _BEARER_RE.sub("Bearer " + _REDACTED, text)
     text = _ENCRYPTED_SECRET_RE.sub(_REDACTED, text)
     text = _API_KEY_RE.sub(_REDACTED, text)
+    text = _CLOUD_ACCESS_KEY_ID_RE.sub(_REDACTED, text)
+    text = _PHONE_RE.sub("[REDACTED_PHONE]", text)
     text = _ASSIGNMENT_RE.sub(
         lambda match: match.group(1)
         + (match.group(2) or "")

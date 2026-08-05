@@ -71,6 +71,13 @@ class SafeLoggingServiceTests(unittest.TestCase):
         self.assertNotIn("password=q", redacted)
         self.assertEqual(redacted.count("[REDACTED]"), 2)
 
+    def test_redacts_cloud_access_key_ids_and_phone_numbers(self) -> None:
+        redacted = redact_sensitive_text(
+            "access=LTAI5tExampleAccessKey123 phone=13812345678"
+        )
+        self.assertNotIn("LTAI5tExampleAccessKey123", redacted)
+        self.assertNotIn("13812345678", redacted)
+
     def test_text_and_json_formatters_redact_before_emitting(self) -> None:
         record = logging.LogRecord(
             name="test",

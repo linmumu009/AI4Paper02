@@ -179,6 +179,7 @@ API_SERVICE_TARGET="/etc/systemd/system/arxiv-api.service"
 API_SERVICE_BACKUP="${API_SERVICE_TARGET}.ai4papers-deploy-backup"
 if [[ -f "$API_SERVICE_SOURCE" ]]; then
   echo "==== Installing API service unit ===="
+  install -d -o root -g root -m 0700 /etc/ai4papers
   if [[ -f "$API_SERVICE_TARGET" ]]; then
     cp -f "$API_SERVICE_TARGET" "$API_SERVICE_BACKUP"
   fi
