@@ -1590,6 +1590,91 @@ def _blocks_have_meaningful_text(value: Any) -> bool:
     return False
 
 
+def _get_theme_candidate_ids(
+    conn: sqlite3.Connection,
+    user_id: int,
+    date_str: str,
+) -> set[str]:
+    """Mirror llm_select_theme's dedup-file and per-user category inputs."""
+    papers: list[dict[str, Any]] = []
+    dedup_path = os.path.join(
+        _BASE_DIR, "data", "paperList_remove_duplications", f"{date_str}.json"
+    )
+    try:
+        with open(dedup_path, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+        if isinstance(raw, dict):
+            raw = raw.get("papers") or []
+        if isinstance(raw, list):
+            papers = [item for item in raw if isinstance(item, dict)]
+    except (OSError, json.JSONDecodeError, TypeError):
+        papers = []
+
+    if papers:
+        candidate_ids = {
+            str(item.get("arxiv_id") or item.get("paper_arxiv_id") or "").strip()
+            for item in papers
+        }
+        candidate_ids.discard("")
+    else:
+        candidate_ids = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT paper_arxiv_id FROM pipeline_arxiv_list WHERE date_str=?",
+                (date_str,),
+            ).fetchall()
+            if row[0]
+        }
+
+    try:
+        from services.user_settings_service import get_settings
+        from config import config as config_module
+
+        settings = get_settings(user_id, "paper_recommend")
+        configured = settings.get("search_categories")
+        defaults = list(
+            getattr(
+                config_module,
+                "SEARCH_CATEGORIES",
+                ["cs.CL", "cs.LG", "cs.AI", "stat.ML"],
+            )
+            or []
+        )
+        user_categories = (
+            {str(item).strip() for item in configured if str(item).strip()}
+            if isinstance(configured, list)
+            and configured
+            and sorted(configured) != sorted(defaults)
+            else set()
+        )
+        if user_categories and candidate_ids:
+            rows = conn.execute(
+                "SELECT paper_arxiv_id, paper_categories_json "
+                "FROM pipeline_arxiv_list WHERE date_str=?",
+                (date_str,),
+            ).fetchall()
+            categories_by_id: dict[str, set[str]] = {}
+            for row in rows:
+                try:
+                    categories = json.loads(row["paper_categories_json"] or "[]")
+                except (json.JSONDecodeError, TypeError):
+                    categories = []
+                categories_by_id[str(row["paper_arxiv_id"])] = {
+                    str(item) for item in categories if item
+                }
+            candidate_ids = {
+                paper_id
+                for paper_id in candidate_ids
+                if not categories_by_id.get(paper_id)
+                or bool(user_categories & categories_by_id[paper_id])
+            }
+    except Exception:
+        # Match the controller's safe fallback: score the unfiltered candidate set.
+        pass
+
+    return candidate_ids
+
+
 def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
     """Return the expected/valid output coverage for one DB pipeline step.
 
@@ -1603,10 +1688,7 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
             rows = conn.execute(query, params).fetchall()
             return {str(row[0]) for row in rows if row[0]}
 
-        arxiv_ids = _ids(
-            "SELECT paper_arxiv_id FROM pipeline_arxiv_list WHERE date_str=?",
-            (date_str,),
-        )
+        theme_candidate_ids = _get_theme_candidate_ids(conn, user_id, date_str)
         score_ids = _ids(
             "SELECT paper_arxiv_id FROM pipeline_theme_scores WHERE user_id=? AND date_str=?",
             (user_id, date_str),
@@ -1624,7 +1706,7 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
 
         invalid_ids: set[str] = set()
         if step == "llm_select_theme":
-            expected_ids = arxiv_ids
+            expected_ids = theme_candidate_ids
             valid_ids = score_ids
         elif step == "paper_theme_filter":
             expected_ids = score_ids
@@ -1634,7 +1716,11 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
                 (user_id, date_str),
             )
         elif step == "pdf_info":
-            expected_ids = arxiv_ids
+            # Institution extraction only affects papers that entered this
+            # user's theme-scoring stage.  The acquisition table may contain
+            # hundreds of additional categories that are intentionally not
+            # model inputs for this user.
+            expected_ids = score_ids
             all_output_ids = _ids(
                 "SELECT paper_arxiv_id FROM pipeline_paper_info "
                 "WHERE user_id=? AND date_str=?",

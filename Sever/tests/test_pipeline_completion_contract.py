@@ -71,6 +71,29 @@ class TestPipelineCompletionContract(unittest.TestCase):
         self.assertEqual(coverage["valid_count"], 2)
         self.assertEqual(coverage["missing_ids"], ["2608.00003"])
 
+    def test_theme_coverage_uses_real_deduplicated_input_set(self) -> None:
+        dedup_dir = self.tmp_path / "data" / "paperList_remove_duplications"
+        dedup_dir.mkdir(parents=True)
+        (dedup_dir / f"{self.date_str}.json").write_text(
+            '{"papers": [{"arxiv_id": "2608.00001"}, '
+            '{"arxiv_id": "2608.00002"}]}',
+            encoding="utf-8",
+        )
+        pipeline_db_service.bulk_upsert_theme_scores(
+            3,
+            self.date_str,
+            {"2608.00001": 0.9, "2608.00002": 0.8},
+        )
+
+        with patch.object(pipeline_db_service, "_BASE_DIR", str(self.tmp_path)):
+            coverage = pipeline_db_service.get_db_step_coverage(
+                "llm_select_theme", 3, self.date_str
+            )
+
+        self.assertTrue(coverage["complete"])
+        self.assertEqual(coverage["expected_count"], 2)
+        self.assertEqual(coverage["valid_count"], 2)
+
     def test_summaries_require_every_final_selection(self) -> None:
         paper_ids = ["2608.00001", "2608.00002", "2608.00003"]
         self._select_final(3, paper_ids)
