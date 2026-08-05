@@ -7,6 +7,9 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy_server.sh
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\design-qa.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\change_sync_deploy_workflow.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\api.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\app.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\pdfsplite_to_minerU.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\selectedpaper_to_mineru.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_assets.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_summary.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\pdf_info.py
@@ -15,11 +18,13 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\seo_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\search_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\analytics_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\chat_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\mineru_api_support.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\search_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_paper_pipeline_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_settings_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_analytics_session_aggregation.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_chat_evidence.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_mineru_api_support.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_search_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\upload_changed_files.ps1
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\e2e\public-pages.spec.ts

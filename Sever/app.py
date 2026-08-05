@@ -2,10 +2,251 @@ import os
 import sys
 import shutil
 import subprocess
+import time
+import traceback
 from datetime import datetime
+from typing import Optional
 
 ROOT = os.path.dirname(__file__)
 DATA_ROOT = "data"
+
+# ---------------------------------------------------------------------------
+# PipelineRecorder – lightweight observability layer.
+# All DB writes are wrapped in try/except so a DB failure never crashes the
+# pipeline. Import errors (e.g. cold start without DB) are also silently
+# ignored so legacy CLI usage keeps working.
+# ---------------------------------------------------------------------------
+
+class PipelineRecorder:
+    """Wraps pipeline_db_service calls to record step lifecycle, events and artifacts."""
+
+    def __init__(
+        self,
+        run_id: int = 0,
+        phase: str = "",
+        user_id: int = 0,
+        date_str: str = "",
+        log_file: str = "",
+    ):
+        self.run_id = run_id
+        self.phase = phase
+        self.user_id = user_id
+        self.date_str = date_str
+        self.log_file = log_file
+        self._current_step_run_id: int = 0
+        self._step_start_ts: float = 0.0
+
+    # ------------------------------------------------------------------
+    # Run-level helpers (called from pipeline_router when it creates the run)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def start_run(
+        pipeline: str,
+        user_id: int,
+        date_str: str,
+        phase: str = "",
+        trigger: str = "cli",
+        parent_run_id: int = 0,
+        requested_by: Optional[int] = None,
+        config: Optional[dict] = None,
+    ) -> int:
+        """Create a pipeline_run row and return its id (0 on error)."""
+        try:
+            sys.path.insert(0, ROOT)
+            from services import pipeline_db_service as _pdb
+            run_type = phase or "shared"
+            run_id = _pdb.create_run(
+                run_type=run_type,
+                user_id=user_id,
+                date_str=date_str,
+                pipeline=pipeline,
+                config=config,
+                parent_run_id=parent_run_id or None,
+                trigger=trigger,
+                phase=phase,
+                requested_by=requested_by,
+            )
+            _pdb.update_run_status(run_id, "running")
+            return run_id
+        except Exception:
+            return 0
+
+    @staticmethod
+    def end_run(run_id: int, success: bool, error: str = "") -> None:
+        if not run_id:
+            return
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.update_run_status(run_id, "completed" if success else "failed", error=error or None)
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
+    # Step-level helpers
+    # ------------------------------------------------------------------
+
+    def begin_step(self, step_name: str, input_params: Optional[dict] = None) -> None:
+        self._step_start_ts = time.monotonic()
+        self._current_step_run_id = 0
+        if not self.run_id:
+            return
+        try:
+            from services import pipeline_db_service as _pdb
+            self._current_step_run_id = _pdb.create_step_run(
+                self.run_id,
+                step_name,
+                phase=self.phase,
+                user_id=self.user_id,
+                date_str=self.date_str,
+                input_params=input_params or {},
+                log_file=self.log_file,
+            )
+        except Exception:
+            pass
+
+    def finish_step(
+        self,
+        step_name: str,
+        *,
+        status: str,
+        exit_code: Optional[int] = None,
+        error_type: str = "",
+        error_message: str = "",
+        skip_reason: str = "",
+        metrics: Optional[dict] = None,
+    ) -> None:
+        if not self._current_step_run_id:
+            return
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.finish_step_run(
+                self._current_step_run_id,
+                status,
+                exit_code=exit_code,
+                error_type=error_type,
+                error_message=error_message,
+                skip_reason=skip_reason,
+                metrics=metrics,
+            )
+            # Record artifact footprint for known steps
+            if status == "completed":
+                self._auto_record_artifact(step_name)
+        except Exception:
+            pass
+
+    def _auto_record_artifact(self, step_name: str) -> None:
+        """Auto-detect and log artifacts for known step patterns."""
+        if not (self.run_id and self._current_step_run_id and self.date_str):
+            return
+        try:
+            from services import pipeline_db_service as _pdb
+
+            # DB-output steps
+            db_steps = {
+                "llm_select_theme": ("pipeline_theme_scores", "user_id=? AND date_str=?"),
+                "paper_theme_filter": ("pipeline_selected_papers", "user_id=? AND date_str=? AND passed_theme_filter=1"),
+                "instutions_filter":  ("pipeline_selected_papers", "user_id=? AND date_str=? AND is_final_selected=1"),
+                "pdf_info":           ("pipeline_paper_info", "user_id=? AND date_str=?"),
+                "paper_summary":      ("pipeline_summaries", "user_id=? AND date_str=? AND summary_raw != ''"),
+                "summary_limit":      ("pipeline_summaries", "user_id=? AND date_str=? AND summary_limit != ''"),
+                "paper_assets":       ("pipeline_paper_assets", "user_id=? AND date_str=?"),
+                "arxiv_search":       ("pipeline_arxiv_list", "date_str=?"),
+            }
+            if step_name in db_steps:
+                table, where_clause = db_steps[step_name]
+                try:
+                    import sqlite3 as _sq
+                    db_path = os.path.join(ROOT, "database", "paper_analysis.db")
+                    con = _sq.connect(db_path)
+                    con.row_factory = _sq.Row
+                    if "user_id=?" in where_clause:
+                        count = con.execute(
+                            f"SELECT COUNT(*) FROM {table} WHERE {where_clause}",
+                            (self.user_id, self.date_str),
+                        ).fetchone()[0]
+                    else:
+                        count = con.execute(
+                            f"SELECT COUNT(*) FROM {table} WHERE {where_clause}",
+                            (self.date_str,),
+                        ).fetchone()[0]
+                    con.close()
+                    _pdb.record_artifact(
+                        self.run_id,
+                        self._current_step_run_id,
+                        artifact_type="db_rows",
+                        storage="sqlite",
+                        path_or_table=table,
+                        record_count=count,
+                    )
+                except Exception:
+                    pass
+
+            # File-output steps
+            if step_name in STEP_OUTPUT_PATHS:
+                path = STEP_OUTPUT_PATHS[step_name](self.date_str)
+                try:
+                    if os.path.isfile(path):
+                        byte_size = os.path.getsize(path)
+                        _pdb.record_artifact(
+                            self.run_id,
+                            self._current_step_run_id,
+                            artifact_type="file",
+                            storage="file",
+                            path_or_table=path,
+                            byte_size=byte_size,
+                        )
+                    elif os.path.isdir(path):
+                        byte_size = sum(
+                            os.path.getsize(os.path.join(dp, f))
+                            for dp, _, files in os.walk(path)
+                            for f in files
+                        )
+                        _pdb.record_artifact(
+                            self.run_id,
+                            self._current_step_run_id,
+                            artifact_type="directory",
+                            storage="file",
+                            path_or_table=path,
+                            byte_size=byte_size,
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def emit(
+        self,
+        message: str,
+        *,
+        level: str = "info",
+        event_type: str = "custom",
+        payload: Optional[dict] = None,
+    ) -> None:
+        if not self.run_id:
+            return
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.emit_event(
+                self.run_id,
+                message,
+                step_run_id=self._current_step_run_id,
+                level=level,
+                event_type=event_type,
+                payload=payload,
+            )
+        except Exception:
+            pass
+
+    def skip_step(self, step_name: str, reason: str) -> None:
+        self.begin_step(step_name)
+        self.finish_step(step_name, status="skipped", skip_reason=reason)
+        self.emit(f"SKIP {step_name}: {reason}", event_type="skip")
+
+    @property
+    def current_step_run_id(self) -> int:
+        return self._current_step_run_id
+
 
 # ---------------------------------------------------------------------------
 # Step output paths – used for idempotency checks.
@@ -229,6 +470,18 @@ _DB_OUTPUT_STEPS = {
 # handle per-user idempotency themselves via the idea_service DB.
 _IDEA_STEPS = {"idea_ingest", "idea_combine", "idea_review", "idea_compound"}
 
+# Steps where a non-zero exit code should NOT abort the entire pipeline.
+# These steps handle partial success internally (write a manifest with per-item
+# statuses) so downstream steps can skip missing items gracefully.
+# MinerU controllers return zero when they produced at least one usable result.
+# A non-zero exit therefore means there is no safe downstream input and must
+# abort the shared phase so the scheduler can retry instead of recording a
+# false-success day.
+SOFT_FAIL_STEPS: set = set()
+
+# arxiv_search exit code when partial pages were saved after rate limit (see arxiv_rate_limit.py)
+ARXIV_EXIT_RATE_LIMIT_PARTIAL = 3
+
 # Cleanup modes to pass depending on which pipeline is running.
 #
 # shared pipeline:
@@ -241,15 +494,15 @@ _IDEA_STEPS = {"idea_ingest", "idea_combine", "idea_review", "idea_compound"}
 #   - db-replaced:   delete small JSON files now stored in DB
 #   - preview-mineru: delete preview_pdf_to_mineru now that all pdf_info is done in DB
 #   - raw-pdf:       delete unselected PDFs from raw_pdf
-#   - slim-mineru:   remove non-.md files from full_mineru_cache to save space
-#   - post-idea:     delete full_mineru_cache entirely (only if idea pipeline is done)
+#   - slim-mineru:   disabled for now to preserve MinerU bundles for KB reuse
+#   - post-idea:     disabled for now to preserve full_mineru_cache for KB reuse
 #   - select-image:  delete summary JSON now that image list is in DB
 #
 # per_user pipeline (non-zero uid):
 #   - db-replaced only (lightweight, data check before deletion)
 _CLEANUP_MODES = {
     "shared":          "intermediate,deprecated",
-    "per_user_uid0":   "db-replaced,preview-mineru,raw-pdf,slim-mineru,post-idea,select-image",
+    "per_user_uid0":   "db-replaced,preview-mineru,raw-pdf,select-image",
     "per_user_nonzero": "db-replaced",
 }
 
@@ -283,11 +536,87 @@ def step_output_remove(step: str, date_str: str) -> bool:
     return False
 
 
-def run_step(name, extra_args=None, env=None):
+def run_step(name, extra_args=None, env=None, recorder: Optional["PipelineRecorder"] = None):
     if name not in STEPS:
         raise SystemExit(f"Unknown step: {name}")
     cmd = STEPS[name] + (extra_args or [])
-    r = subprocess.run(cmd, check=True, env=env)
+
+    if recorder:
+        recorder.begin_step(name)
+
+    is_soft = name in SOFT_FAIL_STEPS
+    try:
+        if is_soft:
+            r = subprocess.run(cmd, env=env)
+            if r.returncode != 0:
+                print(
+                    f"[WARN] step '{name}' exited with code {r.returncode}；"
+                    f"该步骤支持部分成功，流水线继续执行",
+                    flush=True,
+                )
+                if recorder:
+                    recorder.finish_step(
+                        name,
+                        status="soft_failed",
+                        exit_code=r.returncode,
+                        error_type="soft_fail",
+                        error_message=f"exit code {r.returncode}",
+                    )
+            else:
+                if recorder:
+                    recorder.finish_step(name, status="completed", exit_code=0)
+        else:
+            r = subprocess.run(cmd, env=env)
+            if name == "arxiv_search" and r.returncode == ARXIV_EXIT_RATE_LIMIT_PARTIAL:
+                print(
+                    "[WARN] arxiv_search 因 arXiv 限流(429) 仅部分拉取成功；"
+                    "已保存已获取的论文列表。建议冷却 15–30 分钟后再重跑 arxiv_search，"
+                    "流水线将继续后续步骤。",
+                    flush=True,
+                )
+                if recorder:
+                    recorder.finish_step(
+                        name,
+                        status="partial",
+                        exit_code=r.returncode,
+                        error_type="rate_limit_partial",
+                        error_message="partial fetch after 429",
+                    )
+            elif r.returncode != 0:
+                raise subprocess.CalledProcessError(r.returncode, cmd)
+            else:
+                if recorder:
+                    recorder.finish_step(name, status="completed", exit_code=0)
+    except subprocess.CalledProcessError as exc:
+        if recorder:
+            recorder.finish_step(
+                name,
+                status="failed",
+                exit_code=exc.returncode,
+                error_type="subprocess_error",
+                error_message=f"step '{name}' exited with code {exc.returncode}",
+            )
+            recorder.emit(
+                f"FAIL {name}: exit code {exc.returncode}",
+                level="error",
+                event_type="custom",
+            )
+        raise
+    except Exception as exc:
+        if recorder:
+            recorder.finish_step(
+                name,
+                status="failed",
+                exit_code=-1,
+                error_type="exception",
+                error_message=str(exc)[:500],
+            )
+            recorder.emit(
+                f"FAIL {name}: {exc}",
+                level="error",
+                event_type="custom",
+            )
+        raise
     return r.returncode
 
 
@@ -316,6 +645,17 @@ def detect_selected_count():
     return None
 
 
+def _parse_flag(extra: list, flag: str, has_value: bool = True):
+    """Pop a flag (and its optional value) from extra. Returns (value_or_True, new_extra)."""
+    if flag not in extra:
+        return None, extra
+    idx = extra.index(flag)
+    if has_value and idx + 1 < len(extra):
+        value = extra[idx + 1]
+        return value, extra[:idx] + extra[idx + 2:]
+    return True, extra[:idx] + extra[idx + 1:]
+
+
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     pipeline = "default"
@@ -326,64 +666,87 @@ def main(argv=None):
 
     # Parse --date
     run_date = os.environ.get("RUN_DATE") or datetime.now().date().isoformat()
-    if "--date" in extra:
-        idx = extra.index("--date")
-        if idx + 1 < len(extra):
-            run_date = extra[idx + 1]
-            extra = extra[:idx] + extra[idx + 2:]
+    v, extra = _parse_flag(extra, "--date")
+    if v:
+        run_date = v
 
     # Parse --SLLM
     sllm_value = os.environ.get("SLLM")
-    if "--SLLM" in extra:
-        idx = extra.index("--SLLM")
-        if idx + 1 < len(extra):
-            raw = extra[idx + 1]
-            try:
-                iv = int(raw)
-            except ValueError:
-                iv = None
-            if iv in (1, 2, 3):
-                sllm_value = str(iv)
-        extra = extra[:idx] + extra[idx + 2:]
+    v, extra = _parse_flag(extra, "--SLLM")
+    if v:
+        try:
+            iv = int(v)
+        except (ValueError, TypeError):
+            iv = None
+        if iv in (1, 2, 3):
+            sllm_value = str(iv)
 
     # Parse --user-id
     user_id_value = os.environ.get("PIPELINE_USER_ID")
-    if "--user-id" in extra:
-        idx = extra.index("--user-id")
-        if idx + 1 < len(extra):
-            user_id_value = extra[idx + 1]
-        extra = extra[:idx] + extra[idx + 2:]
+    v, extra = _parse_flag(extra, "--user-id")
+    if v:
+        user_id_value = v
 
     # Parse --output-mode (file|db)
     output_mode = os.environ.get("PIPELINE_OUTPUT_MODE", "file")
-    if "--output-mode" in extra:
-        idx = extra.index("--output-mode")
-        if idx + 1 < len(extra):
-            output_mode = extra[idx + 1]
-        extra = extra[:idx] + extra[idx + 2:]
+    v, extra = _parse_flag(extra, "--output-mode")
+    if v:
+        output_mode = v
 
     # Parse --Zo
     zo_value = os.environ.get("ZO", "F")
-    if "--Zo" in extra:
-        idx = extra.index("--Zo")
-        if idx + 1 < len(extra):
-            raw = (extra[idx + 1] or "").strip().upper()
-            if raw in ("T", "F"):
-                zo_value = raw
-        extra = extra[:idx] + extra[idx + 2:]
+    v, extra = _parse_flag(extra, "--Zo")
+    if v:
+        raw = (v or "").strip().upper()
+        if raw in ("T", "F"):
+            zo_value = raw
 
     # Parse --force
     force = False
-    if "--force" in extra:
-        idx = extra.index("--force")
+    v, extra = _parse_flag(extra, "--force", has_value=False)
+    if v:
         force = True
-        extra = extra[:idx] + extra[idx + 1:]
+
+    # Parse --run-id (DB run id supplied by pipeline_router for observability)
+    run_id_str = os.environ.get("PIPELINE_RUN_ID", "0")
+    v, extra = _parse_flag(extra, "--run-id")
+    if v:
+        run_id_str = v
+
+    # Parse --phase (shared|per_user|legacy)
+    phase_value = os.environ.get("PIPELINE_PHASE", "")
+    v, extra = _parse_flag(extra, "--phase")
+    if v:
+        phase_value = v
+
+    # Parse --trigger (manual|scheduled|cli)
+    trigger_value = os.environ.get("PIPELINE_TRIGGER", "cli")
+    v, extra = _parse_flag(extra, "--trigger")
+    if v:
+        trigger_value = v
+
+    # Parse --from-step (resume from a specific step name)
+    from_step_value = os.environ.get("PIPELINE_FROM_STEP", "")
+    v, extra = _parse_flag(extra, "--from-step")
+    if v:
+        from_step_value = v
+
+    # Parse --only-step (run a single step then stop)
+    only_step_value = os.environ.get("PIPELINE_ONLY_STEP", "")
+    v, extra = _parse_flag(extra, "--only-step")
+    if v:
+        only_step_value = v
 
     zo_value = (zo_value or "F").strip().upper()
     if zo_value not in ("T", "F"):
         zo_value = "F"
 
-    env = {**os.environ, "RUN_DATE": run_date, "PYTHONIOENCODING": "utf-8"}
+    _sever_root = os.path.abspath(ROOT)
+    _existing_pp = os.environ.get("PYTHONPATH", "")
+    _new_pp = _sever_root if _sever_root not in _existing_pp.split(os.pathsep) else _existing_pp
+    if _existing_pp and _sever_root not in _existing_pp.split(os.pathsep):
+        _new_pp = _sever_root + os.pathsep + _existing_pp
+    env = {**os.environ, "RUN_DATE": run_date, "PYTHONIOENCODING": "utf-8", "PYTHONPATH": _new_pp}
     if sllm_value is not None:
         env["SLLM"] = sllm_value
     if user_id_value is not None:
@@ -401,6 +764,36 @@ def main(argv=None):
     else:
         steps = list(steps)
 
+    # Apply --from-step: skip everything before (and including the skipped prefix)
+    if from_step_value and from_step_value in steps:
+        start_idx = steps.index(from_step_value)
+        # Dependency check: warn if any file-output step before from_step is missing
+        _missing_deps = []
+        for dep_step in steps[:start_idx]:
+            if dep_step in STEP_OUTPUT_PATHS:
+                dep_path = STEP_OUTPUT_PATHS[dep_step](run_date)
+                if not os.path.exists(dep_path):
+                    print(
+                        f"[PIPELINE][WARN] --from-step dependency check: output of '{dep_step}' "
+                        f"not found at {dep_path}. Step may fail if it requires this input.",
+                        flush=True,
+                    )
+                    _missing_deps.append(dep_step)
+        if _missing_deps and run_id_int:
+            recorder.emit(
+                f"dependency warning: {_missing_deps}",
+                level="warning",
+                event_type="custom",
+                payload={"missing_deps": _missing_deps, "from_step": from_step_value},
+            )
+        steps = steps[start_idx:]
+        print(f"[PIPELINE] --from-step: resuming from '{from_step_value}' ({len(steps)} step(s) remain)", flush=True)
+
+    # Apply --only-step: run a single step
+    if only_step_value and only_step_value in steps:
+        steps = [only_step_value]
+        print(f"[PIPELINE] --only-step: running only '{only_step_value}'", flush=True)
+
     print(
         f"START pipeline '{pipeline}' with {len(steps)} step(s) "
         f"RUN_DATE={run_date} Zo={zo_value} force={force} "
@@ -414,80 +807,134 @@ def main(argv=None):
     except (ValueError, TypeError):
         uid_int = 0
 
-    for i, step in enumerate(steps):
-        if i == 0:
-            step_args = list(extra)
-        else:
-            step_args = []
+    # Resolve DB run_id for observability
+    try:
+        run_id_int = int(run_id_str) if run_id_str else 0
+    except (ValueError, TypeError):
+        run_id_int = 0
 
-        # Forward --user-id to supported steps
-        if user_id_value and step in _USER_ID_STEPS:
-            step_args.extend(["--user-id", str(user_id_value)])
+    # Build recorder (disabled when run_id=0 or DB unavailable)
+    recorder = PipelineRecorder(
+        run_id=run_id_int,
+        phase=phase_value,
+        user_id=uid_int,
+        date_str=run_date,
+    )
 
-        # Forward --output-mode db to supported steps
-        if output_mode == "db" and step in _DB_OUTPUT_STEPS:
-            step_args.extend(["--output-mode", "db"])
+    # Apply step config filter.
+    # Skipped for --from-step / --only-step reruns so manual step reruns
+    # are never blocked by the admin step config.
+    disabled_by_config: set = set()
+    if not from_step_value and not only_step_value:
+        try:
+            from services.pipeline_step_config_service import get_enabled_steps as _gec
+            steps, disabled_by_config = _gec(pipeline, steps)
+            if disabled_by_config:
+                print(
+                    f"[PIPELINE] Step config: skipping disabled steps: {sorted(disabled_by_config)}",
+                    flush=True,
+                )
+                for _ds in disabled_by_config:
+                    recorder.skip_step(_ds, "disabled_by_step_config")
+        except Exception as _sce:
+            print(
+                f"[PIPELINE] Warning: step config unavailable, running all steps: {_sce!r}",
+                flush=True,
+            )
 
-        # For cleanup step: pass the appropriate --mode based on pipeline and user.
-        # preview_pdf_to_mineru is only deleted for uid=0 in per_user (after all
-        # users' pdf_info has completed) to prevent parallel-user race conditions.
-        if step == "cleanup":
-            if pipeline == "shared":
-                cleanup_mode = _CLEANUP_MODES["shared"]
-            elif pipeline == "per_user":
-                if uid_int == 0:
-                    cleanup_mode = _CLEANUP_MODES["per_user_uid0"]
-                else:
-                    cleanup_mode = _CLEANUP_MODES["per_user_nonzero"]
+    pipeline_error: Optional[str] = None
+    try:
+        for i, step in enumerate(steps):
+            if i == 0:
+                step_args = list(extra)
             else:
-                cleanup_mode = "intermediate,deprecated"
-            step_args.extend(["--mode", cleanup_mode])
+                step_args = []
 
-        # Idempotency check
-        if output_mode == "db" and step in _DB_OUTPUT_STEPS:
-            # DB-based check: output already in DB for this user/date → skip
-            if not force and _db_step_done(step, uid_int, run_date):
-                print(f"SKIP step: {step} (DB output exists for user={uid_int} date={run_date})", flush=True)
-                continue
-        elif output_mode == "db" and step in _IDEA_STEPS:
-            # Idea steps in DB mode: no file-sentinel check.
-            # The controllers handle per-user idempotency internally via idea_service DB.
-            pass
-        else:
-            # File-based check (shared steps and legacy / non-DB mode)
-            if step_output_exists(step, run_date):
-                if force:
-                    step_output_remove(step, run_date)
-                    print(f"FORCE step: {step} (removed old output for {run_date})", flush=True)
-                else:
-                    print(f"SKIP step: {step} (output exists for {run_date})", flush=True)
-                    continue
+            # Forward --user-id to supported steps
+            if user_id_value and step in _USER_ID_STEPS:
+                step_args.extend(["--user-id", str(user_id_value)])
 
-        print(f"RUN step: {step}", flush=True)
-        run_step(step, step_args, env=env)
+            # Forward --output-mode db to supported steps
+            if output_mode == "db" and step in _DB_OUTPUT_STEPS:
+                step_args.extend(["--output-mode", "db"])
 
-        if step == "arxiv_search":
-            selected = detect_selected_count()
-            if selected == 0:
-                print("[PIPELINE] No papers selected in current window; stop after arxiv_search.", flush=True)
-                # Write a date notice so the frontend can show a helpful card
-                # explaining why there are no papers for this date.
-                try:
-                    sys.path.insert(0, ROOT)
-                    from services import pipeline_db_service as _pdb
-                    _run_date_dt = datetime.strptime(run_date, "%Y-%m-%d")
-                    weekday = _run_date_dt.weekday()  # 0=Mon … 6=Sun
-                    if weekday in (5, 6):
-                        _notice_type = "no_papers_weekend"
-                        _notice_msg = "今天是周末，ArXiv 不发布新论文。"
+            # For cleanup step: pass the appropriate --mode based on pipeline and user.
+            if step == "cleanup":
+                if pipeline == "shared":
+                    cleanup_mode = _CLEANUP_MODES["shared"]
+                elif pipeline == "per_user":
+                    if uid_int == 0:
+                        cleanup_mode = _CLEANUP_MODES["per_user_uid0"]
                     else:
-                        _notice_type = "no_papers_empty"
-                        _notice_msg = "今天 ArXiv 在您关注的领域暂无新论文（搜索窗口内无结果）。"
-                    _pdb.upsert_date_notice(uid_int, run_date, _notice_type, _notice_msg)
-                    print(f"[PIPELINE] Wrote date notice: {_notice_type} for {run_date}", flush=True)
-                except Exception as _ne:
-                    print(f"[PIPELINE] Could not write date notice: {_ne!r}", flush=True)
-                return
+                        cleanup_mode = _CLEANUP_MODES["per_user_nonzero"]
+                else:
+                    cleanup_mode = "intermediate,deprecated"
+                step_args.extend(["--mode", cleanup_mode])
+
+            # Idempotency check
+            skipped = False
+            if output_mode == "db" and step in _DB_OUTPUT_STEPS:
+                if not force and _db_step_done(step, uid_int, run_date):
+                    print(f"SKIP step: {step} (DB output exists for user={uid_int} date={run_date})", flush=True)
+                    recorder.skip_step(step, f"DB output exists for user={uid_int} date={run_date}")
+                    skipped = True
+            elif output_mode == "db" and step in _IDEA_STEPS:
+                pass  # idea controllers handle idempotency themselves
+            else:
+                if step_output_exists(step, run_date):
+                    if force:
+                        step_output_remove(step, run_date)
+                        print(f"FORCE step: {step} (removed old output for {run_date})", flush=True)
+                        recorder.emit(f"FORCE {step}: removed old output", event_type="custom")
+                    else:
+                        print(f"SKIP step: {step} (output exists for {run_date})", flush=True)
+                        recorder.skip_step(step, f"output exists for {run_date}")
+                        skipped = True
+
+            if skipped:
+                continue
+
+            print(f"RUN step: {step}", flush=True)
+            recorder.emit(f"RUN step: {step}", event_type="custom")
+            run_step(step, step_args, env=env, recorder=recorder)
+
+            if step == "arxiv_search":
+                selected = detect_selected_count()
+                if selected == 0:
+                    print("[PIPELINE] No papers selected in current window; stop after arxiv_search.", flush=True)
+                    try:
+                        sys.path.insert(0, ROOT)
+                        from services import pipeline_db_service as _pdb
+                        _run_date_dt = datetime.strptime(run_date, "%Y-%m-%d")
+                        weekday = _run_date_dt.weekday()
+                        if weekday in (5, 6):
+                            _notice_type = "no_papers_weekend"
+                            _notice_msg = "今天是周末，ArXiv 不发布新论文。"
+                        else:
+                            _notice_type = "no_papers_empty"
+                            _notice_msg = "今天 ArXiv 在您关注的领域暂无新论文（搜索窗口内无结果）。"
+                        _pdb.upsert_date_notice(uid_int, run_date, _notice_type, _notice_msg)
+                        print(f"[PIPELINE] Wrote date notice: {_notice_type} for {run_date}", flush=True)
+                        recorder.emit(
+                            f"no papers: {_notice_type}",
+                            level="warning",
+                            event_type="paper_count",
+                            payload={"notice_type": _notice_type},
+                        )
+                    except Exception as _ne:
+                        print(f"[PIPELINE] Could not write date notice: {_ne!r}", flush=True)
+                    return
+
+    except Exception as exc:
+        pipeline_error = str(exc)
+        raise
+    finally:
+        if run_id_int:
+            PipelineRecorder.end_run(
+                run_id_int,
+                success=(pipeline_error is None),
+                error=pipeline_error or "",
+            )
 
 
 if __name__ == "__main__":

@@ -13,6 +13,12 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config.config import minerU_Token, SELECTED_MINERU_DIR, MANIFEST_FILENAME  # noqa: E402
+from services.mineru_api_support import (  # noqa: E402
+    find_resumable_batch,
+    load_batch_journal,
+    request_json_with_rate_limit_retry,
+    update_batch_journal,
+)
 
 
 def setup_logging():
@@ -90,21 +96,30 @@ class MinerUClient:
 
     def _post(self, path: str, payload: dict) -> dict:
         url = f"{self.base_url}{path}"
-        r = self.session.post(url, json=payload, timeout=(20, 120))
-        r.raise_for_status()
-        data = r.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"MinerU API error: {data}")
-        return data
+        return request_json_with_rate_limit_retry(
+            self.session,
+            "POST",
+            url,
+            payload=payload,
+            max_attempts=int(os.environ.get("MINERU_API_MAX_ATTEMPTS", "6")),
+            on_retry=lambda attempt, total, delay: print(
+                f"[WARN] MinerU API 429，{delay:.0f}s 后重试 ({attempt}/{total})",
+                flush=True,
+            ),
+        )
 
     def _get(self, path: str) -> dict:
         url = f"{self.base_url}{path}"
-        r = self.session.get(url, timeout=(20, 120))
-        r.raise_for_status()
-        data = r.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"MinerU API error: {data}")
-        return data
+        return request_json_with_rate_limit_retry(
+            self.session,
+            "GET",
+            url,
+            max_attempts=int(os.environ.get("MINERU_API_MAX_ATTEMPTS", "6")),
+            on_retry=lambda attempt, total, delay: print(
+                f"[WARN] MinerU API 429，{delay:.0f}s 后重试 ({attempt}/{total})",
+                flush=True,
+            ),
+        )
 
     def apply_upload_urls(self, files: List[dict], model_version: str, extra: dict) -> dict:
         payload = {"files": files, "model_version": model_version}
@@ -133,14 +148,32 @@ def upload_to_presigned_url(file_path: Path, put_url: str, max_retries: int = 6)
     raise RuntimeError(f"upload failed: {file_path.name}. last={last!r}")
 
 
-def wait_batch_done(client: MinerUClient, batch_id: str, expected_total: int, timeout_sec: int = 900, poll_sec: int = 3) -> List[dict]:
+def wait_batch_done(
+    client: MinerUClient,
+    batch_id: str,
+    expected_total: int,
+    timeout_sec: int = 900,
+    poll_sec: int = 3,
+    stall_timeout_sec: int = 180,
+) -> List[dict]:
+    """等待 MinerU 批次完成，含停滞检测。
+
+    当 done+failed 计数在 stall_timeout_sec 内无进展，或达到 timeout_sec 绝对上限时，
+    打印警告并返回当前结果，而非抛出异常，让调用方决定如何处理部分成功。
+    """
     deadline = time.time() + timeout_sec
+    last_progress = 0
+    last_progress_time = time.time()
+    last_items: List[dict] = []
+
     while time.time() < deadline:
-        last = client.get_batch_results(batch_id)
-        data = last.get("data") or {}
+        resp = client.get_batch_results(batch_id)
+        data = resp.get("data") or {}
         items = data.get("extract_result") or []
         if not isinstance(items, list):
             items = []
+        last_items = [it for it in items if isinstance(it, dict)]
+
         states: dict[str, int] = {}
         done_or_failed = 0
         for it in items:
@@ -149,11 +182,40 @@ def wait_batch_done(client: MinerUClient, batch_id: str, expected_total: int, ti
             if st in ("done", "failed"):
                 done_or_failed += 1
         print(f"\r[parse] {done_or_failed}/{expected_total} {states}", end="", flush=True)
+
         if expected_total > 0 and done_or_failed >= expected_total:
             print()
-            return [it for it in items if isinstance(it, dict)]
+            return last_items
+
+        # 记录进度变化时间，用于停滞检测
+        if done_or_failed > last_progress:
+            last_progress = done_or_failed
+            last_progress_time = time.time()
+
+        # 停滞检测：已有部分完成且长时间无新进展，优雅返回
+        stalled_for = time.time() - last_progress_time
+        if done_or_failed > 0 and stalled_for >= stall_timeout_sec:
+            print()
+            print(
+                f"[WARN] MinerU batch 进度停滞 {stalled_for:.0f}s，"
+                f"done+failed={done_or_failed}/{expected_total} {states}，"
+                f"放弃等待剩余任务，继续后续步骤",
+                flush=True,
+            )
+            return last_items
+
         time.sleep(poll_sec)
-    raise TimeoutError("batch not finished in time")
+
+    # 绝对超时：返回已有结果而非抛异常
+    print()
+    done_or_failed_final = sum(1 for it in last_items if str(it.get("state") or "").lower() in ("done", "failed"))
+    print(
+        f"[WARN] MinerU batch 达到超时上限 {timeout_sec}s，"
+        f"done+failed={done_or_failed_final}/{expected_total}，"
+        f"放弃等待剩余任务，继续后续步骤",
+        flush=True,
+    )
+    return last_items
 
 
 def download_zip(zip_url: str, token: str, dest: Path, max_retries: int = 6) -> None:
@@ -201,8 +263,11 @@ def run():
     ap.add_argument("--base-url", default=os.environ.get("MINERU_BASE_URL", "https://mineru.net"))
     ap.add_argument("--model-version", default=os.environ.get("MINERU_MODEL_VERSION", "vlm"))
     ap.add_argument("--timeout-sec", type=int, default=900)
+    ap.add_argument("--stall-timeout-sec", type=int, default=180)
     ap.add_argument("--poll-sec", type=int, default=3)
     ap.add_argument("--upload-retries", type=int, default=6)
+    ap.add_argument("--min-success-ratio", type=float, default=0.0,
+                    help="写入 manifest 后，若成功率低于此值则以 exit(1) 失败（默认 0.0 = 只要有 1 篇成功就继续）")
     ap.add_argument(
         "--shared-cache",
         action="store_true",
@@ -304,66 +369,102 @@ def run():
         manifest_path.write_text(json.dumps(manifest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
         return
 
-    BATCH_SIZE = 100
+    BATCH_SIZE = 50
     client = MinerUClient(args.base_url, token)
     total = len(pdfs_to_upload)
     chunks = [pdfs_to_upload[i:i + BATCH_SIZE] for i in range(0, total, BATCH_SIZE)]
     logger.info("Total PDFs to upload: %d, split into %d batch(es) of up to %d", total, len(chunks), BATCH_SIZE)
 
-    results: List[dict] = []
+    batch_journal_path = out_root / "_batch_state.json"
+    batch_journal = load_batch_journal(batch_journal_path, date_str)
+    statuses: dict[str, str] = {
+        p.stem: "skipped" if (out_root / p.stem / f"{p.stem}.md").exists() else "pending"
+        for p in pdfs
+    }
+    wrote = 0
     uploaded_total = 0
     for chunk_idx, chunk in enumerate(chunks):
-        logger.info("[batch %d/%d] Applying upload URLs for %d file(s)", chunk_idx + 1, len(chunks), len(chunk))
-        files_payload = [{"name": p.name, "data_id": p.stem} for p in chunk]
-        applied = client.apply_upload_urls(
-            files_payload,
-            model_version=args.model_version,
-            extra={"return_images": True},
-        ).get("data") or {}
-        urls = applied.get("file_urls") or []
-        batch_id = applied.get("batch_id") or ""
-        if not batch_id or not urls or len(urls) != len(chunk):
-            raise SystemExit(f"Failed to apply upload URLs (batch {chunk_idx + 1}/{len(chunks)})")
+        chunk_ids = [p.stem for p in chunk]
+        resumable = find_resumable_batch(batch_journal, chunk_ids)
+        if resumable:
+            batch_id = str(resumable["batch_id"])
+            logger.info("[batch %d/%d] Resuming MinerU batch_id=%s", chunk_idx + 1, len(chunks), batch_id)
+        else:
+            logger.info("[batch %d/%d] Applying upload URLs for %d file(s)", chunk_idx + 1, len(chunks), len(chunk))
+            files_payload = [{"name": p.name, "data_id": p.stem} for p in chunk]
+            applied = client.apply_upload_urls(
+                files_payload,
+                model_version=args.model_version,
+                extra={"return_images": True},
+            ).get("data") or {}
+            urls = applied.get("file_urls") or []
+            batch_id = applied.get("batch_id") or ""
+            if not batch_id or not urls or len(urls) != len(chunk):
+                raise SystemExit(f"Failed to apply upload URLs (batch {chunk_idx + 1}/{len(chunks)})")
+            update_batch_journal(
+                batch_journal,
+                batch_journal_path,
+                batch_id=batch_id,
+                file_ids=chunk_ids,
+                status="applied",
+            )
 
-        for i, p in enumerate(chunk):
-            upload_to_presigned_url(p, urls[i], max_retries=args.upload_retries)
-            uploaded_total += 1
-            print(f"\r[upload] {uploaded_total}/{total}", end="", flush=True)
-        print()
-        print(f"[batch {chunk_idx + 1}/{len(chunks)}] 上传完成，开始等待 MinerU 解析", flush=True)
+            for i, p in enumerate(chunk):
+                upload_to_presigned_url(p, urls[i], max_retries=args.upload_retries)
+                uploaded_total += 1
+                print(f"\r[upload] {uploaded_total}/{total}", end="", flush=True)
+            print()
+            update_batch_journal(
+                batch_journal,
+                batch_journal_path,
+                batch_id=batch_id,
+                file_ids=chunk_ids,
+                status="uploaded",
+            )
+            print(f"[batch {chunk_idx + 1}/{len(chunks)}] 上传完成，开始等待 MinerU 解析", flush=True)
 
-        chunk_results = wait_batch_done(client, batch_id, expected_total=len(chunk), timeout_sec=args.timeout_sec, poll_sec=args.poll_sec)
-        results.extend(chunk_results)
-    by_name = {str(it.get("file_name") or ""): it for it in results}
-    by_dataid = {str(it.get("data_id") or ""): it for it in results}
-
-    wrote = 0
-    statuses: dict[str, str] = {}
-    for p in pdfs_to_upload:
-        it = by_dataid.get(p.stem) or by_name.get(p.name)
-        if not it:
-            print(f"[skip] no result item for {p.name}")
-            statuses[p.stem] = "missing_result"
-            continue
-        state = str(it.get("state") or "").lower()
-        if state != "done":
-            print(f"[skip] {p.name} state={state}")
-            statuses[p.stem] = f"state_{state}"
-            continue
-        zip_url = it.get("full_zip_url")
-        if not zip_url:
-            print(f"[skip] {p.name} has no full_zip_url")
-            statuses[p.stem] = "no_zip_url"
-            continue
-        zip_path = out_root / f"{p.stem}.zip"
-        download_zip(zip_url, token, zip_path)
-        dest_dir = out_root / p.stem
-        extract_zip(zip_path, dest_dir)
-        md_text = pick_first_md(zip_path)
-        (dest_dir / f"{p.stem}.md").write_text(md_text, encoding="utf-8")
-        wrote += 1
-        statuses[p.stem] = "done"
-        print(f"\r[write] {wrote}/{total}", end="", flush=True)
+        chunk_results = wait_batch_done(
+            client, batch_id, expected_total=len(chunk),
+            timeout_sec=args.timeout_sec, poll_sec=args.poll_sec,
+            stall_timeout_sec=args.stall_timeout_sec,
+        )
+        by_name = {str(it.get("file_name") or ""): it for it in chunk_results}
+        by_dataid = {str(it.get("data_id") or ""): it for it in chunk_results}
+        batch_written: list[str] = []
+        for p in chunk:
+            it = by_dataid.get(p.stem) or by_name.get(p.name)
+            if not it:
+                print(f"[skip] no result item for {p.name}")
+                statuses[p.stem] = "missing_result"
+                continue
+            state = str(it.get("state") or "").lower()
+            if state != "done":
+                print(f"[skip] {p.name} state={state}")
+                statuses[p.stem] = f"state_{state}"
+                continue
+            zip_url = it.get("full_zip_url")
+            if not zip_url:
+                print(f"[skip] {p.name} has no full_zip_url")
+                statuses[p.stem] = "no_zip_url"
+                continue
+            zip_path = out_root / f"{p.stem}.zip"
+            download_zip(zip_url, token, zip_path)
+            dest_dir = out_root / p.stem
+            extract_zip(zip_path, dest_dir)
+            md_text = pick_first_md(zip_path)
+            (dest_dir / f"{p.stem}.md").write_text(md_text, encoding="utf-8")
+            wrote += 1
+            batch_written.append(p.stem)
+            statuses[p.stem] = "done"
+            print(f"\r[write] {wrote}/{total}", end="", flush=True)
+        update_batch_journal(
+            batch_journal,
+            batch_journal_path,
+            batch_id=batch_id,
+            file_ids=chunk_ids,
+            status="completed" if len(batch_written) == len(chunk) else "partial",
+            written_ids=batch_written,
+        )
     print()
     logger.info("Done. wrote=%d, total=%d", wrote, total)
     logger.info("Out dir: %s", str(out_root))
@@ -386,6 +487,29 @@ def run():
         print("============结束全量 PDF 的 MinerU 解析 (shared cache)==============", flush=True)
     else:
         print("============结束精选 PDF 的 MinerU 解析==============", flush=True)
+
+    # 成功率检查：只有 0 篇成功（或低于 --min-success-ratio）时才以非零退出
+    total_uploaded = len(pdfs_to_upload)
+    success_ratio = wrote / total_uploaded if total_uploaded > 0 else 1.0
+    if wrote == 0:
+        print(
+            f"[ERROR] 0 篇论文成功写入（共 {total_uploaded} 篇），流水线中止",
+            flush=True,
+        )
+        sys.exit(1)
+    if success_ratio < args.min_success_ratio:
+        print(
+            f"[ERROR] 成功率 {success_ratio:.1%} 低于阈值 {args.min_success_ratio:.1%}"
+            f"（{wrote}/{total_uploaded}），流水线中止",
+            flush=True,
+        )
+        sys.exit(1)
+    if wrote < total_uploaded:
+        print(
+            f"[WARN] 部分论文未能成功解析：{wrote}/{total_uploaded} 篇成功，"
+            f"失败/超时/unknown 的论文将在下游步骤中自动跳过",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
