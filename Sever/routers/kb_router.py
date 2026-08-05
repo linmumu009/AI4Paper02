@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, translate_service, auto_classify_service
+from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from routers._deps import _KB_FILES_DIR
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -393,8 +394,9 @@ async def api_kb_upload_file(
         raise HTTPException(status_code=404, detail="Paper not in knowledge base")
 
     _MAX_UPLOAD_SIZE = 50 * 1024 * 1024
-    file_bytes = await file.read()
-    if len(file_bytes) > _MAX_UPLOAD_SIZE:
+    try:
+        file_bytes = await read_upload_with_limit(file, _MAX_UPLOAD_SIZE)
+    except UploadTooLarge:
         raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50 MB）")
 
     mime = file.content_type or "application/octet-stream"

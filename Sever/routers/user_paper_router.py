@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
+from services.upload_guard import UploadTooLarge, read_upload_with_limit
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 
@@ -180,15 +181,14 @@ async def api_user_paper_import_pdf(
     external_url: str = Query(default=""),
     _user=Depends(auth_service.require_user),
 ):
-    # Quota check: consume one upload credit
-    entitlement_service.consume_quota(_user["id"], "upload")
     _MAX_UPLOAD_SIZE = 50 * 1024 * 1024
     if file.content_type not in ("application/pdf", "application/octet-stream"):
         if not (file.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
 
-    pdf_bytes = await file.read()
-    if len(pdf_bytes) > _MAX_UPLOAD_SIZE:
+    try:
+        pdf_bytes = await read_upload_with_limit(file, _MAX_UPLOAD_SIZE)
+    except UploadTooLarge:
         raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50 MB）")
 
     try:
@@ -197,6 +197,9 @@ async def api_user_paper_import_pdf(
             authors_list = []
     except Exception:
         authors_list = []
+
+    # Only valid, bounded uploads consume quota.
+    entitlement_service.consume_quota(_user["id"], "upload")
 
     paper = user_paper_service.create_paper(
         _user["id"],
@@ -311,8 +314,9 @@ async def api_user_paper_upload_pdf(
         raise HTTPException(status_code=400, detail="仅支持 PDF 文件")
 
     _MAX_UPLOAD_SIZE = 50 * 1024 * 1024
-    pdf_bytes = await file.read()
-    if len(pdf_bytes) > _MAX_UPLOAD_SIZE:
+    try:
+        pdf_bytes = await read_upload_with_limit(file, _MAX_UPLOAD_SIZE)
+    except UploadTooLarge:
         raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50 MB）")
 
     updated = user_paper_service.update_paper(
