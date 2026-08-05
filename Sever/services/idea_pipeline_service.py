@@ -24,7 +24,12 @@ from typing import Any, Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
-from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
+from services.llm_response_guard import (
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
+    require_meaningful_structure,
+    require_nonempty_text,
+)
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -381,8 +386,14 @@ def _call_llm_json(client: OpenAI, cfg: dict, system_prompt: str, user_content: 
         ],
         **kwargs,
     )
-    text = resp.choices[0].message.content if resp.choices else ""
-    return _parse_json(text)
+    text = require_nonempty_text(
+        resp.choices[0].message.content if resp.choices else None,
+        operation="idea_structured_generation",
+    )
+    return require_meaningful_structure(
+        _parse_json(text),
+        operation="idea_structured_generation",
+    )
 
 
 def _parse_json(text: str) -> dict:
@@ -407,6 +418,20 @@ def _parse_json(text: str) -> dict:
         except json.JSONDecodeError:
             pass
     return {}
+
+
+def _structured_generation_error(exc: BaseException, *, operation: str) -> str:
+    action = (
+        "模型未返回有效结构化内容，请重试"
+        if isinstance(exc, (EmptyLlmResponseError, InvalidLlmResponseError))
+        else "生成失败，请稍后重试"
+    )
+    return safe_failure_detail(
+        _logger,
+        action,
+        exc,
+        operation=operation,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -482,9 +507,6 @@ def extract_atoms_for_paper(
     if not content:
         return {"error": f"找不到论文内容: {paper_id}"}
 
-    # Delete existing atoms for this paper (re-extraction)
-    isvc.delete_atoms_for_paper(user_id, paper_id)
-
     # system_prompt is fully resolved by _get_llm_config(module="ingest"):
     #   1. User per-module prompt preset (ingest_prompt_preset_id)
     #   2. Global prompt preset (prompt_preset_id)
@@ -492,7 +514,15 @@ def extract_atoms_for_paper(
     #   4. Legacy system_prompt text (backward compat)
     #   5. config.py idea_ingest_system_prompt (admin-editable)
     system_prompt = cfg.get("system_prompt") or ""
-    result = _call_llm_json(client, cfg, system_prompt, content)
+    try:
+        result = _call_llm_json(client, cfg, system_prompt, content)
+    except Exception as exc:
+        return {
+            "error": _structured_generation_error(
+                exc,
+                operation="idea_atom_extraction",
+            )
+        }
 
     atoms_data = result.get("atoms") or result.get("items") or []
     if not atoms_data and isinstance(result, dict):
@@ -511,18 +541,28 @@ def extract_atoms_for_paper(
     for a in atoms_data:
         if isinstance(a, str):
             a = {"type": "claim", "content": a}
+        if not isinstance(a, dict):
+            continue
+        atom_content = str(a.get("content", "") or "").strip()
+        if not atom_content:
+            continue
         batch.append({
             "paper_id": paper_id,
             "date_str": date_str,
             "atom_type": a.get("type", "claim"),
-            "content": a.get("content", ""),
+            "content": atom_content,
             "tags": a.get("tags", []),
             "evidence": a.get("evidence", []),
             "section": a.get("section", ""),
             "source_file": f"{paper_id}_mineru.md",
         })
 
-    count = isvc.create_atoms_batch(user_id, batch) if batch else 0
+    if not batch:
+        return {"error": "模型未返回可用的论文原子，请重试"}
+
+    # Preserve the last valid extraction until the replacement is ready.
+    isvc.delete_atoms_for_paper(user_id, paper_id)
+    count = isvc.create_atoms_batch(user_id, batch)
     return {"atoms": batch, "count": count}
 
 
@@ -599,12 +639,30 @@ def generate_candidates_for_paper(user_id: int, paper_id: str, force: bool = Fal
     )
     system_prompt_with_scores = system_prompt + scores_fmt
 
-    result = _call_llm_json(client, cfg, system_prompt_with_scores, user_content)
+    try:
+        result = _call_llm_json(client, cfg, system_prompt_with_scores, user_content)
+    except Exception as exc:
+        return {
+            "error": _structured_generation_error(
+                exc,
+                operation="idea_candidate_generation_for_paper",
+            )
+        }
     candidates_raw = result.get("candidates") or result.get("items") or []
+
+    if not isinstance(candidates_raw, list) or not any(
+        isinstance(candidate, dict)
+        and any(
+            str(candidate.get(field, "") or "").strip()
+            for field in ("title", "goal", "mechanism")
+        )
+        for candidate in candidates_raw
+    ):
+        return {"error": "模型未返回可用的灵感候选，请重试"}
 
     created = []
     for c in candidates_raw:
-        if isinstance(c, str):
+        if not isinstance(c, dict):
             continue
         raw_scores = c.get("scores") or {}
         scores: dict | None = None
@@ -667,13 +725,35 @@ def generate_questions(user_id: int, limit: int = 10) -> dict:
     )
 
     system_prompt = cfg.get("system_prompt") or ""
-    result = _call_llm_json(client, cfg, system_prompt, atoms_text)
+    try:
+        result = _call_llm_json(client, cfg, system_prompt, atoms_text)
+    except Exception as exc:
+        return {
+            "error": _structured_generation_error(
+                exc,
+                operation="idea_question_generation",
+            )
+        }
     questions = result.get("questions") or result.get("items") or []
+
+    if not isinstance(questions, list) or not any(
+        (
+            isinstance(question, str) and question.strip()
+        )
+        or (
+            isinstance(question, dict)
+            and str(question.get("question", "") or "").strip()
+        )
+        for question in questions
+    ):
+        return {"error": "模型未返回可用的研究问题，请重试"}
 
     created = []
     for q in questions:
         if isinstance(q, str):
             q = {"question": q, "strategy": "general"}
+        if not isinstance(q, dict) or not str(q.get("question", "") or "").strip():
+            continue
         qobj = isvc.create_question(
             user_id=user_id,
             question_text=q.get("question", ""),

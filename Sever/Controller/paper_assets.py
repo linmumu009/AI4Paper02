@@ -16,6 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import (
+    require_meaningful_structure,
+    require_nonempty_text,
+)
 from config.config import (  # noqa: E402
     qwen_api_key,
     summary_base_url,
@@ -485,14 +489,24 @@ def extract_blocks_with_llm(
         stream=False,
         **kwargs,
     )
-    reply = resp.choices[0].message.content if resp.choices else ""
-    obj = parse_json_from_text(reply)
+    reply = require_nonempty_text(
+        resp.choices[0].message.content if resp.choices else None,
+        operation="paper_assets_generation",
+    )
+    obj = require_meaningful_structure(
+        parse_json_from_text(reply),
+        operation="paper_assets_generation",
+    )
     # 模型按 prompt 只输出 blocks 对象（13 个键在顶层）；兼容历史上可能返回 {"blocks": {...}} 的情况
     if isinstance(obj, dict) and "blocks" in obj and isinstance(obj["blocks"], dict):
         blocks_raw = obj["blocks"]
     else:
         blocks_raw = obj
-    return ensure_blocks_structure(blocks_raw)
+    blocks = ensure_blocks_structure(blocks_raw)
+    return require_meaningful_structure(
+        blocks,
+        operation="paper_assets_generation",
+    )
 
 
 def list_md_files(in_dir: Path) -> List[Path]:
@@ -540,18 +554,7 @@ def process_one(
 ) -> Dict[str, Any]:
     text = md_path.read_text(encoding="utf-8", errors="ignore")
     if not text.strip():
-        paper_id = md_path.stem
-        meta = get_pdf_meta_for_id(pdf_info_map, paper_id)
-        title = str(meta.get("title", "") or "").strip() if meta else ""
-        published = str(meta.get("published", "") or "").strip() if meta else ""
-        year = parse_year(published) if published else None
-        return {
-            "paper_id": paper_id,
-            "title": title,
-            "url": build_url(paper_id),
-            "year": year,
-            "blocks": ensure_blocks_structure({}),
-        }
+        raise ValueError(f"paper summary input is empty: {md_path.name}")
 
     paper_id = md_path.stem
     meta = get_pdf_meta_for_id(pdf_info_map, paper_id)
@@ -703,6 +706,8 @@ def run() -> None:
 
     print(f"[PAPER_ASSETS] total={total} written={len(results)} errors={errors}", flush=True)
     print("============结束生成 paper_assets ============", flush=True)
+    if errors:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

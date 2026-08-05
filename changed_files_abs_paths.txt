@@ -325,3 +325,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_summary_limi
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\llm_response_guard.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paper_summary_claude.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_response_guard.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\llm_select_theme.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_structured_response_contract.py

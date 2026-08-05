@@ -18,6 +18,10 @@ sys.path.insert(0, str(ROOT))
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.llm_response_guard import (
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
 
 from config.config import (  # noqa: E402
     DATA_ROOT,
@@ -222,19 +226,21 @@ def build_user_prompt(title: str, abstract: str) -> str:
 
 
 def parse_score(text: str) -> float:
-    if not text:
-        return 0.0
-    m = re.search(r"([0-1](?:\.\d+)?)", text)
+    content = require_nonempty_text(text, operation="theme_relevance_scoring")
+    m = re.search(
+        r"(?<![\d.])(?:0(?:\.\d+)?|1(?:\.0+)?)(?![\d.])",
+        content,
+    )
     if not m:
-        return 0.0
+        raise InvalidLlmResponseError(
+            "model returned an unparseable theme relevance score"
+        )
     try:
-        val = float(m.group(1))
+        val = float(m.group(0))
     except ValueError:
-        return 0.0
-    if val < 0.0:
-        return 0.0
-    if val > 1.0:
-        return 1.0
+        raise InvalidLlmResponseError(
+            "model returned an invalid theme relevance score"
+        )
     return val
 
 
