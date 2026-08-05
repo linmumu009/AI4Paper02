@@ -140,6 +140,16 @@ if [[ -f "$BACKUP_SERVICE_SOURCE" && -f "$BACKUP_TIMER_SOURCE" ]]; then
   systemctl enable --now ai4papers-db-backup.timer
 fi
 
+HEALTH_SERVICE_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-healthcheck.service"
+HEALTH_TIMER_SOURCE="${PROJECT_ROOT}/deploy/systemd/ai4papers-healthcheck.timer"
+if [[ -f "$HEALTH_SERVICE_SOURCE" && -f "$HEALTH_TIMER_SOURCE" ]]; then
+  echo "==== Installing production healthcheck timer ===="
+  install -m 0644 "$HEALTH_SERVICE_SOURCE" /etc/systemd/system/ai4papers-healthcheck.service
+  install -m 0644 "$HEALTH_TIMER_SOURCE" /etc/systemd/system/ai4papers-healthcheck.timer
+  systemctl daemon-reload
+  systemctl enable --now ai4papers-healthcheck.timer
+fi
+
 NGINX_SOURCE="${PROJECT_ROOT}/nginx/arxivpaper4.conf"
 NGINX_TARGET="/etc/nginx/conf.d/arxivpaper4.conf"
 NGINX_BACKUP="${NGINX_TARGET}.ai4papers-deploy-backup"

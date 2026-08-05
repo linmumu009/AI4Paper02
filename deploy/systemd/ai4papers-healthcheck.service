@@ -1,0 +1,14 @@
+[Unit]
+Description=AI4Papers production health check
+After=network-online.target arxiv-api.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/projects/ArxivPaper4/Sever
+User=root
+Group=root
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/ai4papers/healthcheck.env
+ExecStart=/usr/bin/python3 /projects/ArxivPaper4/Sever/scripts/check_system_health.py

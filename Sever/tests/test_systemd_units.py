@@ -23,6 +23,15 @@ class SystemdUnitTests(unittest.TestCase):
         restart_at = script.index("systemctl restart arxiv-api")
         self.assertLess(install_at, restart_at)
 
+    def test_healthcheck_timer_is_periodic_and_installed(self) -> None:
+        timer = (
+            _ROOT / "deploy" / "systemd" / "ai4papers-healthcheck.timer"
+        ).read_text(encoding="utf-8")
+        script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")
+        self.assertIn("OnCalendar=*-*-* *:00/10:00", timer)
+        self.assertIn("Persistent=true", timer)
+        self.assertIn("systemctl enable --now ai4papers-healthcheck.timer", script)
+
 
 if __name__ == "__main__":
     unittest.main()

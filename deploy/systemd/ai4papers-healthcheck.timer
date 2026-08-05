@@ -1,0 +1,11 @@
+[Unit]
+Description=Run AI4Papers production health checks every 10 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00/10:00
+RandomizedDelaySec=20
+Persistent=true
+Unit=ai4papers-healthcheck.service
+
+[Install]
+WantedBy=timers.target

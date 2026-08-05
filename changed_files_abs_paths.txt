@@ -254,3 +254,8 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\user_paper_rout
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\kb.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\arxiv-api.service
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_systemd_units.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\system_health_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\check_system_health.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_system_health_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\ai4papers-healthcheck.service
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\deploy\systemd\ai4papers-healthcheck.timer
