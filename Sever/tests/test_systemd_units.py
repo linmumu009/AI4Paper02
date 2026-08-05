@@ -64,6 +64,10 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn('"${server_root}/database"', script)
         self.assertIn('"${server_root}/logs"', script)
         self.assertIn('paper_list="${server_root}/config/paperList.json"', script)
+        self.assertIn('setfacl -R -m "u:${SERVICE_USER}:rwX"', script)
+        self.assertIn('setfacl -m "d:u:${SERVICE_USER}:rwx"', script)
+        self.assertIn('setfacl -m "u:${SERVICE_USER}:rw" "$paper_list"', script)
+        self.assertNotIn('chown -R "$SERVICE_USER:$SERVICE_GROUP"', script)
 
     def test_deploy_rolls_back_api_unit_when_restart_fails(self) -> None:
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")

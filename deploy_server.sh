@@ -54,16 +54,16 @@ prepare_api_runtime_permissions() {
   if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     useradd --system --user-group --home-dir /nonexistent --shell /sbin/nologin "$SERVICE_USER"
   fi
+  command -v setfacl >/dev/null
 
   for runtime_dir in "${runtime_dirs[@]}"; do
-    install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0700 "$runtime_dir"
-    chown -R "$SERVICE_USER:$SERVICE_GROUP" "$runtime_dir"
-    find "$runtime_dir" -type d -exec chmod u+rwx {} +
+    mkdir -p "$runtime_dir"
+    setfacl -R -m "u:${SERVICE_USER}:rwX" "$runtime_dir"
+    find "$runtime_dir" -type d -exec setfacl -m "d:u:${SERVICE_USER}:rwx" {} +
   done
 
   touch "$paper_list"
-  chown "$SERVICE_USER:$SERVICE_GROUP" "$paper_list"
-  chmod u+rw,go-rwx "$paper_list"
+  setfacl -m "u:${SERVICE_USER}:rw" "$paper_list"
 }
 
 api_is_ready() {
