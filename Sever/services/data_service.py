@@ -218,6 +218,55 @@ def _parse_limit_md(text: str, paper_id: str) -> dict:
     return result
 
 
+def _finalize_renderable_summary(
+    data: dict,
+    paper_id: str,
+    *,
+    title_hint: Any = "",
+) -> Optional[dict]:
+    """Normalize a public summary or reject it when it would render blank.
+
+    A file existing on disk is not publication evidence.  Public cards require
+    a real title plus at least one substantive introduction field.  The helper
+    is shared by DB, legacy-file, list, and detail paths so old partial artifacts
+    cannot bypass the publication boundary.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    def _text(value: Any) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    intro = data.get("🛎️文章简介")
+    if not isinstance(intro, dict):
+        return None
+    research_question = _text(intro.get("🔸研究问题"))
+    main_contribution = _text(intro.get("🔸主要贡献"))
+    if not research_question and not main_contribution:
+        return None
+
+    full_title = (
+        _text(data.get("📖标题"))
+        or _text(data.get("title"))
+        or _text(title_hint)
+        or _text(data.get("short_title"))
+    )
+    if not full_title:
+        return None
+
+    normalized = dict(data)
+    normalized_intro = dict(intro)
+    normalized_intro["🔸研究问题"] = research_question
+    normalized_intro["🔸主要贡献"] = main_contribution
+    normalized["🛎️文章简介"] = normalized_intro
+    normalized["paper_id"] = paper_id
+    normalized["📖标题"] = full_title
+    normalized["title"] = full_title
+    normalized["short_title"] = _text(data.get("short_title")) or full_title
+    normalized["🌐来源"] = _text(data.get("🌐来源")) or f"arXiv, {paper_id}"
+    return normalized
+
+
 # ---------------------------------------------------------------------------
 # Security helpers
 # ---------------------------------------------------------------------------
@@ -490,19 +539,18 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
             paper_id = dp.get("paper_id", "")
             # Parse limit markdown if available
             limit_text = dp.get("summary_limit", "") or dp.get("summary_raw", "")
-            if not limit_text.strip():
+            if not isinstance(limit_text, str) or not limit_text.strip():
                 # A selected paper is not publication-ready until its summary
                 # exists. Never expose a blank, half-built card to users.
                 continue
             parsed = _parse_limit_md(limit_text, paper_id)
-            intro = parsed.get("🛎️文章简介") or {}
-            if not (intro.get("🔸研究问题") or intro.get("🔸主要贡献")):
+            parsed = _finalize_renderable_summary(
+                parsed,
+                paper_id,
+                title_hint=dp.get("title"),
+            )
+            if parsed is None:
                 continue
-            full_title = parsed.get("📖标题") or dp.get("title") or paper_id
-            parsed["📖标题"] = full_title
-            parsed["title"] = full_title
-            parsed["short_title"] = parsed.get("short_title") or full_title
-            parsed["🌐来源"] = parsed.get("🌐来源") or f"arXiv, {paper_id}"
             parsed["institution"] = dp.get("institution", parsed.get("institution", ""))
             parsed["is_large_institution"] = dp.get("is_large_institution", False)
             parsed["institution_tier"] = dp.get("institution_tier") or 4
@@ -563,6 +611,10 @@ def _get_papers_from_files(date: str) -> Optional[list[dict]]:
                     data["institution_tier"] = 3 if is_large else 4
             else:
                 data["institution_tier"] = 3 if is_large else 4
+
+        data = _finalize_renderable_summary(data, paper_id)
+        if data is None:
+            continue
 
         # List images
         data["images"] = _build_paper_image_entries(paper_id, date, _list_paper_images(paper_dir))
@@ -632,10 +684,16 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 assets_row = assets_rows[0] if assets_rows else {}
 
                 limit_text = summary_row.get("summary_limit", "") or summary_row.get("summary_raw", "")
-                if limit_text:
-                    data = _parse_limit_md(limit_text, paper_id)
-                else:
-                    data = {"paper_id": paper_id}
+                if not isinstance(limit_text, str) or not limit_text.strip():
+                    continue
+                data = _parse_limit_md(limit_text, paper_id)
+                data = _finalize_renderable_summary(
+                    data,
+                    paper_id,
+                    title_hint=assets_row.get("title", "") or info.get("title", ""),
+                )
+                if data is None:
+                    continue
                 data["institution"] = info.get("institution", "")
                 is_large = bool(info.get("is_large", 0))
                 data["is_large_institution"] = is_large
@@ -711,6 +769,10 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                     data["institution_tier"] = 3 if is_large else 4
             else:
                 data["institution_tier"] = 3 if is_large else 4
+
+        data = _finalize_renderable_summary(data, paper_id)
+        if data is None:
+            continue
 
         images = _build_paper_image_entries(paper_id, date_dir, _list_paper_images(paper_dir))
 

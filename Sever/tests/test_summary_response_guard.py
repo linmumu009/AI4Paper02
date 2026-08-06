@@ -110,6 +110,52 @@ class TestSummaryResponseGuard(unittest.TestCase):
 
 
 class TestDigestPublicationGuard(unittest.TestCase):
+    def test_legacy_file_loader_drops_blank_card_artifacts(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            data_root = Path(tmpdir)
+            date_dir = data_root / "file_collect" / "2026-08-05"
+            blank_dir = date_dir / "2608.02502"
+            complete_dir = date_dir / "2608.02508"
+            blank_dir.mkdir(parents=True)
+            complete_dir.mkdir(parents=True)
+            (blank_dir / "2608.02502_limit.md").write_text(
+                "北大：\n📖标题：\n🛎️文章简介\n🔸研究问题：\n🔸主要贡献：\n",
+                encoding="utf-8",
+            )
+            (complete_dir / "2608.02508_limit.md").write_text(
+                "北大：可靠卡片\n"
+                "📖标题：Complete Paper Title\n"
+                "🛎️文章简介\n"
+                "🔸研究问题：如何避免半成品发布？\n"
+                "🔸主要贡献：建立统一发布边界。\n",
+                encoding="utf-8",
+            )
+
+            with patch.object(data_service, "_DATA_ROOT", str(data_root)):
+                papers = data_service._get_papers_from_files("2026-08-05")
+
+        self.assertEqual(len(papers), 1)
+        self.assertEqual(papers[0]["paper_id"], "2608.02508")
+        self.assertEqual(papers[0]["title"], "Complete Paper Title")
+        self.assertTrue(papers[0]["🛎️文章简介"]["🔸主要贡献"])
+
+    def test_renderable_summary_requires_title_and_substantive_intro(self):
+        no_title = data_service._parse_limit_md(
+            "北大：\n🛎️文章简介\n🔸研究问题：有效问题\n",
+            "2608.02502",
+        )
+        no_intro = data_service._parse_limit_md(
+            "北大：短标题\n📖标题：Full title\n🛎️文章简介\n",
+            "2608.02503",
+        )
+
+        self.assertIsNone(
+            data_service._finalize_renderable_summary(no_title, "2608.02502")
+        )
+        self.assertIsNone(
+            data_service._finalize_renderable_summary(no_intro, "2608.02503")
+        )
+
     def test_digest_uses_arxiv_title_when_pdf_info_title_is_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = str(Path(tmpdir) / "paper_analysis.db")
@@ -157,10 +203,20 @@ class TestDigestPublicationGuard(unittest.TestCase):
             "summary_limit": "",
             "summary_raw": "",
         }
+        malformed = {
+            "paper_id": "2608.02503",
+            "title": "Malformed summary",
+            "summary_limit": {"unexpected": "object"},
+            "summary_raw": "",
+        }
 
         with (
             patch.object(pipeline_db_service, "has_final_selections", return_value=True),
-            patch.object(pipeline_db_service, "get_digest_papers", return_value=[blank, complete]),
+            patch.object(
+                pipeline_db_service,
+                "get_digest_papers",
+                return_value=[blank, malformed, complete],
+            ),
             patch.object(pipeline_db_service, "get_paper_images", return_value={}),
         ):
             result = data_service._get_papers_from_db("2026-08-05", user_id=0)
