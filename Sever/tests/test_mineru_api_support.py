@@ -120,6 +120,19 @@ class MinerUApiSupportTests(unittest.TestCase):
             )
             self.assertIsNone(find_resumable_batch(loaded, ["b"]))
 
+    def test_local_fallback_batch_is_not_resumed(self):
+        journal = {
+            "batches": [
+                {
+                    "batch_id": "stale-batch",
+                    "file_ids": ["2608.00001"],
+                    "status": "fallback",
+                }
+            ]
+        }
+
+        self.assertIsNone(find_resumable_batch(journal, ["2608.00001"]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -112,7 +112,7 @@ def find_resumable_batch(journal: dict, file_ids: list[str]) -> Optional[dict]:
     for record in reversed(batches):
         if not isinstance(record, dict) or not record.get("batch_id"):
             continue
-        if record.get("status") == "completed":
+        if record.get("status") in {"completed", "fallback"}:
             continue
         recorded = set(str(item) for item in (record.get("file_ids") or []))
         if wanted.issubset(recorded):

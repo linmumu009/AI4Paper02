@@ -24,10 +24,12 @@ from services.mineru_api_support import (  # noqa: E402
 def setup_logging():
     logger = logging.getLogger("selectedpaper_mineru")
     logger.setLevel(logging.INFO)
-    fmt = logging.Formatter("[%(levelname)s] %(message)s")
-    sh = logging.StreamHandler(stream=sys.stdout)
-    sh.setFormatter(fmt)
-    logger.addHandler(sh)
+    if not logger.handlers:
+        fmt = logging.Formatter("[%(levelname)s] %(message)s")
+        sh = logging.StreamHandler(stream=sys.stdout)
+        sh.setFormatter(fmt)
+        logger.addHandler(sh)
+    logger.propagate = False
     return logger
 
 
@@ -481,11 +483,32 @@ def run():
                 status="applied",
             )
 
-            for i, p in enumerate(chunk):
-                upload_to_presigned_url(p, urls[i], max_retries=args.upload_retries)
-                uploaded_total += 1
-                print(f"\r[upload] {uploaded_total}/{total}", end="", flush=True)
-            print()
+            try:
+                for i, p in enumerate(chunk):
+                    upload_to_presigned_url(p, urls[i], max_retries=args.upload_retries)
+                    uploaded_total += 1
+                    print(f"\r[upload] {uploaded_total}/{total}", end="", flush=True)
+                print()
+            except Exception as exc:
+                mineru_available = False
+                logger.warning(
+                    "MinerU upload failed (%s); falling back to local PyMuPDF "
+                    "for remaining PDFs",
+                    type(exc).__name__,
+                )
+                fallback_written = write_pymupdf_fallback(
+                    chunk, out_root, statuses, logger
+                )
+                wrote += len(fallback_written)
+                update_batch_journal(
+                    batch_journal,
+                    batch_journal_path,
+                    batch_id=batch_id,
+                    file_ids=chunk_ids,
+                    status="fallback",
+                    written_ids=fallback_written,
+                )
+                continue
             update_batch_journal(
                 batch_journal,
                 batch_journal_path,
@@ -495,11 +518,32 @@ def run():
             )
             print(f"[batch {chunk_idx + 1}/{len(chunks)}] 上传完成，开始等待 MinerU 解析", flush=True)
 
-        chunk_results = wait_batch_done(
-            client, batch_id, expected_total=len(chunk),
-            timeout_sec=args.timeout_sec, poll_sec=args.poll_sec,
-            stall_timeout_sec=args.stall_timeout_sec,
-        )
+        try:
+            chunk_results = wait_batch_done(
+                client, batch_id, expected_total=len(chunk),
+                timeout_sec=args.timeout_sec, poll_sec=args.poll_sec,
+                stall_timeout_sec=args.stall_timeout_sec,
+            )
+        except Exception as exc:
+            mineru_available = False
+            logger.warning(
+                "MinerU result wait failed (%s); falling back to local "
+                "PyMuPDF for remaining PDFs",
+                type(exc).__name__,
+            )
+            fallback_written = write_pymupdf_fallback(
+                chunk, out_root, statuses, logger
+            )
+            wrote += len(fallback_written)
+            update_batch_journal(
+                batch_journal,
+                batch_journal_path,
+                batch_id=batch_id,
+                file_ids=chunk_ids,
+                status="fallback",
+                written_ids=fallback_written,
+            )
+            continue
         by_name = {str(it.get("file_name") or ""): it for it in chunk_results}
         by_dataid = {str(it.get("data_id") or ""): it for it in chunk_results}
         batch_written: list[str] = []
@@ -520,15 +564,34 @@ def run():
                 statuses[p.stem] = "no_zip_url"
                 continue
             zip_path = out_root / f"{p.stem}.zip"
-            download_zip(zip_url, token, zip_path)
-            dest_dir = out_root / p.stem
-            extract_zip(zip_path, dest_dir)
-            md_text = pick_first_md(zip_path)
-            (dest_dir / f"{p.stem}.md").write_text(md_text, encoding="utf-8")
-            wrote += 1
-            batch_written.append(p.stem)
-            statuses[p.stem] = "done"
-            print(f"\r[write] {wrote}/{total}", end="", flush=True)
+            try:
+                download_zip(zip_url, token, zip_path)
+                dest_dir = out_root / p.stem
+                extract_zip(zip_path, dest_dir)
+                md_text = pick_first_md(zip_path)
+                (dest_dir / f"{p.stem}.md").write_text(md_text, encoding="utf-8")
+                wrote += 1
+                batch_written.append(p.stem)
+                statuses[p.stem] = "done"
+                print(f"\r[write] {wrote}/{total}", end="", flush=True)
+            except Exception as exc:
+                statuses[p.stem] = "mineru_result_failed"
+                logger.warning(
+                    "MinerU result download failed for %s (%s); local fallback pending",
+                    p.name,
+                    type(exc).__name__,
+                )
+            finally:
+                try:
+                    zip_path.unlink()
+                except OSError:
+                    pass
+        fallback_pdfs = [p for p in chunk if p.stem not in batch_written]
+        fallback_written = write_pymupdf_fallback(
+            fallback_pdfs, out_root, statuses, logger
+        )
+        wrote += len(fallback_written)
+        batch_written.extend(fallback_written)
         update_batch_journal(
             batch_journal,
             batch_journal_path,
