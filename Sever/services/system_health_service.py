@@ -284,13 +284,21 @@ def build_health_report(
         issues.append("api_unreachable")
 
     try:
-        storage = get_storage_health(_SEVER_ROOT)
+        storage = get_storage_health(
+            _SEVER_ROOT,
+            check_runtime_writes=True,
+        )
+        runtime_write = storage.get("runtime_write") or {}
         storage_check = {
             "ok": storage.get("state") == "healthy",
             "state": storage.get("state", "unknown"),
             "used_percent": storage.get("used_percent"),
             "free_bytes": storage.get("free_bytes"),
+            "runtime_write_ok": runtime_write.get("ok"),
+            "runtime_write_failures": runtime_write.get("failed", []),
         }
+        if runtime_write and not runtime_write.get("ok"):
+            issues.append("storage_not_writable")
         if storage_check["state"] == "critical":
             issues.append("storage_critical")
         elif storage_check["state"] == "warning":

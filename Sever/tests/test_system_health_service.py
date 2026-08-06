@@ -21,7 +21,7 @@ class SystemHealthServiceTests(unittest.TestCase):
     def _now(self, hour: int = 16) -> datetime:
         return datetime(2026, 8, 5, hour, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
 
-    def _healthy_patches(self):
+    def _healthy_patches(self, storage: dict | None = None):
         return (
             patch.object(
                 service,
@@ -39,10 +39,14 @@ class SystemHealthServiceTests(unittest.TestCase):
             patch.object(
                 service,
                 "get_storage_health",
-                return_value={
+                return_value=storage or {
                     "state": "healthy",
                     "used_percent": 79.0,
                     "free_bytes": 8_000_000_000,
+                    "runtime_write": {
+                        "ok": True,
+                        "failed": [],
+                    },
                 },
             ),
             patch.object(
@@ -114,6 +118,35 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertEqual(report["checks"]["api"]["paper_count"], 3)
         self.assertEqual(report["checks"]["digest"]["ready_users"], 2)
         self.assertNotIn("hidden", json.dumps(report))
+
+    def test_runtime_write_failure_is_reported_as_storage_incident(self) -> None:
+        patches = self._healthy_patches(
+            storage={
+                "state": "critical",
+                "used_percent": 40.0,
+                "free_bytes": 20_000_000_000,
+                "runtime_write": {
+                    "ok": False,
+                    "failed": ["logs"],
+                },
+            }
+        )
+        for item in patches:
+            item.start()
+        try:
+            report = service.build_health_report(now=self._now())
+        finally:
+            for item in reversed(patches):
+                item.stop()
+
+        self.assertEqual(report["status"], "degraded")
+        self.assertIn("storage_not_writable", report["issues"])
+        self.assertIn("storage_critical", report["issues"])
+        self.assertFalse(report["checks"]["storage"]["runtime_write_ok"])
+        self.assertEqual(
+            report["checks"]["storage"]["runtime_write_failures"],
+            ["logs"],
+        )
 
     def test_fallback_and_incomplete_digest_fail_after_deadline(self) -> None:
         with (

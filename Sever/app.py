@@ -790,7 +790,10 @@ def main(argv=None):
         try:
             from services.storage_health_service import require_pipeline_capacity
 
-            storage_health = require_pipeline_capacity(ROOT)
+            storage_health = require_pipeline_capacity(
+                ROOT,
+                check_runtime_writes=True,
+            )
             print(
                 f"[STORAGE] state={storage_health['state']} "
                 f"used={storage_health['used_percent']}% "

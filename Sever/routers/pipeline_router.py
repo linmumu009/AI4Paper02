@@ -1564,7 +1564,10 @@ def api_admin_pipeline_run_status(
     try:
         from services.storage_health_service import get_storage_health
 
-        base["storage"] = get_storage_health(_SEVER_DIR)
+        base["storage"] = get_storage_health(
+            _SEVER_DIR,
+            check_runtime_writes=True,
+        )
     except Exception as exc:
         base["storage"] = {
             "state": "unknown",
