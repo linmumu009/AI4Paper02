@@ -12,6 +12,7 @@ if str(_SEVER) not in sys.path:
 
 from services import (  # noqa: E402
     auto_classify_service,
+    entitlement_service,
     kb_pipeline_service,
     translate_service,
     user_paper_pipeline_service,
@@ -124,6 +125,99 @@ class BackgroundTaskLaunchFailureTests(unittest.TestCase):
         self.assertNotIn("private launch detail", message)
         self.assertEqual(set_status.call_args_list[0].kwargs["status"], "processing")
         self.assertEqual(set_status.call_args_list[-1].kwargs["status"], "failed")
+
+    def test_translation_launch_failure_refunds_reserved_quota(self) -> None:
+        with (
+            patch("services.user_paper_service.get_paper", return_value={"paper_id": "paper-bill"}),
+            patch("services.user_paper_service.set_translate_status"),
+            patch.object(translate_service.threading, "Thread") as thread_cls,
+            patch.object(
+                entitlement_service,
+                "reserve_quota",
+                return_value={"reservation_id": "reservation-1"},
+            ) as reserve,
+            patch.object(entitlement_service, "commit_quota_reservation") as commit,
+            patch.object(entitlement_service, "release_quota_reservation") as release,
+        ):
+            self._make_thread_start_fail(thread_cls)
+
+            started, _message = translate_service.start_translation(
+                7,
+                "paper-bill",
+                charge_quota=True,
+            )
+
+        self.assertFalse(started)
+        reserve.assert_called_once_with(7, "translate")
+        commit.assert_not_called()
+        release.assert_called_once_with("reservation-1")
+
+    def test_duplicate_translation_does_not_reserve_quota(self) -> None:
+        job_key = translate_service._translation_job_key(
+            7,
+            "paper-duplicate",
+            source="user",
+        )
+        self.assertTrue(translate_service._claim(job_key))
+        with (
+            patch("services.user_paper_service.get_paper", return_value={"paper_id": "paper-duplicate"}),
+            patch.object(entitlement_service, "reserve_quota") as reserve,
+        ):
+            started, message = translate_service.start_translation(
+                7,
+                "paper-duplicate",
+                charge_quota=True,
+            )
+
+        self.assertFalse(started)
+        self.assertIn("进行中", message)
+        reserve.assert_not_called()
+
+    def test_translation_claims_are_isolated_by_user_and_source(self) -> None:
+        user_7 = translate_service._translation_job_key(7, "same-paper", source="user")
+        user_8 = translate_service._translation_job_key(8, "same-paper", source="user")
+        kb_7 = translate_service._translation_job_key(
+            7,
+            "same-paper",
+            source="kb",
+            scope="kb",
+        )
+
+        self.assertTrue(translate_service._claim(user_7))
+        self.assertTrue(translate_service._claim(user_8))
+        self.assertTrue(translate_service._claim(kb_7))
+        self.assertTrue(
+            translate_service.is_translating(
+                "same-paper",
+                8,
+                source="user",
+            )
+        )
+
+    def test_cancel_keeps_claim_until_worker_exits(self) -> None:
+        job_key = translate_service._translation_job_key(
+            7,
+            "paper-cancel",
+            source="user",
+        )
+        self.assertTrue(translate_service._claim(job_key))
+        with (
+            patch(
+                "services.user_paper_service.get_paper",
+                return_value={"paper_id": "paper-cancel", "translate_status": "processing"},
+            ),
+            patch("services.user_paper_service.set_translate_status"),
+        ):
+            ok, _message = translate_service.cancel_translation(7, "paper-cancel")
+
+        self.assertTrue(ok)
+        self.assertTrue(
+            translate_service.is_translating(
+                "paper-cancel",
+                7,
+                source="user",
+            )
+        )
 
 
 if __name__ == "__main__":

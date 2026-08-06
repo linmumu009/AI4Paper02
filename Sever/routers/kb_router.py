@@ -689,9 +689,12 @@ def api_kb_paper_translate(
     # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
         raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
-    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
-    entitlement_service.consume_quota(_user["id"], "translate")
-    ok, msg = translate_service.start_kb_translation(_user["id"], paper_id, scope=scope)
+    ok, msg = translate_service.start_kb_translation(
+        _user["id"],
+        paper_id,
+        scope=scope,
+        charge_quota=True,
+    )
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     _invalidate_tree_cache(_user["id"], scope)
@@ -707,20 +710,12 @@ def api_kb_paper_retranslate(
     # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
         raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
-    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
-    entitlement_service.consume_quota(_user["id"], "translate")
-    paths = translate_service.kb_paper_derivative_paths(_user["id"], paper_id)
-    for key in ("zh", "bilingual"):
-        p = paths[key]
-        if os.path.isfile(p):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-    kb_service.set_kb_paper_translate_status(
-        _user["id"], paper_id, status="none", error="", progress=0, scope=scope
+    ok, msg = translate_service.start_kb_translation(
+        _user["id"],
+        paper_id,
+        scope=scope,
+        charge_quota=True,
     )
-    ok, msg = translate_service.start_kb_translation(_user["id"], paper_id, scope=scope)
     if not ok:
         raise HTTPException(status_code=400, detail=msg)
     _invalidate_tree_cache(_user["id"], scope)
@@ -743,7 +738,12 @@ def api_kb_paper_translate_status(
         "translate_error": safe_stored_error(
             paper.get("translate_error"), "知识库论文翻译失败，请重试"
         ),
-        "busy": translate_service.is_translating(paper_id),
+        "busy": translate_service.is_translating(
+            paper_id,
+            _user["id"],
+            source="kb",
+            scope=scope,
+        ),
     }
 
 

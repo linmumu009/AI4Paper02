@@ -40,6 +40,7 @@ Per-session limits (returned as config, not tracked in usage_quotas):
 from __future__ import annotations
 
 import os
+import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -235,6 +236,18 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_usage_quotas_user_feature
                 ON usage_quotas(user_id, feature, period_key);
+
+            CREATE TABLE IF NOT EXISTS quota_reservations (
+                reservation_id TEXT PRIMARY KEY,
+                user_id        INTEGER NOT NULL,
+                feature        TEXT    NOT NULL,
+                period_key     TEXT    NOT NULL,
+                status         TEXT    NOT NULL DEFAULT 'reserved',
+                created_at     TEXT    NOT NULL,
+                finalized_at   TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_quota_reservations_lookup
+                ON quota_reservations(user_id, feature, period_key, status);
             """
         )
         conn.commit()
@@ -392,6 +405,168 @@ def consume_quota(
             "remaining": remaining,
             "period": period,
         }
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def reserve_quota(user_id: int, feature: str) -> dict[str, Any]:
+    """Atomically reserve one quota unit for work that may still fail to launch.
+
+    Call ``commit_quota_reservation`` after the task has started, or
+    ``release_quota_reservation`` if launch fails. Unlimited features return a
+    receipt with no reservation id and do not touch the database.
+    """
+    conn = _connect()
+    try:
+        tier = _get_user_tier(user_id, conn)
+        ent = TIER_ENTITLEMENTS[tier]
+        limit = ent.get(f"{feature}_limit")
+        period = ent.get(f"{feature}_period")
+
+        if limit is _UNLIMITED or limit is None:
+            return {
+                "allowed": True,
+                "limit": None,
+                "used": 0,
+                "remaining": None,
+                "period": period,
+                "reservation_id": None,
+            }
+
+        pk = _period_key(period)
+        now_iso = _now_utc().isoformat()
+        reservation_id = secrets.token_hex(16)
+
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT usage_count FROM usage_quotas "
+            "WHERE user_id = ? AND feature = ? AND period_key = ?",
+            (user_id, feature, pk),
+        ).fetchone()
+        current = int(row["usage_count"]) if row else 0
+        if current >= limit:
+            conn.rollback()
+            from fastapi import HTTPException
+            period_label = {
+                "daily": "今日",
+                "monthly": "本月",
+                "total": "总计",
+            }.get(period or "", "")
+            raise HTTPException(
+                status_code=429,
+                detail=f"{period_label}{feature} 用量已达上限（{limit}），请升级套餐以继续使用",
+            )
+
+        conn.execute(
+            """
+            INSERT INTO usage_quotas
+                (user_id, feature, period_key, usage_count, last_used_at)
+            VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(user_id, feature, period_key) DO UPDATE SET
+                usage_count = usage_count + 1,
+                last_used_at = excluded.last_used_at
+            """,
+            (user_id, feature, pk, now_iso),
+        )
+        conn.execute(
+            """
+            INSERT INTO quota_reservations
+                (reservation_id, user_id, feature, period_key, status, created_at)
+            VALUES (?, ?, ?, ?, 'reserved', ?)
+            """,
+            (reservation_id, user_id, feature, pk, now_iso),
+        )
+        conn.commit()
+        new_count = current + 1
+        return {
+            "allowed": True,
+            "limit": limit,
+            "used": new_count,
+            "remaining": max(0, limit - new_count),
+            "period": period,
+            "reservation_id": reservation_id,
+        }
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def commit_quota_reservation(reservation_id: Optional[str]) -> bool:
+    """Finalize a reservation after launch; safe to call more than once."""
+    if not reservation_id:
+        return True
+    conn = _connect()
+    try:
+        now_iso = _now_utc().isoformat()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status FROM quota_reservations WHERE reservation_id = ?",
+            (reservation_id,),
+        ).fetchone()
+        if row is None:
+            conn.rollback()
+            return False
+        if row["status"] == "reserved":
+            conn.execute(
+                "UPDATE quota_reservations SET status='committed', finalized_at=? "
+                "WHERE reservation_id=? AND status='reserved'",
+                (now_iso, reservation_id),
+            )
+        conn.commit()
+        return row["status"] in ("reserved", "committed")
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
+def release_quota_reservation(reservation_id: Optional[str]) -> bool:
+    """Release an uncommitted reservation and refund its unit exactly once."""
+    if not reservation_id:
+        return True
+    conn = _connect()
+    try:
+        now_iso = _now_utc().isoformat()
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT user_id, feature, period_key, status "
+            "FROM quota_reservations WHERE reservation_id = ?",
+            (reservation_id,),
+        ).fetchone()
+        if row is None or row["status"] != "reserved":
+            conn.rollback()
+            return False
+        conn.execute(
+            """
+            UPDATE usage_quotas
+            SET usage_count = CASE WHEN usage_count > 0 THEN usage_count - 1 ELSE 0 END,
+                last_used_at = ?
+            WHERE user_id = ? AND feature = ? AND period_key = ?
+            """,
+            (now_iso, row["user_id"], row["feature"], row["period_key"]),
+        )
+        conn.execute(
+            "UPDATE quota_reservations SET status='released', finalized_at=? "
+            "WHERE reservation_id=? AND status='reserved'",
+            (now_iso, reservation_id),
+        )
+        conn.commit()
+        return True
     except Exception:
         try:
             conn.rollback()

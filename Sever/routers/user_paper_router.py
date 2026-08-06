@@ -474,12 +474,14 @@ def api_user_paper_translate(
     # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
         raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
-    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
-    entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
-    ok, msg = translate_service.start_translation(_user["id"], paper_id)
+    ok, msg = translate_service.start_translation(
+        _user["id"],
+        paper_id,
+        charge_quota=True,
+    )
     if not ok:
         return {"ok": False, "message": msg, "paper_id": paper_id}
     return {"ok": True, "message": msg, "paper_id": paper_id}
@@ -493,21 +495,14 @@ def api_user_paper_retranslate(
     # Gate check: blocked if tier has translate=False
     if not entitlement_service.check_boolean_gate(_user["id"], "translate"):
         raise HTTPException(status_code=403, detail="当前套餐不支持全文翻译，请升级以继续使用")
-    # Quota check: Free 2次/月, Pro 15次/月, Pro+ 28次/月
-    entitlement_service.consume_quota(_user["id"], "translate")
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
-    paths = translate_service.paper_derivative_paths(_user["id"], paper_id)
-    for key in ("zh", "bilingual"):
-        p = paths[key]
-        if os.path.isfile(p):
-            try:
-                os.remove(p)
-            except OSError:
-                pass
-    user_paper_service.set_translate_status(paper_id, status="none", error="", progress=0)
-    ok, msg = translate_service.start_translation(_user["id"], paper_id)
+    ok, msg = translate_service.start_translation(
+        _user["id"],
+        paper_id,
+        charge_quota=True,
+    )
     if not ok:
         return {"ok": False, "message": msg, "paper_id": paper_id}
     return {"ok": True, "message": msg, "paper_id": paper_id}
@@ -546,7 +541,11 @@ def api_user_paper_translate_status(
         "translate_progress": int(paper.get("translate_progress") or 0),
         "translate_started_at": paper.get("translate_started_at"),
         "translate_finished_at": paper.get("translate_finished_at"),
-        "busy": translate_service.is_translating(paper_id),
+        "busy": translate_service.is_translating(
+            paper_id,
+            _user["id"],
+            source="user",
+        ),
     }
 
 

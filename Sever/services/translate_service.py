@@ -20,12 +20,14 @@ from services.llm_response_guard import require_nonempty_text
 
 logger = logging.getLogger(__name__)
 
-_translate_jobs: set[str] = set()
+TranslationJobKey = tuple[str, int, str, str]
+
+_translate_jobs: set[TranslationJobKey] = set()
 _translate_lock = threading.Lock()
 
-# Cooperative cancel: callers add a paper_id here to request stop.
+# Cooperative cancel: callers add an isolated translation job key here.
 # The running thread checks this after each batch and exits cleanly.
-_cancel_requests: set[str] = set()
+_cancel_requests: set[TranslationJobKey] = set()
 _cancel_lock = threading.Lock()
 
 
@@ -33,19 +35,29 @@ class _TranslationCancelled(Exception):
     """Raised internally when a cancel request is detected."""
 
 
-def _request_cancel(paper_id: str) -> None:
+def _translation_job_key(
+    user_id: int,
+    paper_id: str,
+    *,
+    source: str,
+    scope: str = "",
+) -> TranslationJobKey:
+    return source, int(user_id), scope, paper_id
+
+
+def _request_cancel(job_key: TranslationJobKey) -> None:
     with _cancel_lock:
-        _cancel_requests.add(paper_id)
+        _cancel_requests.add(job_key)
 
 
-def _is_cancel_requested(paper_id: str) -> bool:
+def _is_cancel_requested(job_key: TranslationJobKey) -> bool:
     with _cancel_lock:
-        return paper_id in _cancel_requests
+        return job_key in _cancel_requests
 
 
-def _clear_cancel(paper_id: str) -> None:
+def _clear_cancel(job_key: TranslationJobKey) -> None:
     with _cancel_lock:
-        _cancel_requests.discard(paper_id)
+        _cancel_requests.discard(job_key)
 
 _CODE_FENCE_RE = re.compile(r"```[\s\S]*?```", re.MULTILINE)
 
@@ -68,22 +80,35 @@ TRANSLATE_SYSTEM_PROMPT = (
 )
 
 
-def is_translating(paper_id: str) -> bool:
+def is_translating(
+    paper_id: str,
+    user_id: int | None = None,
+    *,
+    source: str | None = None,
+    scope: str = "",
+) -> bool:
     with _translate_lock:
-        return paper_id in _translate_jobs
+        if user_id is None or source is None:
+            return any(key[3] == paper_id for key in _translate_jobs)
+        return _translation_job_key(
+            user_id,
+            paper_id,
+            source=source,
+            scope=scope,
+        ) in _translate_jobs
 
 
-def _claim(paper_id: str) -> bool:
+def _claim(job_key: TranslationJobKey) -> bool:
     with _translate_lock:
-        if paper_id in _translate_jobs:
+        if job_key in _translate_jobs:
             return False
-        _translate_jobs.add(paper_id)
+        _translate_jobs.add(job_key)
         return True
 
 
-def _release(paper_id: str) -> None:
+def _release(job_key: TranslationJobKey) -> None:
     with _translate_lock:
-        _translate_jobs.discard(paper_id)
+        _translate_jobs.discard(job_key)
 
 
 def _protect_code_fences(text: str) -> Tuple[str, List[str]]:
@@ -808,14 +833,14 @@ def _safe_progress(fn, paper_id: str, pct: int) -> None:
         logger.warning("set_translate_progress failed: %s", exc)
 
 
-def _make_progress_cb(base_cb, paper_id: str):
+def _make_progress_cb(base_cb, job_key: TranslationJobKey):
     """Wrap a progress callback(pct) so it raises _TranslationCancelled if cancelled.
 
     base_cb must accept a single int (pct 0-100).
     """
     def _cb(pct: int) -> None:
-        if _is_cancel_requested(paper_id):
-            raise _TranslationCancelled(f"cancelled:{paper_id}")
+        if _is_cancel_requested(job_key):
+            raise _TranslationCancelled("translation cancelled")
         try:
             base_cb(pct)
         except Exception as exc:
@@ -997,6 +1022,7 @@ def run_translation(user_id: int, paper_id: str) -> None:
 
     import services.user_paper_service as svc
 
+    job_key = _translation_job_key(user_id, paper_id, source="user")
     zh_path = bi_path = ""
     _preview_files_created = False
     try:
@@ -1041,7 +1067,10 @@ def run_translation(user_id: int, paper_id: str) -> None:
 
         svc.set_translate_status(paper_id, status="processing", error="", started=True)
         client = build_llm_client(cfg)
-        progress_cb = _make_progress_cb(lambda pct: _safe_progress(svc.set_translate_progress, paper_id, pct), paper_id)
+        progress_cb = _make_progress_cb(
+            lambda pct: _safe_progress(svc.set_translate_progress, paper_id, pct),
+            job_key,
+        )
         logger.info(
             "Translation started for %s | model=%s chunk_size=%d concurrency=%d max_tokens=%d pool=%s",
             paper_id, cfg["model"], cfg["chunk_size"], cfg["concurrency"], cfg["max_tokens"],
@@ -1201,11 +1230,16 @@ def run_translation(user_id: int, paper_id: str) -> None:
         except Exception:
             pass
     finally:
-        _clear_cancel(paper_id)
-        _release(paper_id)
+        _clear_cancel(job_key)
+        _release(job_key)
 
 
-def start_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
+def start_translation(
+    user_id: int,
+    paper_id: str,
+    *,
+    charge_quota: bool = False,
+) -> Tuple[bool, str]:
     """
     Start translation in a daemon thread.
     Returns (ok, message).
@@ -1216,8 +1250,19 @@ def start_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
     if not paper:
         return False, "\u8bba\u6587\u4e0d\u5b58\u5728"
 
-    if not _claim(paper_id):
+    job_key = _translation_job_key(user_id, paper_id, source="user")
+    if not _claim(job_key):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
+
+    reservation_id = None
+    if charge_quota:
+        try:
+            from services import entitlement_service
+            receipt = entitlement_service.reserve_quota(user_id, "translate")
+            reservation_id = receipt.get("reservation_id")
+        except Exception:
+            _release(job_key)
+            raise
 
     try:
         # Set processing status before starting the thread so the frontend sees it
@@ -1231,10 +1276,30 @@ def start_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
             name=f"user-paper-translate-{paper_id}",
         )
         t.start()
+        if reservation_id:
+            try:
+                entitlement_service.commit_quota_reservation(reservation_id)
+            except Exception as quota_exc:
+                safe_failure_detail(
+                    logger,
+                    "翻译额度状态确认失败",
+                    quota_exc,
+                    operation="user_paper_translation_quota_commit",
+                )
         return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
     except Exception as exc:
-        _clear_cancel(paper_id)
-        _release(paper_id)
+        _clear_cancel(job_key)
+        _release(job_key)
+        if reservation_id:
+            try:
+                entitlement_service.release_quota_reservation(reservation_id)
+            except Exception as quota_exc:
+                safe_failure_detail(
+                    logger,
+                    "翻译额度退还失败",
+                    quota_exc,
+                    operation="user_paper_translation_quota_release",
+                )
         public_error = safe_failure_detail(
             logger,
             "翻译任务启动失败，请稍后重试",
@@ -1334,6 +1399,12 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
     from services.llm_client_factory import build_llm_client, has_llm_credentials
     import services.kb_service as kbs
 
+    job_key = _translation_job_key(
+        user_id,
+        paper_id,
+        source="kb",
+        scope=scope,
+    )
     zh_path = bi_path = ""
     _preview_files_created = False
     try:
@@ -1384,7 +1455,7 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
             except Exception as pe:
                 logger.warning("set_kb_paper_translate_progress failed: %s", pe)
 
-        _kb_progress = _make_progress_cb(_kb_progress_base, paper_id)
+        _kb_progress = _make_progress_cb(_kb_progress_base, job_key)
 
         # ---- Method A: block-based ----
         from services.mineru_blocks_service import load_canonical_blocks
@@ -1538,8 +1609,8 @@ def run_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> None:
         except Exception:
             pass
     finally:
-        _clear_cancel(paper_id)
-        _release(paper_id)
+        _clear_cancel(job_key)
+        _release(job_key)
 
 
 def cancel_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
@@ -1560,12 +1631,12 @@ def cancel_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
     if current not in ("processing",):
         return False, f"当前状态 {current!r} 不支持取消"
 
-    _request_cancel(paper_id)
+    job_key = _translation_job_key(user_id, paper_id, source="user")
+    _request_cancel(job_key)
     try:
         svc.set_translate_status(paper_id, status="cancelled", error="", finished=True, progress=0)
     except Exception as exc:
         logger.warning("cancel_translation: failed to write cancelled status: %s", exc)
-    _release(paper_id)
     return True, "翻译已停止"
 
 
@@ -1585,18 +1656,29 @@ def cancel_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tup
     if current not in ("processing",):
         return False, f"当前状态 {current!r} 不支持取消"
 
-    _request_cancel(paper_id)
+    job_key = _translation_job_key(
+        user_id,
+        paper_id,
+        source="kb",
+        scope=scope,
+    )
+    _request_cancel(job_key)
     try:
         kbs.set_kb_paper_translate_status(
             user_id, paper_id, status="cancelled", error="", progress=0, scope=scope
         )
     except Exception as exc:
         logger.warning("cancel_kb_translation: failed to write cancelled status: %s", exc)
-    _release(paper_id)
     return True, "翻译已停止"
 
 
-def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tuple[bool, str]:
+def start_kb_translation(
+    user_id: int,
+    paper_id: str,
+    scope: str = "kb",
+    *,
+    charge_quota: bool = False,
+) -> Tuple[bool, str]:
     """Start KB paper translation in a daemon thread. Returns (ok, message)."""
     import services.kb_service as kbs
 
@@ -1604,8 +1686,24 @@ def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tupl
     if not paper:
         return False, "\u8bba\u6587\u4e0d\u5b58\u5728"
 
-    if not _claim(paper_id):
+    job_key = _translation_job_key(
+        user_id,
+        paper_id,
+        source="kb",
+        scope=scope,
+    )
+    if not _claim(job_key):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
+
+    reservation_id = None
+    if charge_quota:
+        try:
+            from services import entitlement_service
+            receipt = entitlement_service.reserve_quota(user_id, "translate")
+            reservation_id = receipt.get("reservation_id")
+        except Exception:
+            _release(job_key)
+            raise
 
     try:
         # Set status immediately so the UI shows progress before thread starts.
@@ -1620,10 +1718,30 @@ def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tupl
             name=f"kb-paper-translate-{paper_id}",
         )
         t.start()
+        if reservation_id:
+            try:
+                entitlement_service.commit_quota_reservation(reservation_id)
+            except Exception as quota_exc:
+                safe_failure_detail(
+                    logger,
+                    "翻译额度状态确认失败",
+                    quota_exc,
+                    operation="kb_paper_translation_quota_commit",
+                )
         return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
     except Exception as exc:
-        _clear_cancel(paper_id)
-        _release(paper_id)
+        _clear_cancel(job_key)
+        _release(job_key)
+        if reservation_id:
+            try:
+                entitlement_service.release_quota_reservation(reservation_id)
+            except Exception as quota_exc:
+                safe_failure_detail(
+                    logger,
+                    "翻译额度退还失败",
+                    quota_exc,
+                    operation="kb_paper_translation_quota_release",
+                )
         public_error = safe_failure_detail(
             logger,
             "翻译任务启动失败，请稍后重试",
