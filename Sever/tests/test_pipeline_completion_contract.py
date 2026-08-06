@@ -296,6 +296,20 @@ class TestPipelineCompletionContract(unittest.TestCase):
         )
         self.assertIsNone(pipeline_db_service.get_date_notice(3, self.date_str))
 
+    def test_processing_notice_is_visible_without_claiming_completion(self) -> None:
+        pipeline_db_service.upsert_date_notice(
+            3,
+            self.date_str,
+            "pipeline_processing",
+            "今日论文正在生成。",
+        )
+
+        readiness = pipeline_db_service.get_digest_publication_readiness(
+            3, self.date_str
+        )
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["reason"], "processing_notice")
+
     def test_per_user_pipeline_never_runs_destructive_cleanup(self) -> None:
         self.assertNotIn("cleanup", app.PER_USER_STEPS)
         self.assertEqual(app.POST_USERS_CLEANUP_STEPS, ["cleanup"])

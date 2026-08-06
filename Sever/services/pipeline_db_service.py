@@ -1840,6 +1840,7 @@ def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
         notice = get_date_notice(user_id, date_str)
         notice_type = str((notice or {}).get("type") or "")
         transient_types = {
+            "pipeline_processing",
             "source_temporarily_unavailable",
             "pipeline_temporarily_unavailable",
         }
@@ -1848,7 +1849,9 @@ def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
             "user_id": user_id,
             "date_str": date_str,
             "reason": (
-                "temporary_unavailable_notice"
+                "processing_notice"
+                if notice_type == "pipeline_processing"
+                else "temporary_unavailable_notice"
                 if notice_type in transient_types
                 else "empty_result_notice"
                 if notice is not None

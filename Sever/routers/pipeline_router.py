@@ -129,9 +129,29 @@ _SCHEDULER_MAX_RETRIES = 8
 _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 1800
 _SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 14400
 _TRANSIENT_DATE_NOTICE_TYPES = (
+    "pipeline_processing",
     "source_temporarily_unavailable",
     "pipeline_temporarily_unavailable",
 )
+
+
+def _write_pipeline_processing_notices(date_str: str) -> None:
+    """Make an in-progress digest visible instead of exposing an unexplained gap."""
+    try:
+        from services import pipeline_db_service as _pdb
+        from services.user_settings_service import list_users_with_custom_configs
+
+        user_ids = {0}
+        user_ids.update(int(uid) for uid in list_users_with_custom_configs())
+        for user_id in user_ids:
+            _pdb.upsert_date_notice(
+                user_id,
+                date_str,
+                "pipeline_processing",
+                "今日论文正在生成，完成后会自动显示，请稍后查看。",
+            )
+    except Exception as exc:
+        print(f"[SCHEDULER] 无法写入生成中提示: {exc!r}", flush=True)
 
 
 def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
@@ -708,6 +728,7 @@ def _run_multiuser_scheduler_thread(
 
     try:
         _orch_log(f"[SCHEDULER] 开始共享阶段 (shared) for {today}")
+        _write_pipeline_processing_notices(today)
         with _pipeline_lock:
             _pipeline_state["current_step"] = "共享阶段运行中..."
         _save_runtime_state({
@@ -796,12 +817,9 @@ def _run_multiuser_scheduler_thread(
             shared_exit = 0
 
         if shared_exit != 0:
-            _write_shared_failure_notices(today, shared_exit)
             _orch_log(f"[SCHEDULER] 共享阶段失败 (exit={shared_exit})，终止多用户编排")
             exit_code = shared_exit
             return
-
-        _clear_shared_failure_notices(today)
 
         # Short-circuit: if shared phase found 0 papers for today, skip per_user entirely.
         # arxiv_search writes 0 rows to pipeline_arxiv_list when empty, so count=0 is the signal.
@@ -965,6 +983,11 @@ def _run_multiuser_scheduler_thread(
         exit_code = -1
 
     finally:
+        if exit_code == 0:
+            _clear_shared_failure_notices(today)
+        else:
+            _write_shared_failure_notices(today, exit_code)
+
         # Update parent DB run status
         try:
             if db_parent_run_id:
