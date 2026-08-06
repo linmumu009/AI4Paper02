@@ -337,3 +337,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_idea_batch_r
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\arxiv_search04.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\pipeline_schedule_policy.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_scheduler_resilience_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_recap_auto_classify_response_contract.py

@@ -40,6 +40,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
+from services.llm_response_guard import (
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
+
 logger = logging.getLogger(__name__)
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -378,6 +384,95 @@ def _build_user_message(papers: list[dict], clusters: list[dict]) -> str:
     return "\n".join(parts)
 
 
+def _validate_recap_payload(payload: object, paper_ids: set[str]) -> dict:
+    """Validate and normalize the user-visible recap contract."""
+    if not isinstance(payload, dict):
+        raise InvalidLlmResponseError("weekly recap payload must be a JSON object")
+
+    title = require_nonempty_text(payload.get("title"), operation="weekly_recap_title")
+    summary = require_nonempty_text(
+        payload.get("summary"), operation="weekly_recap_summary"
+    )
+
+    raw_themes = payload.get("themes")
+    if not isinstance(raw_themes, list) or not 1 <= len(raw_themes) <= 4:
+        raise InvalidLlmResponseError("weekly recap must contain 1 to 4 themes")
+
+    themes: list[dict] = []
+    for raw_theme in raw_themes:
+        if not isinstance(raw_theme, dict):
+            raise InvalidLlmResponseError("weekly recap theme must be an object")
+        name = require_nonempty_text(
+            raw_theme.get("name"), operation="weekly_recap_theme_name"
+        )
+        insight = require_nonempty_text(
+            raw_theme.get("insight"), operation="weekly_recap_theme_insight"
+        )
+        raw_ids = raw_theme.get("paper_ids")
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise InvalidLlmResponseError("weekly recap theme has no paper ids")
+        theme_ids = [
+            require_nonempty_text(item, operation="weekly_recap_theme_paper_id")
+            for item in raw_ids
+        ]
+        if any(item not in paper_ids for item in theme_ids):
+            raise InvalidLlmResponseError("weekly recap referenced an unknown paper id")
+        themes.append(
+            {
+                "name": name,
+                "paper_ids": list(dict.fromkeys(theme_ids)),
+                "insight": insight,
+            }
+        )
+
+    def _text_list(field: str, maximum: int) -> list[str]:
+        raw_items = payload.get(field, [])
+        if not isinstance(raw_items, list) or len(raw_items) > maximum:
+            raise InvalidLlmResponseError(f"weekly recap field {field} is invalid")
+        return [
+            require_nonempty_text(item, operation=f"weekly_recap_{field}")
+            for item in raw_items
+        ]
+
+    connections = _text_list("connections", 3)
+    next_questions = _text_list("next_questions", 3)
+    raw_revisit = payload.get("recommended_revisit", [])
+    if not isinstance(raw_revisit, list) or len(raw_revisit) > 2:
+        raise InvalidLlmResponseError("weekly recap recommended_revisit is invalid")
+    recommended_revisit = [
+        require_nonempty_text(item, operation="weekly_recap_recommended_revisit")
+        for item in raw_revisit
+    ]
+    if any(item not in paper_ids for item in recommended_revisit):
+        raise InvalidLlmResponseError("weekly recap recommended an unknown paper id")
+
+    return {
+        "title": title,
+        "summary": summary,
+        "themes": themes,
+        "connections": connections,
+        "recommended_revisit": list(dict.fromkeys(recommended_revisit)),
+        "next_questions": next_questions,
+    }
+
+
+def _validated_cached_success(
+    cached: Optional[dict], paper_ids: list[str] | set[str]
+) -> Optional[dict]:
+    """Return a safe cached recap, or None when the legacy row is unusable."""
+    if not cached or cached.get("status") != "ok":
+        return None
+    normalized_ids = {
+        str(paper_id).strip() for paper_id in paper_ids if str(paper_id).strip()
+    }
+    try:
+        recap = _validate_recap_payload(cached.get("recap"), normalized_ids)
+    except (EmptyLlmResponseError, InvalidLlmResponseError):
+        return None
+    recap["paper_count"] = len(normalized_ids)
+    return recap
+
+
 def _generate_recap_with_llm(user_id: int, papers: list[dict]) -> Optional[dict]:
     """Call LLM and return parsed recap dict, or None on failure."""
     cfg = _get_llm_config(user_id)
@@ -403,16 +498,30 @@ def _generate_recap_with_llm(user_id: int, papers: list[dict]) -> Optional[dict]
             temperature=cfg["temperature"],
             **_extra,
         )
-        content = (response.choices[0].message.content or "").strip()
+        raw_content = (
+            response.choices[0].message.content if response.choices else None
+        )
+        content = require_nonempty_text(raw_content, operation="weekly_recap")
         # Strip markdown code fences if any
         if content.startswith("```"):
             content = "\n".join(
                 line for line in content.splitlines()
                 if not line.strip().startswith("```")
             ).strip()
-        return json.loads(content)
-    except json.JSONDecodeError as exc:
-        logger.warning("recap_service: LLM returned non-JSON: %r", exc)
+        try:
+            payload = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise InvalidLlmResponseError("weekly recap was not valid JSON") from exc
+        paper_ids = {
+            str(p.get("_paper_id") or p.get("paper_id") or "").strip()
+            for p in papers
+        }
+        paper_ids.discard("")
+        return _validate_recap_payload(payload, paper_ids)
+    except (EmptyLlmResponseError, InvalidLlmResponseError) as exc:
+        logger.warning(
+            "recap_service: invalid LLM response: %s", type(exc).__name__
+        )
         return None
     except Exception as exc:
         logger.error("recap_service._generate_recap_with_llm: %r", exc)
@@ -520,12 +629,25 @@ def get_or_generate_recap(user_id: int, force: bool = False,
 
     week_start, week_end = get_recap_window(now)
 
-    # Return cached if not forced
-    if not force:
-        cached = _get_cached_recap(user_id, week_start)
-        if cached and cached.get("status") in ("ok", "insufficient_papers", "no_llm_config"):
-            papers = _get_saved_papers(user_id, week_start, week_end)
-            return _build_response(cached["status"], week_start, week_end, papers, cached.get("recap"))
+    cached = _get_cached_recap(user_id, week_start)
+
+    # Return cached if not forced, but never publish a legacy malformed success.
+    if not force and cached and cached.get("status") in (
+        "ok", "insufficient_papers", "no_llm_config"
+    ):
+        papers = _get_saved_papers(user_id, week_start, week_end)
+        cached_recap = cached.get("recap")
+        if cached.get("status") == "ok":
+            cached_recap = _validated_cached_success(
+                cached,
+                [p.get("_paper_id") or p.get("paper_id") or "" for p in papers],
+            )
+            if cached_recap is None:
+                cached = None
+        if cached is not None:
+            return _build_response(
+                cached["status"], week_start, week_end, papers, cached_recap
+            )
 
     # Fetch papers for the window
     papers = _get_saved_papers(user_id, week_start, week_end)
@@ -537,12 +659,22 @@ def get_or_generate_recap(user_id: int, force: bool = False,
 
     cfg = _get_llm_config(user_id)
     if cfg is None:
+        preserved = _validated_cached_success(
+            cached, cached.get("paper_ids") if cached else paper_ids
+        )
+        if preserved is not None:
+            return _build_response("ok", week_start, week_end, papers, preserved)
         _upsert_recap(user_id, week_start, week_end, paper_ids, {}, "no_llm_config")
         return _build_response("no_llm_config", week_start, week_end, papers, None)
 
     # Generate
     recap = _generate_recap_with_llm(user_id, papers)
     if recap is None:
+        preserved = _validated_cached_success(
+            cached, cached.get("paper_ids") if cached else paper_ids
+        )
+        if preserved is not None:
+            return _build_response("ok", week_start, week_end, papers, preserved)
         _upsert_recap(user_id, week_start, week_end, paper_ids, {}, "error")
         return _build_response("error", week_start, week_end, papers, None)
 

@@ -28,9 +28,15 @@ kb_pipeline_service and user_paper_pipeline_service.
 
 import json
 import logging
+import math
 import threading
 from typing import Optional
 
+from services.llm_response_guard import (
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
 from services.safe_logging_service import safe_failure_detail
 
 logger = logging.getLogger(__name__)
@@ -64,6 +70,45 @@ _CLASSIFY_PROMPT = """\
 请严格按照以下 JSON 格式返回，不要有任何额外文字：
 {{"folder": "完整路径（必须与上面列出的完整路径完全一致，或为「未分类」）", "confidence": 0.85, "reason": "一句话说明分类原因"}}
 """
+
+
+def _parse_classification_response(raw: object) -> tuple[str, float, str]:
+    """Validate the complete model response before moving any paper."""
+    text = require_nonempty_text(raw, operation="auto_classify")
+    if text.startswith("```"):
+        text = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("```")
+        ).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise InvalidLlmResponseError(
+            "auto classify response was not valid JSON"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise InvalidLlmResponseError("auto classify payload must be an object")
+
+    folder_name = require_nonempty_text(
+        payload.get("folder"), operation="auto_classify_folder"
+    )
+    reason = require_nonempty_text(
+        payload.get("reason"), operation="auto_classify_reason"
+    )
+    raw_confidence = payload.get("confidence")
+    if isinstance(raw_confidence, bool):
+        raise InvalidLlmResponseError("auto classify confidence must be numeric")
+    try:
+        confidence = float(raw_confidence)
+    except (TypeError, ValueError) as exc:
+        raise InvalidLlmResponseError(
+            "auto classify confidence must be numeric"
+        ) from exc
+    if not math.isfinite(confidence) or not 0.0 <= confidence <= 1.0:
+        raise InvalidLlmResponseError(
+            "auto classify confidence must be between 0 and 1"
+        )
+    return folder_name, confidence, reason
 
 
 # ---------------------------------------------------------------------------
@@ -431,22 +476,19 @@ def _do_classify(user_id: int, paper_id: str, scope: str = "kb") -> None:
                 temperature=llm_cfg["temperature"],
                 **build_thinking_kwargs(_thinking_cfg),
             )
-        raw = response.choices[0].message.content or ""
+        raw = response.choices[0].message.content if response.choices else None
 
         # Parse JSON response
         try:
-            # Strip markdown code fences if present
-            stripped = raw.strip()
-            if stripped.startswith("```"):
-                stripped = "\n".join(stripped.split("\n")[1:])
-                stripped = stripped.rstrip("`").strip()
-            result = json.loads(stripped)
-            folder_name: str = result.get("folder", _UNCLASSIFIED_FOLDER_NAME)
-            confidence: float = float(result.get("confidence", 0.0))
-            reason: str = result.get("reason", "")
-        except Exception as parse_err:
-            logger.warning("auto_classify: JSON parse error for %s: %s — raw=%r", paper_id, parse_err, raw)
-            _set("failed", error=f"LLM 返回格式错误: {raw[:200]}")
+            folder_name, confidence, reason = _parse_classification_response(raw)
+        except (EmptyLlmResponseError, InvalidLlmResponseError) as parse_err:
+            logger.warning(
+                "auto_classify: invalid model response for %s: %s chars=%d",
+                paper_id,
+                type(parse_err).__name__,
+                len(raw) if isinstance(raw, str) else 0,
+            )
+            _set("failed", error="模型返回内容无效，请重试")
             return
 
         # Valid values: leaf names, full paths, and the catch-all
