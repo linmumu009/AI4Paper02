@@ -80,7 +80,24 @@ class SystemHealthServiceTests(unittest.TestCase):
                     "reason": "complete",
                 },
             ),
-            patch.object(service, "_systemd_active", return_value=True),
+            patch.object(
+                service,
+                "_backup_health_check",
+                return_value=(
+                    {
+                        "ok": True,
+                        "timer_active": True,
+                        "last_result": "success",
+                        "status_readable": True,
+                        "status_valid": True,
+                        "max_age_hours": 30,
+                        "age_hours": 12.0,
+                        "database_count": 4,
+                        "recovery_secret_count": 3,
+                    },
+                    [],
+                ),
+            ),
         )
 
     def test_healthy_report_contains_only_operational_counts(self) -> None:
@@ -125,7 +142,11 @@ class SystemHealthServiceTests(unittest.TestCase):
                 "get_digest_publication_readiness",
                 return_value={"user_id": 0, "ready": False, "reason": "no_result"},
             ),
-            patch.object(service, "_systemd_active", return_value=True),
+            patch.object(
+                service,
+                "_backup_health_check",
+                return_value=({"ok": True, "timer_active": True}, []),
+            ),
         ):
             report = service.build_health_report(now=self._now())
 
@@ -170,7 +191,11 @@ class SystemHealthServiceTests(unittest.TestCase):
                 "get_digest_publication_readiness",
                 return_value={"user_id": 0, "ready": False, "reason": "no_result"},
             ),
-            patch.object(service, "_systemd_active", return_value=True),
+            patch.object(
+                service,
+                "_backup_health_check",
+                return_value=({"ok": True, "timer_active": True}, []),
+            ),
         ):
             report = service.build_health_report(now=self._now(hour=8))
 
@@ -217,7 +242,14 @@ class SystemHealthServiceTests(unittest.TestCase):
                 "_load_schedule_config",
                 return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
             ),
-            patch.object(service, "_systemd_active", side_effect=OSError("systemd")),
+            patch.object(
+                service,
+                "_backup_health_check",
+                return_value=(
+                    {"ok": False, "timer_active": False},
+                    ["backup_timer_inactive", "backup_status_unreadable"],
+                ),
+            ),
         ):
             report = service.build_health_report(now=self._now())
 
@@ -227,6 +259,61 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertIn("digest_check_failed", report["issues"])
         self.assertIn("pipeline_execution_check_failed", report["issues"])
         self.assertIn("backup_timer_inactive", report["issues"])
+
+    def test_backup_health_requires_fresh_verified_status(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status_path = Path(temp_dir) / "backup_health.json"
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "ok": True,
+                        "backup_created_at": "2026-08-05T02:20:00+08:00",
+                        "verified_at": "2026-08-05T02:21:00+08:00",
+                        "database_count": 4,
+                        "recovery_secret_count": 3,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(service, "_BACKUP_STATUS_PATH", status_path),
+                patch.object(service, "_systemd_active", return_value=True),
+                patch.object(service, "_systemd_property", return_value="success"),
+            ):
+                check, issues = service._backup_health_check(self._now())
+
+        self.assertTrue(check["ok"])
+        self.assertTrue(check["status_valid"])
+        self.assertEqual(check["database_count"], 4)
+        self.assertEqual(issues, [])
+
+    def test_backup_health_distinguishes_stale_and_failed_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            status_path = Path(temp_dir) / "backup_health.json"
+            status_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "ok": True,
+                        "backup_created_at": "2026-08-03T02:20:00+08:00",
+                        "verified_at": "2026-08-03T02:21:00+08:00",
+                        "database_count": 4,
+                        "recovery_secret_count": 3,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(service, "_BACKUP_STATUS_PATH", status_path),
+                patch.object(service, "_systemd_active", return_value=True),
+                patch.object(service, "_systemd_property", return_value="failed"),
+            ):
+                check, issues = service._backup_health_check(self._now())
+
+        self.assertFalse(check["ok"])
+        self.assertIn("backup_last_run_failed", issues)
+        self.assertIn("backup_stale", issues)
 
     def test_missing_scheduled_attempt_is_detected_after_start_grace(self) -> None:
         with patch.object(

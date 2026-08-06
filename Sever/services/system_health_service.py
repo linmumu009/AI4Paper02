@@ -21,6 +21,7 @@ from services.storage_health_service import get_storage_health
 _SEVER_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_STATE_PATH = _SEVER_ROOT / "database" / "system_health.json"
 _SCHEDULE_CONFIG_PATH = _SEVER_ROOT / "database" / "schedule_config.json"
+_BACKUP_STATUS_PATH = _SEVER_ROOT / "database" / "backup_health.json"
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
@@ -48,6 +49,17 @@ def _systemd_active(unit: str) -> bool:
         timeout=10,
     )
     return result.returncode == 0
+
+
+def _systemd_property(unit: str, name: str) -> str:
+    result = subprocess.run(
+        ["systemctl", "show", unit, f"--property={name}", "--value"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def _safe_int(value: Any, default: int = 0) -> int:
@@ -163,6 +175,69 @@ def _scheduled_pipeline_check(
         "retry_budget_exhausted": retry_budget_exhausted,
         "stale": stale_count,
         "last_run_date": config.get("last_run_date") if config_ok else None,
+    }, issues
+
+
+def _backup_health_check(current: datetime) -> tuple[dict[str, Any], list[str]]:
+    issues: list[str] = []
+    max_age_hours = max(1, _env_int("BACKUP_HEALTH_MAX_AGE_HOURS", 30))
+    try:
+        timer_active = _systemd_active("ai4papers-db-backup.timer")
+    except Exception:
+        timer_active = False
+    try:
+        last_result = _systemd_property("ai4papers-db-backup.service", "Result")
+    except Exception:
+        last_result = ""
+
+    if not timer_active:
+        issues.append("backup_timer_inactive")
+    if last_result != "success":
+        issues.append("backup_last_run_failed")
+
+    try:
+        payload = json.loads(_BACKUP_STATUS_PATH.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("backup health payload is not an object")
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        payload = {}
+        issues.append("backup_status_unreadable")
+
+    created_at = _parse_timestamp(payload.get("backup_created_at"))
+    verified_at = _parse_timestamp(payload.get("verified_at"))
+    database_count = _safe_int(payload.get("database_count"))
+    recovery_secret_count = _safe_int(payload.get("recovery_secret_count"))
+    status_valid = bool(
+        payload.get("schema_version") == 1
+        and payload.get("ok") is True
+        and created_at is not None
+        and verified_at is not None
+        and database_count > 0
+    )
+    age_hours: float | None = None
+    if status_valid:
+        now_utc = current.astimezone(timezone.utc)
+        creation_age = (now_utc - created_at).total_seconds() / 3600
+        age_hours = max(0.0, creation_age)
+        verification_age = (now_utc - verified_at).total_seconds() / 3600
+        if creation_age < -1 or verification_age < -1:
+            status_valid = False
+            issues.append("backup_status_invalid")
+        elif age_hours > max_age_hours or verification_age > max_age_hours:
+            issues.append("backup_stale")
+    elif payload:
+        issues.append("backup_status_invalid")
+
+    return {
+        "ok": not issues,
+        "timer_active": timer_active,
+        "last_result": last_result or "unknown",
+        "status_readable": bool(payload),
+        "status_valid": status_valid,
+        "max_age_hours": max_age_hours,
+        "age_hours": round(age_hours, 2) if age_hours is not None else None,
+        "database_count": database_count,
+        "recovery_secret_count": recovery_secret_count,
     }, issues
 
 
@@ -302,13 +377,8 @@ def build_health_report(
         }
         issues.append("digest_check_failed")
 
-    try:
-        backup_active = _systemd_active("ai4papers-db-backup.timer")
-    except Exception:
-        backup_active = False
-    backup_check = {"ok": backup_active, "timer_active": backup_active}
-    if not backup_active:
-        issues.append("backup_timer_inactive")
+    backup_check, backup_issues = _backup_health_check(current)
+    issues.extend(backup_issues)
 
     unique_issues = sorted(set(issues))
     return {

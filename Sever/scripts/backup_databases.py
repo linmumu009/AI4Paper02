@@ -175,7 +175,8 @@ def create_backup(
             f"required={required_free}"
         )
 
-    timestamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H%M%SZ")
+    created_at = now or datetime.now(timezone.utc)
+    timestamp = created_at.strftime("%Y-%m-%dT%H%M%SZ")
     final_dir = backup_root / timestamp
     if final_dir.exists():
         raise RuntimeError(f"Backup destination already exists: {final_dir}")
@@ -214,7 +215,7 @@ def create_backup(
         ]
         manifest = {
             "version": 3,
-            "created_at": (now or datetime.now(timezone.utc)).isoformat(),
+            "created_at": created_at.isoformat(),
             "db_dir": str(db_dir),
             "host_only": True,
             "databases": database_results,
@@ -234,6 +235,7 @@ def create_backup(
     removed = _prune_old_backups(backup_root, retention_count)
     return {
         "ok": True,
+        "created_at": manifest["created_at"],
         "backup_dir": str(final_dir),
         "database_count": len(database_results),
         "recovery_secret_count": len(recovery_secret_results),
@@ -280,10 +282,51 @@ def verify_backup(backup_dir: Path) -> dict[str, Any]:
 
     return {
         "ok": True,
+        "created_at": manifest.get("created_at"),
         "backup_dir": str(backup_dir),
+        "database_count": len(verified),
+        "recovery_secret_count": len(verified_recovery_secrets),
         "verified": verified,
         "verified_recovery_secrets": verified_recovery_secrets,
     }
+
+
+def write_backup_health_status(
+    status_path: Path,
+    result: dict[str, Any],
+    *,
+    verified_at: datetime | None = None,
+) -> dict[str, Any]:
+    """Atomically publish content-free evidence of a verified host-local backup."""
+    created_at = result.get("created_at")
+    if not isinstance(created_at, str) or not created_at.strip():
+        raise RuntimeError("Verified backup result has no creation timestamp")
+    payload = {
+        "schema_version": 1,
+        "ok": bool(result.get("ok")),
+        "backup_created_at": created_at,
+        "verified_at": (verified_at or datetime.now(timezone.utc)).isoformat(),
+        "database_count": int(result.get("database_count") or 0),
+        "recovery_secret_count": int(result.get("recovery_secret_count") or 0),
+    }
+    if not payload["ok"] or payload["database_count"] <= 0:
+        raise RuntimeError("Backup verification result is incomplete")
+
+    status_path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = status_path.with_name(
+        f".{status_path.name}.tmp-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+    )
+    try:
+        temp_path.write_text(
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        temp_path.chmod(0o644)
+        os.replace(temp_path, status_path)
+        status_path.chmod(0o644)
+    finally:
+        temp_path.unlink(missing_ok=True)
+    return payload
 
 
 def main() -> None:
@@ -293,6 +336,12 @@ def main() -> None:
     parser.add_argument("--retention-count", type=int, default=3)
     parser.add_argument("--verify", type=Path, default=None, help="Verify one backup directory")
     parser.add_argument("--verify-latest", action="store_true")
+    parser.add_argument(
+        "--status-file",
+        type=Path,
+        default=None,
+        help="Write content-free verified-backup health metadata atomically",
+    )
     args = parser.parse_args()
 
     if args.verify is not None:
@@ -308,6 +357,8 @@ def main() -> None:
             args.backup_root,
             retention_count=max(1, args.retention_count),
         )
+    if args.status_file is not None:
+        write_backup_health_status(args.status_file, result)
     print(json.dumps(result, ensure_ascii=False), flush=True)
 
 

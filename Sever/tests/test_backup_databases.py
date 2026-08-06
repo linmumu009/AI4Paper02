@@ -115,6 +115,33 @@ class TestBackupDatabases(unittest.TestCase):
             ["2026-08-03T070000Z", "2026-08-02T070000Z"],
         )
 
+    def test_writes_content_free_atomic_health_status(self) -> None:
+        result = backup_databases.create_backup(
+            self.db_dir,
+            self.backup_root,
+            retention_count=3,
+            now=datetime(2026, 8, 5, 7, 0, tzinfo=timezone.utc),
+            external_recovery_secrets=(self.sms_env,),
+        )
+        status_path = self.db_dir / "backup_health.json"
+
+        payload = backup_databases.write_backup_health_status(
+            status_path,
+            result,
+            verified_at=datetime(2026, 8, 5, 7, 1, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual(payload["backup_created_at"], "2026-08-05T07:00:00+00:00")
+        self.assertEqual(payload["database_count"], 2)
+        self.assertEqual(payload["recovery_secret_count"], 3)
+        stored = json.loads(status_path.read_text(encoding="utf-8"))
+        self.assertEqual(stored, payload)
+        self.assertNotIn("backup_dir", stored)
+        self.assertNotIn("verified", stored)
+        self.assertEqual(list(self.db_dir.glob(".backup_health.json.tmp-*")), [])
+        if os.name != "nt":
+            self.assertEqual(status_path.stat().st_mode & 0o777, 0o644)
+
     def test_rejects_unsafe_or_duplicate_recovery_secret_names(self) -> None:
         staging = self.root / "staging"
         staging.mkdir()

@@ -122,6 +122,10 @@ class SystemdUnitTests(unittest.TestCase):
             "ReadWritePaths=/projects/ArxivPaper4/Sever/database", service
         )
         self.assertIn(
+            "--status-file /projects/ArxivPaper4/Sever/database/backup_health.json",
+            service,
+        )
+        self.assertIn(
             'install -d -o root -g root -m 0700 "${PROJECT_ROOT}/backups"',
             script,
         )
