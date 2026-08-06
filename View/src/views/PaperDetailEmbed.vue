@@ -2,7 +2,7 @@
 /**
  * 嵌入用论文详情（仅加载 + 正文），供 ContentLayout 使用，避免 ContentLayout ↔ PaperDetail 循环依赖。
  */
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import PaperDetailBody from '../components/PaperDetailBody.vue'
 import { fetchPaperDetail } from '../api'
 import type { PaperDetailResponse, PaperSummary, PaperAssets, UserPaper } from '../types/paper'
@@ -22,6 +22,7 @@ const emit = defineEmits<{
 const detail = ref<PaperDetailResponse | null>(null)
 const loading = ref(true)
 const error = ref('')
+let loadVersion = 0
 
 const effectiveDetail = computed<PaperDetailResponse | null>(() => {
   if (props.userPaperData?.summary) {
@@ -43,36 +44,33 @@ const effectiveSource = computed(() => props.source || (props.userPaperData ? 'u
 
 async function load(paperId: string) {
   if (props.userPaperData) return
+  const version = ++loadVersion
   loading.value = true
   error.value = ''
   try {
-    detail.value = await fetchPaperDetail(paperId)
+    const response = await fetchPaperDetail(paperId)
+    if (version === loadVersion) detail.value = response
   } catch (e: any) {
+    if (version !== loadVersion) return
     error.value = e?.response?.status === 404 ? '论文未找到' : (e?.message || '加载失败')
     detail.value = null
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
-
-onMounted(() => {
-  if (props.userPaperData) {
-    loading.value = false
-    return
-  }
-  const id = props.id as string
-  if (id) load(id)
-})
 
 watch(
   () => [props.id, props.userPaperData] as const,
   ([pid, upd]) => {
     if (upd) {
+      loadVersion += 1
       loading.value = false
+      error.value = ''
       return
     }
     if (pid) load(pid as string)
   },
+  { immediate: true },
 )
 </script>
 

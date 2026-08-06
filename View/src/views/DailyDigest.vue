@@ -25,7 +25,7 @@ import { buildPdfViewerUrl, resolvePaperPdfUrl, buildKbPdfViewerUrl, buildKbFile
 import { useAnnotationAdapter } from '../composables/useAnnotationAdapter'
 import { openExternal } from '../utils/openExternal'
 import type { KbScope } from '../api'
-import type { KbPaper, PaperSummary, UserPaper, UserPaperViewMdPayload } from '../types/paper'
+import type { KbPaper, PaperDetailResponse, PaperSummary, UserPaper, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useKbSidebarState } from '../composables/useKbSidebarState'
@@ -100,6 +100,8 @@ const {
   immersiveFallbackMode: 'list',
 })
 
+const digestRouteSyncEnabled = ref(true)
+
 useWorkspaceRouteState({
   query: () => route.query,
   router,
@@ -112,6 +114,7 @@ useWorkspaceRouteState({
   selectPaperById: selectDigestPaperById,
   paperQueryKey: 'digest_paper',
   sourceQueryKey: 'source',
+  shouldSync: query => digestRouteSyncEnabled.value && !query.tool && !query.tab,
 })
 
 // Digest statistics from API response (used in stats bar)
@@ -390,7 +393,8 @@ async function applyToolQuery(tool: string | string[] | undefined) {
   if (!t) return
   switch (t) {
     case 'knowledge':
-      await handleGoToDigestClick()
+      digestRouteSyncEnabled.value = false
+      await handleGoToDigestClick(false)
       knowledgeWorkspaceActive.value = true
       showSidebar.value = true
       nextTick(() => sidebarRef.value?.switchToPapersTab?.())
@@ -1083,6 +1087,35 @@ const editingNote = ref<{ id: number; paperId: string } | null>(null)
 
 // 从知识库点击的论文，在中间区域居中展示详情
 const sidebarPaperId = ref<string | null>(null)
+const sidebarPaperDetail = ref<PaperDetailResponse | null>(null)
+
+function findKbPaper(paperId: string): KbPaper | undefined {
+  const walk = (folders: any[]): KbPaper[] => folders.flatMap(folder => [
+    ...(folder.papers || []),
+    ...walk(folder.children || []),
+  ])
+  return [...kbTree.value.papers, ...walk(kbTree.value.folders)]
+    .find(paper => paper.paper_id === paperId)
+}
+
+function detailFromKbPaper(paper: KbPaper): PaperDetailResponse {
+  return {
+    summary: { ...paper.paper_data, paper_id: paper.paper_id },
+    paper_assets: null,
+    date: paper.created_at?.slice(0, 10) || '',
+    images: [],
+    arxiv_url: `https://arxiv.org/abs/${paper.paper_id}`,
+    pdf_url: paper.pdf_static_url
+      ? buildKbFileUrl(paper.pdf_static_url)
+      : `https://arxiv.org/pdf/${paper.paper_id}`,
+  }
+}
+
+function selectSidebarPaper(paperId: string) {
+  sidebarPaperId.value = paperId
+  const paper = findKbPaper(paperId)
+  sidebarPaperDetail.value = paper ? detailFromKbPaper(paper) : null
+}
 const viewingPdf = ref<{ paperId: string; filePath: string; title: string } | null>(null)
 /** 我的论文：左侧 PDF + 右侧 Markdown 渲染 */
 const viewingMd = ref<UserPaperViewMdPayload | null>(null)
@@ -1313,13 +1346,25 @@ function _stopMyPapersCenterPoll() {
 }
 
 async function openKnowledgeWorkspace() {
-  await handleGoToDigestClick()
+  digestRouteSyncEnabled.value = false
+  await handleGoToDigestClick(false)
   knowledgeWorkspaceActive.value = true
   showSidebar.value = true
 }
 
-function handleTabChanged(tab: string) {
+async function handleTabChanged(tab: string) {
+  digestRouteSyncEnabled.value = false
   myPapersImmersiveId.value = null
+  const canonicalQuery = tab === 'mypapers'
+    ? { tab: 'mypapers' }
+    : tab === 'compare'
+      ? { tool: 'compare-library' }
+      : tab === 'research'
+        ? { tool: 'research' }
+        : tab === 'papers'
+          ? { tool: 'knowledge' }
+          : {}
+  await router.replace({ path: '/', query: canonicalQuery }).catch(() => {})
   if (tab === 'papers') {
     void openKnowledgeWorkspace()
     return
@@ -1644,6 +1689,8 @@ function closeCompareResult() {
 }
 
 async function openPaperFromSidebar(paperId: string) {
+  digestRouteSyncEnabled.value = false
+  await router.replace({ path: '/', query: { tool: 'knowledge' } }).catch(() => {})
   knowledgeWorkspaceActive.value = false
   viewingPdf.value = null
   viewingMd.value = null
@@ -1678,27 +1725,34 @@ async function openPaperFromSidebar(paperId: string) {
   viewingUserPaper.value = null
   _stopUserPaperPoll()
   _stopMyPapersCenterPoll()
-  sidebarPaperId.value = paperId
+  selectSidebarPaper(paperId)
   // 移动端：自动收起侧边栏，让用户立刻看到内容
   collapseSidebarOnMobile()
   void engagement.record('view', 'daily-digest-sidebar-paper', paperId)
 
+  const savedSummary = sidebarPaperDetail.value?.summary
+  globalChat.setBrowsingContext({
+    paperId,
+    title: savedSummary?.short_title || savedSummary?.['📖标题'] || paperId,
+    summary: savedSummary,
+    source: 'kb-paper',
+  })
+  globalChat.applyBrowsingToPaperContext()
+
   void (async () => {
     try {
       const d = await fetchPaperDetail(paperId)
+      if (sidebarPaperId.value !== paperId) return
       if (d?.summary) {
+        sidebarPaperDetail.value = d
         globalChat.setBrowsingContext({
           paperId,
           title: d.summary.short_title || d.summary['📖标题'] || paperId,
           summary: d.summary,
           source: 'kb-paper',
         })
-      } else {
-        globalChat.setBrowsingContext({ paperId, title: paperId, source: 'kb-paper' })
       }
-    } catch {
-      globalChat.setBrowsingContext({ paperId, title: paperId, source: 'kb-paper' })
-    }
+    } catch { /* keep the saved KB snapshot visible */ }
     globalChat.applyBrowsingToPaperContext()
   })()
 }
@@ -1720,7 +1774,7 @@ async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
         // 忽略删除失败
       }
       editingNote.value = null
-      sidebarPaperId.value = payload.paperId
+      selectSidebarPaper(payload.paperId)
       collapseSidebarOnMobile()
       return
     } else {
@@ -2106,14 +2160,7 @@ const sidebarLayoutContext = computed<ContentLayoutContext>(() => {
   if (!sidebarPaperId.value) return {}
   const pid = sidebarPaperId.value
   const arxivOk = !pid.startsWith('up_')
-  // Find KB paper to get derivative URLs
-  const allKbPapers = [
-    ...kbTree.value.papers,
-    ...kbTree.value.folders.flatMap(function walk(f: any): any[] {
-      return [...(f.papers || []), ...(f.children || []).flatMap(walk)]
-    }),
-  ]
-  const kbPaper = allKbPapers.find(p => p.paper_id === pid)
+  const kbPaper = findKbPaper(pid)
   const pdfUrl = arxivOk ? digestArxivPdfUrl(pid) : (kbPaper?.pdf_static_url ? buildKbFileUrl(kbPaper.pdf_static_url) : undefined)
   const mineruUrl = kbPaper?.mineru_static_url ? buildKbFileUrl(kbPaper.mineru_static_url) : undefined
   const zhUrl = kbPaper?.zh_static_url ? buildKbFileUrl(kbPaper.zh_static_url) : undefined
@@ -2121,6 +2168,7 @@ const sidebarLayoutContext = computed<ContentLayoutContext>(() => {
   const mdUrl = bilingualUrl ?? zhUrl ?? mineruUrl
   return {
     paperId: pid,
+    paperDetail: sidebarPaperDetail.value,
     pdfUrl,
     pdfViewerSrc: pdfUrl ? digestPdfJsSrc(pdfUrl, pid) : '',
     pdfTitle: `${pid}.pdf`,
@@ -2182,7 +2230,8 @@ const userPaperLayoutContext = computed<ContentLayoutContext>(() => {
 })
 
 // 全局“回到推荐”按钮事件处理：应用自动保存/删除规则，并回到推荐卡片视图
-async function handleGoToDigestClick() {
+async function handleGoToDigestClick(syncRoute = true) {
+  if (syncRoute) digestRouteSyncEnabled.value = true
   knowledgeWorkspaceActive.value = false
   if (editingNote.value && getDigestNoteEditor()) {
     const isEmpty = getDigestNoteEditor().isEffectivelyEmpty()
@@ -2217,6 +2266,16 @@ async function handleGoToDigestClick() {
   _stopUserPaperPoll()
   _stopMyPapersCenterPoll()
   globalChat.clearBrowsingContext()
+  if (syncRoute) {
+    const query = digestViewMode.value === 'card'
+      ? { digest_paper: currentPaperId.value || undefined }
+      : {
+          view: digestViewMode.value,
+          digest_paper: currentPaperId.value || undefined,
+          source: digestViewMode.value === 'immersive' ? immersiveReturnMode.value : undefined,
+        }
+    await router.replace({ path: '/', query }).catch(() => {})
+  }
 }
 
 // ── Taskline action handler ────────────────────────────────────────────────
@@ -2352,6 +2411,24 @@ const isInPanelView = computed(() =>
 
 // 将面板视图状态同步到全局，供右下角浮动按钮感知
 watch(isInPanelView, (v) => { globalChat.setPageInPanelView(v) }, { immediate: true })
+
+// Route invariant: an open knowledge workspace owns the URL.  This also
+// corrects any late digest deep-link navigation that was already in flight
+// when the user opened a saved paper.
+watch(
+  () => [knowledgeWorkspaceActive.value, sidebarPaperId.value, route.fullPath] as const,
+  ([workspaceActive, paperId]) => {
+    if (!workspaceActive && !paperId) return
+    digestRouteSyncEnabled.value = false
+    if (
+      route.path === '/'
+      && route.query.tool === 'knowledge'
+      && Object.keys(route.query).length === 1
+    ) return
+    void router.replace({ path: '/', query: { tool: 'knowledge' } }).catch(() => {})
+  },
+  { flush: 'post' },
+)
 
 // 主卡片视图：将当前浏览的推荐论文自动同步到 AI 问答上下文
 // 面板视图时跳过（面板内会由 openPaperFromSidebar 等函数精确设置）

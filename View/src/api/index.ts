@@ -141,10 +141,26 @@ export async function fetchPapers(
   return data
 }
 
-/** 获取单篇论文详情 */
-export async function fetchPaperDetail(paperId: string): Promise<PaperDetailResponse> {
-  const { data } = await http.get<PaperDetailResponse>(`/papers/${paperId}`)
-  return data
+const paperDetailRequests = new Map<string, Promise<PaperDetailResponse>>()
+
+/** 获取单篇论文详情；并发中的相同 ID 共享同一个请求。 */
+export function fetchPaperDetail(paperId: string): Promise<PaperDetailResponse> {
+  const existing = paperDetailRequests.get(paperId)
+  if (existing) return existing
+
+  const request = http
+    .get<PaperDetailResponse>(`/papers/${paperId}`)
+    .then(({ data }) => data)
+  paperDetailRequests.set(paperId, request)
+  request.then(
+    () => {
+      if (paperDetailRequests.get(paperId) === request) paperDetailRequests.delete(paperId)
+    },
+    () => {
+      if (paperDetailRequests.get(paperId) === request) paperDetailRequests.delete(paperId)
+    },
+  )
+  return request
 }
 
 /** 获取每日摘要 */

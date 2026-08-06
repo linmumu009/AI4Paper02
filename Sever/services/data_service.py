@@ -640,6 +640,38 @@ def _get_papers_from_files(date: str) -> Optional[list[dict]]:
     return papers if papers else None
 
 
+def _detail_from_saved_snapshot(paper_id: str, snapshot: dict) -> dict:
+    """Build a stable detail response from a user's saved KB snapshot."""
+    raw_data = snapshot.get("paper_data")
+    data = dict(raw_data) if isinstance(raw_data, dict) else {}
+    data["paper_id"] = paper_id
+
+    title = str(data.get("📖标题") or data.get("short_title") or "").strip()
+    if not title:
+        title = paper_id
+        data["short_title"] = title
+    data.setdefault("📖标题", title)
+    data["is_personalized"] = True
+
+    intro = data.get("🛎️文章简介")
+    if not isinstance(intro, dict) or not any(str(v or "").strip() for v in intro.values()):
+        fallback = str(data.get("abstract") or data.get("推荐理由") or "").strip()
+        data["🛎️文章简介"] = {
+            "🔸研究问题": fallback or "该论文已收藏，但历史摘要数据不完整。可继续查看原文、笔记或已处理文件。",
+            "🔸主要贡献": "",
+        }
+
+    created_at = str(snapshot.get("created_at") or "")
+    return {
+        "summary": data,
+        "paper_assets": None,
+        "date": created_at[:10],
+        "images": [],
+        "arxiv_url": f"https://arxiv.org/abs/{paper_id}",
+        "pdf_url": f"https://arxiv.org/pdf/{paper_id}",
+    }
+
+
 def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
     """
     Get full detail for a single paper.
@@ -650,39 +682,47 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
         _safe_path_component(paper_id)
     except ValueError:
         return None
+    # A saved knowledge-base snapshot is durable user-owned data.  It must not
+    # be hidden by the stricter publication-readiness rules used by the public
+    # digest feed.
+    saved_snapshot = None
+    if user_id > 0:
+        try:
+            from services import kb_service
+
+            paper_data = kb_service.get_paper_data(user_id, paper_id, scope="kb")
+            if paper_data is None:
+                paper_data = kb_service.get_paper_data(
+                    user_id, paper_id, scope="inspiration"
+                )
+            if paper_data is not None:
+                saved_snapshot = {"paper_data": paper_data}
+        except Exception:
+            pass
+
     # --- Try DB ---
     try:
         from services.pipeline_db_service import (
-            get_summaries, get_paper_info, get_paper_assets, get_theme_scores,
-            has_final_selections, is_digest_ready_for_publication,
-            list_dates_with_data,
+            get_latest_paper_bundle,
+            is_digest_ready_for_publication,
         )
-        # Find dates that have this paper
         for candidate_uid in ([user_id, 0] if user_id != 0 else [0]):
-            dates = list_dates_with_data(candidate_uid)
-            for date_str in dates:
-                if (
-                    not has_final_selections(candidate_uid, date_str)
-                    or not is_digest_ready_for_publication(candidate_uid, date_str)
-                ):
+            before_date = None
+            while True:
+                bundle = get_latest_paper_bundle(candidate_uid, paper_id, before_date)
+                if bundle is None:
+                    break
+
+                date_str = bundle["date_str"]
+                before_date = date_str
+                # Public/system data must still belong to a complete published
+                # digest.  User-owned pipeline data is accessible independently.
+                if candidate_uid == 0 and not is_digest_ready_for_publication(0, date_str):
                     continue
-                info_rows = get_paper_info(candidate_uid, date_str, paper_id)
-                if not info_rows:
-                    info_rows = get_paper_info(0, date_str, paper_id)
-                if not info_rows:
-                    continue
-                info = info_rows[0]
 
-                sum_rows = get_summaries(candidate_uid, date_str, paper_id)
-                if not sum_rows:
-                    sum_rows = get_summaries(0, date_str, paper_id)
-                summary_row = sum_rows[0] if sum_rows else {}
-
-                assets_rows = get_paper_assets(candidate_uid, date_str, paper_id)
-                if not assets_rows:
-                    assets_rows = get_paper_assets(0, date_str, paper_id)
-                assets_row = assets_rows[0] if assets_rows else {}
-
+                info = bundle.get("info") or {}
+                summary_row = bundle.get("summary") or {}
+                assets_row = bundle.get("assets") or {}
                 limit_text = summary_row.get("summary_limit", "") or summary_row.get("summary_raw", "")
                 if not isinstance(limit_text, str) or not limit_text.strip():
                     continue
@@ -704,19 +744,16 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 except (TypeError, ValueError):
                     data["institution_tier"] = 3 if is_large else 4
                 data["abstract"] = info.get("abstract", "")
-                scores = get_theme_scores(candidate_uid, date_str)
-                data["relevance_score"] = scores.get(paper_id)
-                data["is_personalized"] = (candidate_uid != 0 and candidate_uid == user_id)
+                data["relevance_score"] = bundle.get("theme_score")
+                data["is_personalized"] = candidate_uid != 0 and candidate_uid == user_id
 
-                # Images from select_image are returned as guarded API URLs.
                 images = _build_paper_image_entries(
                     paper_id,
                     date_str,
                     _list_paper_images_from_select_image(paper_id, date_str),
                 )
-
                 local_pdf_url = _find_local_pdf_url(paper_id)
-                _blocks = assets_row.get("blocks") if assets_row else None
+                blocks = assets_row.get("blocks") if assets_row else None
                 return {
                     "summary": data,
                     "paper_assets": {
@@ -724,8 +761,8 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                         "title": assets_row.get("title", ""),
                         "url": assets_row.get("url", ""),
                         "year": assets_row.get("year"),
-                        "blocks": _blocks,
-                    } if assets_row and _blocks else None,
+                        "blocks": blocks,
+                    } if assets_row and blocks else None,
                     "date": date_str,
                     "images": images,
                     "arxiv_url": f"https://arxiv.org/abs/{paper_id}",
@@ -733,6 +770,9 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 }
     except Exception:
         pass
+
+    if saved_snapshot is not None:
+        return _detail_from_saved_snapshot(paper_id, saved_snapshot)
 
     # --- Fallback: file_collect ---
     fc_root = os.path.join(_DATA_ROOT, "file_collect")

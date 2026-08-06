@@ -19,6 +19,7 @@ interface UseWorkspaceRouteStateOptions {
   modeQueryKey?: string
   paperQueryKey?: string
   sourceQueryKey?: string
+  shouldSync?: (query: LocationQuery) => boolean
 }
 
 function singleQueryValue(value: LocationQuery[string]): string | null {
@@ -39,9 +40,15 @@ export function useWorkspaceRouteState(options: UseWorkspaceRouteStateOptions) {
       singleQueryValue(options.query()[paperQueryKey]),
       singleQueryValue(options.query()[sourceQueryKey]),
       options.paperIds.value.join('\u0000'),
+      options.shouldSync?.(options.query()) ?? true,
     ] as const,
-    ([routeMode, routePaperId, routeSource]) => {
+    ([routeMode, routePaperId, routeSource, _paperIds, shouldSync]) => {
       applyingRouteState = true
+      if (!shouldSync) {
+        pendingPaperId.value = null
+        applyingRouteState = false
+        return
+      }
       if (isResearchWorkspaceMode(routeMode)) options.setMode(routeMode)
       if (
         routeMode === 'immersive'
@@ -67,6 +74,7 @@ export function useWorkspaceRouteState(options: UseWorkspaceRouteStateOptions) {
     ([mode, paperId, immersiveReturnMode]) => {
       if (applyingRouteState || !paperId) return
       const currentQuery = options.query()
+      if (options.shouldSync && !options.shouldSync(currentQuery)) return
       const routeMode = singleQueryValue(currentQuery[modeQueryKey])
       const routePaperId = singleQueryValue(currentQuery[paperQueryKey])
       const routeSource = singleQueryValue(currentQuery[sourceQueryKey])

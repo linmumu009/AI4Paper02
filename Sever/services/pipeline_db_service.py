@@ -118,6 +118,8 @@ def init_db() -> None:
                 ON pipeline_selected_papers(user_id, date_str);
             CREATE INDEX IF NOT EXISTS idx_psp_final
                 ON pipeline_selected_papers(user_id, date_str, is_final_selected);
+            CREATE INDEX IF NOT EXISTS idx_psp_user_paper_date
+                ON pipeline_selected_papers(user_id, paper_arxiv_id, date_str DESC);
 
             -- ----------------------------------------------------------------
             -- pipeline_paper_info: LLM-extracted metadata per paper
@@ -141,6 +143,8 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_ppi_user_date
                 ON pipeline_paper_info(user_id, date_str);
+            CREATE INDEX IF NOT EXISTS idx_ppi_user_paper_date
+                ON pipeline_paper_info(user_id, paper_arxiv_id, date_str DESC);
 
             -- ----------------------------------------------------------------
             -- pipeline_summaries: LLM-generated summaries (raw + compressed)
@@ -161,6 +165,8 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_ps_user_date
                 ON pipeline_summaries(user_id, date_str);
+            CREATE INDEX IF NOT EXISTS idx_ps_user_paper_date
+                ON pipeline_summaries(user_id, paper_arxiv_id, date_str DESC);
 
             -- ----------------------------------------------------------------
             -- pipeline_paper_assets: structured block analysis per paper
@@ -180,6 +186,8 @@ def init_db() -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_ppa_user_date
                 ON pipeline_paper_assets(user_id, date_str);
+            CREATE INDEX IF NOT EXISTS idx_ppa_user_paper_date
+                ON pipeline_paper_assets(user_id, paper_arxiv_id, date_str DESC);
 
             -- ----------------------------------------------------------------
             -- pipeline_date_notices: records why a date has 0 papers
@@ -1171,6 +1179,71 @@ def get_paper_assets(
 def get_paper_assets_map(user_id: int, date_str: str) -> dict[str, dict]:
     """Return {arxiv_id: assets_dict}."""
     return {r["paper_arxiv_id"]: r for r in get_paper_assets(user_id, date_str)}
+
+
+def get_latest_paper_bundle(
+    user_id: int,
+    paper_arxiv_id: str,
+    before_date: Optional[str] = None,
+) -> Optional[dict]:
+    """Return the newest final-selected pipeline rows for one paper.
+
+    This lookup is intentionally independent from digest publication readiness.
+    A caller can decide whether it needs the stricter public-batch contract, while
+    authenticated detail and ownership checks avoid scanning every historical
+    date.  The schema indexes ``(user_id, paper_arxiv_id, date_str)`` so missing
+    papers are cheap as well.
+    """
+    conn = _connect()
+    try:
+        query = (
+            "SELECT date_str, theme_score FROM pipeline_selected_papers "
+            "WHERE user_id=? AND paper_arxiv_id=? AND is_final_selected=1 "
+        )
+        params: list[object] = [user_id, paper_arxiv_id]
+        if before_date is not None:
+            query += "AND date_str<? "
+            params.append(before_date)
+        selected = conn.execute(
+            query + "ORDER BY date_str DESC LIMIT 1",
+            params,
+        ).fetchone()
+        if selected is None:
+            return None
+
+        date_str = str(selected["date_str"])
+        info = conn.execute(
+            "SELECT * FROM pipeline_paper_info "
+            "WHERE user_id=? AND paper_arxiv_id=? AND date_str=? LIMIT 1",
+            (user_id, paper_arxiv_id, date_str),
+        ).fetchone()
+        summary = conn.execute(
+            "SELECT * FROM pipeline_summaries "
+            "WHERE user_id=? AND paper_arxiv_id=? AND date_str=? LIMIT 1",
+            (user_id, paper_arxiv_id, date_str),
+        ).fetchone()
+        assets = conn.execute(
+            "SELECT * FROM pipeline_paper_assets "
+            "WHERE user_id=? AND paper_arxiv_id=? AND date_str=? LIMIT 1",
+            (user_id, paper_arxiv_id, date_str),
+        ).fetchone()
+
+        assets_dict = dict(assets) if assets is not None else {}
+        try:
+            assets_dict["blocks"] = json.loads(assets_dict.get("blocks_json") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            assets_dict["blocks"] = {}
+
+        return {
+            "user_id": user_id,
+            "date_str": date_str,
+            "theme_score": selected["theme_score"],
+            "info": dict(info) if info is not None else {},
+            "summary": dict(summary) if summary is not None else {},
+            "assets": assets_dict,
+        }
+    finally:
+        conn.close()
 
 
 def has_paper_assets(user_id: int, date_str: str) -> bool:

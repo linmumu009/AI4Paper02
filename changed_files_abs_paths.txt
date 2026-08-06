@@ -364,3 +364,8 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_a
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_file_operation_recovery.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_paper_public_response.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_public_response.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_paper_detail_access_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\index.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\PaperDetailEmbed.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\papers.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useWorkspaceRouteState.test.ts

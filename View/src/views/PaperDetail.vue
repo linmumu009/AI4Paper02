@@ -231,12 +231,6 @@ onMounted(async () => {
     void loadKbTree()
     void loadCompareTree()
   }
-  try {
-    const res = await fetchDates()
-    dates.value = res.dates
-    if (dates.value.length > 0) selectedDate.value = dates.value[0]
-  } catch { /* non-critical */ }
-
   const id = route.params.id as string
   if (id) {
     await load(id)
@@ -248,6 +242,13 @@ onMounted(async () => {
       void engagement.record('view', 'paper-detail-page', id)
     }
   }
+
+  // Dates are sidebar-only metadata.  Load them after the article has painted
+  // so an expensive publication-readiness scan cannot block the detail page.
+  void fetchDates().then((res) => {
+    dates.value = res.dates
+    if (dates.value.length > 0) selectedDate.value = dates.value[0]
+  }).catch(() => { /* non-critical */ })
 })
 
 watch(

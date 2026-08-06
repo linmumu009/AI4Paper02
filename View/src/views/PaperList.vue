@@ -16,7 +16,7 @@ import { PANEL_IDS, STORAGE_PREFIX, type LayoutState, type PanelConfigItem } fro
 import { fetchDates, addKbPaper, deleteNote, fetchIdeaDigest, createIdeaFeedback, addNoteLink, fetchIdeaAtom, fetchPaperDetail, fetchKbTree } from '../api'
 import { buildPdfViewerUrl, resolvePaperPdfUrl, buildKbPdfViewerUrl, buildKbFileUrl } from '../composables/usePdfUrl'
 import { useAnnotationAdapter } from '../composables/useAnnotationAdapter'
-import type { IdeaCandidate, UserPaperViewMdPayload } from '../types/paper'
+import type { IdeaCandidate, KbPaper, PaperDetailResponse, UserPaperViewMdPayload } from '../types/paper'
 import { currentTier, ensureAuthInitialized, isAuthenticated } from '../stores/auth'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { useKbSidebarState } from '../composables/useKbSidebarState'
@@ -461,6 +461,33 @@ async function ideaRefresh() {
 
 // 从知识库点击论文 → 中间展示详情
 const sidebarPaperId = ref<string | null>(null)
+const sidebarPaperDetail = ref<PaperDetailResponse | null>(null)
+
+function findKbPaper(paperId: string): KbPaper | undefined {
+  const walk = (folders: any[]): KbPaper[] => folders.flatMap(folder => [
+    ...(folder.papers || []),
+    ...walk(folder.children || []),
+  ])
+  return [...kbTree.value.papers, ...walk(kbTree.value.folders)]
+    .find(paper => paper.paper_id === paperId)
+}
+
+function selectSidebarPaper(paperId: string) {
+  sidebarPaperId.value = paperId
+  const paper = findKbPaper(paperId)
+  sidebarPaperDetail.value = paper
+    ? {
+        summary: { ...paper.paper_data, paper_id: paper.paper_id },
+        paper_assets: null,
+        date: paper.created_at?.slice(0, 10) || '',
+        images: [],
+        arxiv_url: `https://arxiv.org/abs/${paper.paper_id}`,
+        pdf_url: paper.pdf_static_url
+          ? buildKbFileUrl(paper.pdf_static_url)
+          : `https://arxiv.org/pdf/${paper.paper_id}`,
+      }
+    : null
+}
 
 // 从知识库点击灵感条目 → 中间展示灵感详情面板
 const viewingIdeaId = ref<number | null>(null)
@@ -723,6 +750,7 @@ const inspireSidebarContext = computed<ContentLayoutContext>(() => {
   const pdfUrl = arxivOk ? inspireArxivPdfUrl(pid) : undefined
   return {
     paperId: pid,
+    paperDetail: sidebarPaperDetail.value,
     pdfUrl,
     pdfViewerSrc: pdfUrl ? inspirePdfJsSrc(pdfUrl, pid) : '',
     pdfTitle: `${pid}.pdf`,
@@ -935,27 +963,34 @@ async function openPaperFromSidebar(paperId: string) {
     }
   }
 
-  sidebarPaperId.value = paperId
+  selectSidebarPaper(paperId)
   viewingIdeaId.value = null
   collapseSidebarOnMobile()
   void engagement.record('view', 'inspiration-open-paper', paperId)
 
+  const savedSummary = sidebarPaperDetail.value?.summary
+  globalChat.setBrowsingContext({
+    paperId,
+    title: savedSummary?.short_title || savedSummary?.['📖标题'] || paperId,
+    summary: savedSummary,
+    source: 'kb-paper',
+  })
+  globalChat.applyBrowsingToPaperContext()
+
   void (async () => {
     try {
       const d = await fetchPaperDetail(paperId)
+      if (sidebarPaperId.value !== paperId) return
       if (d?.summary) {
+        sidebarPaperDetail.value = d
         globalChat.setBrowsingContext({
           paperId,
           title: d.summary.short_title || d.summary['📖标题'] || paperId,
           summary: d.summary,
           source: 'kb-paper',
         })
-      } else {
-        globalChat.setBrowsingContext({ paperId, title: paperId, source: 'kb-paper' })
       }
-    } catch {
-      globalChat.setBrowsingContext({ paperId, title: paperId, source: 'kb-paper' })
-    }
+    } catch { /* keep the saved KB snapshot visible */ }
     globalChat.applyBrowsingToPaperContext()
   })()
 }
@@ -972,7 +1007,7 @@ async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
     if (isEmpty) {
       try { await deleteNote(editingNote.value.id) } catch {}
       editingNote.value = null
-      sidebarPaperId.value = payload.paperId
+      selectSidebarPaper(payload.paperId)
       collapseSidebarOnMobile()
       return
     } else {
@@ -1049,13 +1084,25 @@ async function handleBackToInspiration() {
 }
 
 async function handleIdeaOpenPaper(pid: string) {
-  sidebarPaperId.value = pid
+  selectSidebarPaper(pid)
   viewingIdeaId.value = null
   paperInspirationPaperId.value = null
+  const savedSummary = sidebarPaperDetail.value?.summary
+  if (savedSummary) {
+    globalChat.setBrowsingContext({
+      paperId: pid,
+      title: savedSummary.short_title || savedSummary['📖标题'] || pid,
+      summary: savedSummary,
+      source: 'kb-paper',
+    })
+    globalChat.applyBrowsingToPaperContext()
+  }
   void (async () => {
     try {
       const d = await fetchPaperDetail(pid)
+      if (sidebarPaperId.value !== pid) return
       if (d?.summary) {
+        sidebarPaperDetail.value = d
         globalChat.setBrowsingContext({
           paperId: pid,
           title: d.summary.short_title || d.summary['📖标题'] || pid,
