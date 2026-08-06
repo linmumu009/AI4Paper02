@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
 from services.safe_logging_service import safe_failure_detail, safe_stored_error
+from services.user_paper_public_response import normalize_public_user_paper_state
 from services.upload_guard import (
     PdfValidationError,
     UploadTooLarge,
@@ -99,9 +100,12 @@ def _enrich_user_paper(p: dict) -> dict:
     pid = p.get("paper_id")
     if p.get("pdf_path") and uid is not None:
         pdf_abs = os.path.join(user_paper_service._KB_FILES_DIR, p["pdf_path"])
-        try:
-            p["pdf_static_url"] = build_signed_kb_file_url(pdf_abs, int(uid))
-        except ValueError:
+        if os.path.isfile(pdf_abs):
+            try:
+                p["pdf_static_url"] = build_signed_kb_file_url(pdf_abs, int(uid))
+            except ValueError:
+                p["pdf_static_url"] = None
+        else:
             p["pdf_static_url"] = None
     if uid is not None and pid:
         try:
@@ -145,7 +149,50 @@ def _enrich_user_paper(p: dict) -> dict:
     p["translate_error"] = safe_stored_error(
         p.get("translate_error"), "论文翻译失败，请重试"
     )
+    normalized = normalize_public_user_paper_state(
+        p,
+        translation_available=bool(
+            p.get("zh_static_url") or p.get("bilingual_static_url")
+        ),
+    )
+    p.update(normalized)
     return p
+
+
+def _normalize_user_paper_process_state(paper: dict) -> dict:
+    public = dict(paper)
+    public["summary"] = None
+    if public.get("process_status") == "completed" and public.get("summary_json"):
+        try:
+            public["summary"] = json.loads(public["summary_json"])
+        except Exception:
+            pass
+    return normalize_public_user_paper_state(
+        public,
+        check_process_result=True,
+    )
+
+
+def _normalize_user_paper_translate_state(paper: dict) -> dict:
+    public = dict(paper)
+    translation_available = False
+    if public.get("translate_status") == "completed":
+        try:
+            paths = translate_service.paper_derivative_paths(
+                int(public["user_id"]),
+                str(public["paper_id"]),
+            )
+            translation_available = bool(
+                os.path.isfile(paths["zh"])
+                or os.path.isfile(paths["bilingual"])
+            )
+        except Exception:
+            translation_available = False
+    return normalize_public_user_paper_state(
+        public,
+        translation_available=translation_available,
+        check_process_result=False,
+    )
 
 
 def _enrich_user_paper_tree(tree: dict) -> dict:
@@ -198,7 +245,7 @@ def api_user_paper_import_manual(
         external_url=body.external_url,
         deduplicate_source=True,
     )
-    return paper
+    return _enrich_user_paper(paper)
 
 
 @router.post("/import/arxiv", summary="通过 arXiv ID 导入论文元数据")
@@ -217,7 +264,7 @@ def api_user_paper_import_arxiv(
     if existing is not None:
         existing["arxiv_pdf_url"] = f"https://arxiv.org/pdf/{clean_id}"
         existing["already_exists"] = True
-        return existing
+        return _enrich_user_paper(existing)
 
     try:
         meta = user_paper_service.fetch_arxiv_metadata(clean_id)
@@ -245,7 +292,7 @@ def api_user_paper_import_arxiv(
         deduplicate_source=True,
     )
     paper["arxiv_pdf_url"] = meta["pdf_url"]
-    return paper
+    return _enrich_user_paper(paper)
 
 
 @router.post("/import/pdf", summary="上传 PDF 并录入论文")
@@ -302,7 +349,7 @@ async def api_user_paper_import_pdf(
         pdf_filename=file.filename or "paper.pdf",
         deduplicate_source=True,
     )
-    return paper
+    return _enrich_user_paper(paper)
 
 
 # ---------------------------------------------------------------------------
@@ -385,7 +432,7 @@ def api_user_paper_update(
     )
     if updated is None:
         raise HTTPException(status_code=404, detail="论文不存在")
-    return updated
+    return _enrich_user_paper(updated)
 
 
 @router.post("/{paper_id}/upload-pdf", summary="为已录入论文补传 PDF")
@@ -417,13 +464,7 @@ async def api_user_paper_upload_pdf(
         pdf_bytes=pdf_bytes,
         pdf_filename=file.filename or "paper.pdf",
     )
-    if updated and updated.get("pdf_path"):
-        pdf_abs = os.path.join(user_paper_service._KB_FILES_DIR, updated["pdf_path"])
-        try:
-            updated["pdf_static_url"] = build_signed_kb_file_url(pdf_abs, _user["id"])
-        except ValueError:
-            updated["pdf_static_url"] = None
-    return updated
+    return _enrich_user_paper(updated) if updated else None
 
 
 @router.delete("/{paper_id}", summary="删除上传论文")
@@ -543,6 +584,7 @@ def api_user_paper_process_status(
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
+    paper = _normalize_user_paper_process_state(paper)
     return {
         "paper_id": paper_id,
         "process_status": paper.get("process_status", "none"),
@@ -621,6 +663,7 @@ def api_user_paper_translate_status(
     paper = user_paper_service.get_paper(_user["id"], paper_id)
     if paper is None:
         raise HTTPException(status_code=404, detail="论文不存在")
+    paper = _normalize_user_paper_translate_state(paper)
     return {
         "paper_id": paper_id,
         "translate_status": paper.get("translate_status", "none"),
@@ -655,7 +698,7 @@ def api_user_paper_files(
         "zh_static_url": enriched.get("zh_static_url"),
         "bilingual_static_url": enriched.get("bilingual_static_url"),
         "exists": {
-            "pdf": bool(paper.get("pdf_path")),
+            "pdf": bool(enriched.get("pdf_static_url")),
             "mineru": os.path.isfile(paths["mineru"]),
             "zh": os.path.isfile(paths["zh"]),
             "bilingual": os.path.isfile(paths["bilingual"]),
