@@ -12,22 +12,62 @@ Registered in api.py via app.include_router(download_router)
 
 import os
 import re
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from services import auth_service, entitlement_service, kb_service, translate_service, user_paper_service
+from services.safe_logging_service import safe_failure_detail
 from routers._deps import _KB_FILES_DIR, _EXE_RELEASE_DIR
 
 router = APIRouter(prefix="/api/download", tags=["download"])
+logger = logging.getLogger(__name__)
 
 _INSTALLER_SUFFIXES = (".exe", ".msi", ".dmg", ".pkg", ".deb", ".rpm", ".appimage")
 _VERSION_RE = re.compile(
     r"(?<!\d)v?(\d+(?:\.\d+){1,3})(?:[-_.]?(alpha|beta|rc)[-_.]?(\d+)?)?",
     re.IGNORECASE,
 )
+
+
+def _remove_file_quietly(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError as exc:
+        logger.warning("temporary_export_cleanup_failed path=%s error=%s", path, exc)
+
+
+def _release_export_reservation(reservation_id: Optional[str]) -> None:
+    if not reservation_id:
+        return
+    try:
+        entitlement_service.release_quota_reservation(reservation_id)
+    except Exception as exc:
+        safe_failure_detail(
+            logger,
+            "导出额度退还失败",
+            exc,
+            operation="export_quota_release",
+        )
+
+
+def _commit_export_reservation(reservation_id: Optional[str]) -> None:
+    if not reservation_id:
+        return
+    try:
+        entitlement_service.commit_quota_reservation(reservation_id)
+    except Exception as exc:
+        safe_failure_detail(
+            logger,
+            "导出额度状态确认失败",
+            exc,
+            operation="export_quota_commit",
+        )
 
 
 def _installer_rank(file_name: str, base_dir: str) -> tuple:
@@ -109,10 +149,6 @@ def api_download_paper_file(
     if fmt not in ("md", "docx", "pdf"):
         raise HTTPException(status_code=400, detail="无效的 format，可选: md | docx | pdf")
 
-    # Quota check: DOCX/PDF export consumes monthly export quota (all tiers)
-    if fmt in ("docx", "pdf"):
-        entitlement_service.consume_quota(_user["id"], "export")
-
     user_id = _user["id"]
 
     def _safe_title(raw: str) -> str:
@@ -129,6 +165,8 @@ def api_download_paper_file(
             if not paper.get("pdf_path"):
                 raise HTTPException(status_code=404, detail="PDF 不存在")
             abs_path = os.path.join(user_paper_service._KB_FILES_DIR, paper["pdf_path"])
+            if not os.path.isfile(abs_path):
+                raise HTTPException(status_code=404, detail="PDF 文件不存在")
             filename = f"{safe_base}.pdf"
             return FileResponse(
                 path=abs_path,
@@ -153,6 +191,8 @@ def api_download_paper_file(
         safe_base = _safe_title(str(title_raw))
         if file_type == "pdf":
             abs_path = os.path.join(_KB_FILES_DIR, str(user_id), paper_id, f"{paper_id}.pdf")
+            if not os.path.isfile(abs_path):
+                raise HTTPException(status_code=404, detail="PDF 文件不存在")
             filename = f"{safe_base}.pdf"
             return FileResponse(
                 path=abs_path,
@@ -181,28 +221,46 @@ def api_download_paper_file(
     with open(md_path, "r", encoding="utf-8") as f:
         md_text = f.read()
 
+    receipt = entitlement_service.reserve_quota(user_id, "export")
+    reservation_id = receipt.get("reservation_id")
+
     if fmt == "docx":
-        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
-        tmp.close()
-        try:
-            export_service.markdown_to_docx(md_text, tmp.name, md_base_dir=os.path.dirname(md_path))
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"DOCX 转换失败: {exc}") from exc
+        tmp_path = ""
         docx_filename = f"{base_name}.docx"
-        return FileResponse(
-            path=tmp.name,
-            filename=docx_filename,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            background=None,
-        )
+        try:
+            tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+            tmp_path = tmp.name
+            tmp.close()
+            export_service.markdown_to_docx(md_text, tmp_path, md_base_dir=os.path.dirname(md_path))
+            response = FileResponse(
+                path=tmp_path,
+                filename=docx_filename,
+                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                background=BackgroundTask(_remove_file_quietly, tmp_path),
+            )
+        except Exception as exc:
+            _remove_file_quietly(tmp_path)
+            _release_export_reservation(reservation_id)
+            public_error = safe_failure_detail(
+                logger,
+                "DOCX 转换失败，请稍后重试",
+                exc,
+                operation="paper_export_docx",
+            )
+            raise HTTPException(status_code=500, detail=public_error) from exc
+        _commit_export_reservation(reservation_id)
+        return response
 
     if fmt == "pdf":
-        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-        tmp.close()
+        tmp_path = ""
+        pdf_filename = f"{base_name}.pdf"
         try:
+            tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+            tmp_path = tmp.name
+            tmp.close()
             export_service.markdown_to_pdf(
                 md_text,
-                tmp.name,
+                tmp_path,
                 md_base_dir=os.path.dirname(md_path),
                 bilingual=(file_type == "bilingual"),
                 bilingual_hue=hue,
@@ -210,15 +268,24 @@ def api_download_paper_file(
                 bilingual_intensity=intensity,
                 bilingual_font_size=font_size,
             )
+            response = FileResponse(
+                path=tmp_path,
+                filename=pdf_filename,
+                media_type="application/pdf",
+                background=BackgroundTask(_remove_file_quietly, tmp_path),
+            )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"PDF 转换失败: {exc}") from exc
-        pdf_filename = f"{base_name}.pdf"
-        return FileResponse(
-            path=tmp.name,
-            filename=pdf_filename,
-            media_type="application/pdf",
-            background=None,
-        )
+            _remove_file_quietly(tmp_path)
+            _release_export_reservation(reservation_id)
+            public_error = safe_failure_detail(
+                logger,
+                "PDF 转换失败，请稍后重试",
+                exc,
+                operation="paper_export_pdf",
+            )
+            raise HTTPException(status_code=500, detail=public_error) from exc
+        _commit_export_reservation(reservation_id)
+        return response
 
 
 @router.get("/note/{note_id}", summary="下载/导出笔记")
