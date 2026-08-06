@@ -29,6 +29,14 @@ _MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 _MY_PAPERS_SCOPE = "mypapers"
 
 
+class ArxivMetadataError(ValueError):
+    """A safe, user-facing arXiv lookup error with an HTTP status hint."""
+
+    def __init__(self, message: str, *, status_code: int = 400):
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def _connect() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(_DB_PATH), exist_ok=True)
     conn = sqlite3.connect(_DB_PATH, timeout=30)
@@ -159,6 +167,7 @@ def create_paper(
     external_url: str = "",
     pdf_bytes: bytes | None = None,
     pdf_filename: str = "paper.pdf",
+    deduplicate_source: bool = False,
 ) -> dict:
     """Create a new user-uploaded paper record.
 
@@ -174,6 +183,21 @@ def create_paper(
     abs_path: Optional[str] = None
     conn = None
     try:
+        conn = _connect()
+        if deduplicate_source and source_ref:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT * FROM user_uploaded_papers "
+                "WHERE user_id = ? AND source_type = ? AND source_ref = ? "
+                "ORDER BY id LIMIT 1",
+                (user_id, source_type, source_ref),
+            ).fetchone()
+            if existing is not None:
+                conn.rollback()
+                paper = _row_to_dict(existing)
+                paper["_created"] = False
+                return paper
+
         if pdf_bytes:
             pdf_dir = _pdf_dir(user_id, paper_id)
             os.makedirs(pdf_dir, exist_ok=True)
@@ -183,7 +207,6 @@ def create_paper(
                 f.write(pdf_bytes)
             pdf_path = _pdf_rel_path(user_id, paper_id, safe_name)
 
-        conn = _connect()
         conn.execute(
             """
             INSERT INTO user_uploaded_papers
@@ -204,7 +227,10 @@ def create_paper(
         if row is None:
             raise RuntimeError("created paper record could not be reloaded")
         conn.commit()
-        return _row_to_dict(row)
+        paper = _row_to_dict(row)
+        if deduplicate_source:
+            paper["_created"] = True
+        return paper
     except Exception:
         if conn is not None:
             try:
@@ -287,6 +313,26 @@ def get_paper(user_id: int, paper_id: str) -> Optional[dict]:
         row = conn.execute(
             "SELECT * FROM user_uploaded_papers WHERE paper_id = ? AND user_id = ?",
             (paper_id, user_id),
+        ).fetchone()
+        return _row_to_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_paper_by_source(
+    user_id: int,
+    source_type: str,
+    source_ref: str,
+) -> Optional[dict]:
+    if not source_ref:
+        return None
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM user_uploaded_papers "
+            "WHERE user_id = ? AND source_type = ? AND source_ref = ? "
+            "ORDER BY id LIMIT 1",
+            (user_id, source_type, source_ref),
         ).fetchone()
         return _row_to_dict(row) if row else None
     finally:
@@ -400,9 +446,32 @@ def count_papers(user_id: int) -> int:
 # arXiv metadata fetch helper
 # ---------------------------------------------------------------------------
 
+def normalize_arxiv_id(arxiv_id: str) -> str:
+    import re
+
+    clean_id = str(arxiv_id or "").strip()
+    clean_id = re.sub(r"^arxiv:\s*", "", clean_id, flags=re.IGNORECASE)
+    clean_id = re.sub(
+        r"^https?://(?:www\.)?arxiv\.org/(?:abs|pdf)/",
+        "",
+        clean_id,
+        flags=re.IGNORECASE,
+    )
+    clean_id = clean_id.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    if clean_id.lower().endswith(".pdf"):
+        clean_id = clean_id[:-4]
+    clean_id = clean_id.strip().lower()
+    if not re.fullmatch(
+        r"(?:\d{4}\.\d{4,5}|[a-z][a-z0-9.\-]*/\d{7})(?:v\d+)?",
+        clean_id,
+        flags=re.IGNORECASE,
+    ):
+        raise ArxivMetadataError("arXiv ID 格式不正确，请输入论文 ID 或 arXiv 链接")
+    return clean_id
+
+
 def fetch_arxiv_metadata(arxiv_id: str) -> dict:
     """Fetch paper metadata from arXiv API. Returns a dict with title, authors, abstract, year."""
-    import re
     import time
     import urllib.error
     import urllib.request
@@ -414,8 +483,7 @@ def fetch_arxiv_metadata(arxiv_id: str) -> dict:
         wait_before_request,
     )
 
-    clean_id = re.sub(r"^https?://arxiv\.org/(abs|pdf)/", "", arxiv_id.strip())
-    clean_id = clean_id.rstrip("/").replace(".pdf", "")
+    clean_id = normalize_arxiv_id(arxiv_id)
 
     url = f"https://export.arxiv.org/api/query?id_list={clean_id}&max_results=1"
     req = urllib.request.Request(
@@ -437,12 +505,19 @@ def fetch_arxiv_metadata(arxiv_id: str) -> dict:
                     wait = compute_429_wait(attempt, retry_after)
                     time.sleep(wait)
                     continue
-                raise ValueError(
-                    "arXiv 请求过于频繁（429），请稍等片刻后重试，或改用 PDF 上传方式导入。"
+                raise ArxivMetadataError(
+                    "arXiv 请求过于频繁，请稍等片刻后重试，或改用 PDF 上传方式导入。",
+                    status_code=503,
                 ) from exc
-            raise ValueError(f"无法连接 arXiv API: HTTP {exc.code} {exc.reason}") from exc
+            raise ArxivMetadataError(
+                f"arXiv 服务暂时不可用（HTTP {exc.code}），请稍后重试",
+                status_code=502,
+            ) from exc
         except Exception as exc:
-            raise ValueError(f"无法连接 arXiv API: {exc}") from exc
+            raise ArxivMetadataError(
+                "arXiv 服务暂时不可用，请稍后重试",
+                status_code=502,
+            ) from exc
 
     # Parse with xml.etree (no extra deps)
     import xml.etree.ElementTree as ET
@@ -453,7 +528,7 @@ def fetch_arxiv_metadata(arxiv_id: str) -> dict:
     root = ET.fromstring(xml)
     entry = root.find("atom:entry", ns)
     if entry is None:
-        raise ValueError(f"arXiv 未找到 ID: {clean_id}")
+        raise ArxivMetadataError(f"arXiv 未找到 ID: {clean_id}", status_code=404)
 
     title_el = entry.find("atom:title", ns)
     summary_el = entry.find("atom:summary", ns)

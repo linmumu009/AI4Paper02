@@ -47,7 +47,10 @@ def _create_paper_with_quota(user_id: int, **kwargs) -> dict:
     except Exception:
         _finalize_upload_quota(reservation_id, commit=False)
         raise
-    _finalize_upload_quota(reservation_id, commit=True)
+    created = bool(paper.pop("_created", True))
+    _finalize_upload_quota(reservation_id, commit=created)
+    if kwargs.get("deduplicate_source"):
+        paper["already_exists"] = not created
     return paper
 
 
@@ -176,11 +179,23 @@ def api_user_paper_import_arxiv(
     body: UserPaperArxivBody,
     _user=Depends(auth_service.require_user),
 ):
-    # Fetch metadata first — consume quota only on success to avoid charging for failed requests
     try:
-        meta = user_paper_service.fetch_arxiv_metadata(body.arxiv_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        clean_id = user_paper_service.normalize_arxiv_id(body.arxiv_id)
+    except user_paper_service.ArxivMetadataError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    existing = user_paper_service.get_paper_by_source(
+        _user["id"], "arxiv", clean_id
+    )
+    if existing is not None:
+        existing["arxiv_pdf_url"] = f"https://arxiv.org/pdf/{clean_id}"
+        existing["already_exists"] = True
+        return existing
+
+    try:
+        meta = user_paper_service.fetch_arxiv_metadata(clean_id)
+    except user_paper_service.ArxivMetadataError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         public_error = safe_failure_detail(
             logger,
@@ -200,6 +215,7 @@ def api_user_paper_import_arxiv(
         institution=meta["institution"],
         year=meta["year"],
         external_url=meta["external_url"],
+        deduplicate_source=True,
     )
     paper["arxiv_pdf_url"] = meta["pdf_url"]
     return paper

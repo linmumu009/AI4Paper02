@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import ast
+from concurrent.futures import ThreadPoolExecutor
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -36,8 +38,9 @@ class UserPaperImportQuotaContractTests(unittest.TestCase):
 
         self.assertNotIn('consume_quota(_user["id"], "upload")', source)
         self.assertIn('reserve_quota(user_id, "upload")', helper)
-        self.assertLess(helper.index("create_paper"), helper.index("commit=True"))
+        self.assertLess(helper.index("create_paper"), helper.index("commit=created"))
         self.assertIn("commit=False", helper)
+        self.assertIn('paper.pop("_created", True)', helper)
 
         for route_name in (
             "api_user_paper_import_manual",
@@ -53,6 +56,76 @@ class UserPaperImportQuotaContractTests(unittest.TestCase):
         self.assertIn("safe_failure_detail", route)
         self.assertIn("user_paper_arxiv_metadata_fetch", route)
         self.assertNotIn('f"arXiv 请求失败: {exc}"', route)
+
+    def test_arxiv_duplicate_short_circuits_before_network_and_quota(self) -> None:
+        route = _function_source(_ROUTER, "api_user_paper_import_arxiv")
+
+        self.assertLess(route.index("normalize_arxiv_id"), route.index("get_paper_by_source"))
+        self.assertLess(route.index("get_paper_by_source"), route.index("fetch_arxiv_metadata"))
+        self.assertLess(route.index("if existing is not None"), route.index("fetch_arxiv_metadata"))
+        self.assertLess(route.index("fetch_arxiv_metadata"), route.index("_create_paper_with_quota"))
+        self.assertIn("deduplicate_source=True", route)
+
+    def test_arxiv_id_normalization_is_strict_and_canonical(self) -> None:
+        self.assertEqual(
+            user_paper_service.normalize_arxiv_id(
+                "https://arxiv.org/pdf/2501.00001V2.pdf?download=1"
+            ),
+            "2501.00001v2",
+        )
+        self.assertEqual(
+            user_paper_service.normalize_arxiv_id("arXiv:hep-th/9901001v3"),
+            "hep-th/9901001v3",
+        )
+        for invalid in ("", "../../etc/passwd", "https://example.com/2501.00001"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(user_paper_service.ArxivMetadataError):
+                    user_paper_service.normalize_arxiv_id(invalid)
+
+    def test_arxiv_http_reason_is_not_exposed(self) -> None:
+        upstream = urllib.error.HTTPError(
+            "https://export.arxiv.org/api/query",
+            500,
+            "private upstream token sk-secret-value",
+            hdrs=None,
+            fp=None,
+        )
+        with (
+            patch("services.arxiv_rate_limit.wait_before_request"),
+            patch("urllib.request.urlopen", side_effect=upstream),
+        ):
+            with self.assertRaises(user_paper_service.ArxivMetadataError) as raised:
+                user_paper_service.fetch_arxiv_metadata("2501.00001")
+
+        self.assertEqual(raised.exception.status_code, 502)
+        self.assertNotIn("private", str(raised.exception))
+        self.assertNotIn("sk-secret", str(raised.exception))
+
+    def test_concurrent_arxiv_create_is_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with (
+                patch.object(user_paper_service, "_DB_PATH", str(root / "papers.db")),
+                patch.object(user_paper_service, "_KB_DB_PATH", str(root / "analysis.db")),
+                patch.object(user_paper_service, "_USER_PAPERS_DIR", str(root / "files")),
+            ):
+                user_paper_service.init_db()
+
+                def create_once(_: int) -> dict:
+                    return user_paper_service.create_paper(
+                        7,
+                        source_type="arxiv",
+                        source_ref="2501.00001",
+                        title="paper",
+                        deduplicate_source=True,
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(pool.map(create_once, range(2)))
+
+                self.assertEqual({item["paper_id"] for item in results}, {results[0]["paper_id"]})
+                self.assertEqual(sorted(item["_created"] for item in results), [False, True])
+                self.assertEqual(len(user_paper_service.list_papers(7)), 1)
 
     def test_failed_database_connection_removes_written_pdf(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
