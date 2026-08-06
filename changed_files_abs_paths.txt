@@ -362,3 +362,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_task_center_
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_update_atomic.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_delete_atomic.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_arxiv_pdf_persistence.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_file_operation_recovery.py

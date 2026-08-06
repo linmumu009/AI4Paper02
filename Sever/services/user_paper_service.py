@@ -31,6 +31,7 @@ _USER_PAPERS_DIR = os.path.join(_KB_FILES_DIR, "user_papers")
 _MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 _MY_PAPERS_SCOPE = "mypapers"
 _PENDING_DELETE_PREFIX = "pending-delete-"
+_FILE_OPERATION_VERSION = 1
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +182,7 @@ def init_db() -> None:
                 pass  # Column already exists
         conn.commit()
         _recover_pending_paper_deletes(conn)
+        _recover_pending_file_operations(conn)
     finally:
         conn.close()
 
@@ -203,6 +205,93 @@ def _pdf_dir(user_id: int, paper_id: str) -> str:
 
 def _pending_delete_root() -> str:
     return os.path.join(os.path.abspath(_USER_PAPERS_DIR), ".pending-deletes")
+
+
+def _pending_file_operations_root() -> str:
+    return os.path.join(os.path.abspath(_USER_PAPERS_DIR), ".pending-file-ops")
+
+
+def _fsync_directory(path: str) -> None:
+    """Best-effort directory sync; supported on production Linux."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _write_pending_file_operation(operation_id: str, payload: dict[str, Any]) -> str:
+    root = _pending_file_operations_root()
+    os.makedirs(root, exist_ok=True)
+    marker_path = os.path.join(root, f"{operation_id}.json")
+    temporary_path = os.path.join(root, f".{operation_id}.tmp")
+    document = {"version": _FILE_OPERATION_VERSION, **payload}
+    try:
+        with open(temporary_path, "x", encoding="utf-8") as marker:
+            json.dump(document, marker, ensure_ascii=False, sort_keys=True)
+            marker.flush()
+            os.fsync(marker.fileno())
+        os.replace(temporary_path, marker_path)
+        _fsync_directory(root)
+        return marker_path
+    except Exception:
+        try:
+            if os.path.isfile(temporary_path):
+                os.remove(temporary_path)
+        except OSError:
+            pass
+        raise
+
+
+def _remove_pending_file_operation(marker_path: str) -> bool:
+    try:
+        os.remove(marker_path)
+        _fsync_directory(os.path.dirname(marker_path))
+        return True
+    except FileNotFoundError:
+        return True
+    except OSError:
+        logger.exception("Could not remove completed paper file operation marker")
+        return False
+
+
+def _operation_file_path(user_id: int, paper_id: str, relative_path: Any) -> str | None:
+    if not isinstance(relative_path, str) or not relative_path:
+        return None
+    paper_dir = os.path.realpath(_pdf_dir(user_id, paper_id))
+    candidate = os.path.realpath(os.path.join(_KB_FILES_DIR, relative_path))
+    try:
+        if os.path.commonpath((paper_dir, candidate)) != paper_dir:
+            return None
+    except ValueError:
+        return None
+    if os.path.dirname(candidate) != paper_dir:
+        return None
+    return candidate
+
+
+def _normalized_rel_path(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        return ""
+    return os.path.normcase(os.path.normpath(value))
+
+
+def _try_remove_operation_file(path: str | None) -> bool:
+    if not path:
+        return True
+    try:
+        if os.path.isfile(path):
+            os.remove(path)
+            _fsync_directory(os.path.dirname(path))
+        return True
+    except OSError:
+        logger.exception("Could not clean a pending paper file operation")
+        return False
 
 
 def _pending_delete_path(user_id: int, paper_id: str) -> str:
@@ -286,6 +375,95 @@ def _recover_pending_paper_deletes(conn: sqlite3.Connection) -> None:
         raise
 
 
+def _recover_pending_file_operations(conn: sqlite3.Connection) -> None:
+    """Reconcile small durable markers left by interrupted PDF writes."""
+    root = _pending_file_operations_root()
+    if not os.path.isdir(root):
+        return
+
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        with os.scandir(root) as entries:
+            for entry in entries:
+                if not entry.is_file(follow_symlinks=False) or not entry.name.endswith(".json"):
+                    continue
+                try:
+                    if entry.stat(follow_symlinks=False).st_size > 16 * 1024:
+                        raise ValueError("operation marker is too large")
+                    with open(entry.path, "r", encoding="utf-8") as marker:
+                        operation = json.load(marker)
+                    if not isinstance(operation, dict):
+                        raise ValueError("operation marker is not an object")
+                    if operation.get("version") != _FILE_OPERATION_VERSION:
+                        raise ValueError("unsupported operation marker version")
+                    kind = operation.get("kind")
+                    if kind not in {"create", "update"}:
+                        raise ValueError("unsupported operation kind")
+                    user_id = int(operation["user_id"])
+                    paper_id = str(operation["paper_id"])
+                    if not paper_id:
+                        raise ValueError("missing paper id")
+                    new_rel_path = operation.get("new_rel_path")
+                    pending_rel_path = operation.get("pending_rel_path")
+                    old_rel_path = operation.get("old_rel_path")
+                    new_path = _operation_file_path(user_id, paper_id, new_rel_path)
+                    pending_path = _operation_file_path(
+                        user_id,
+                        paper_id,
+                        pending_rel_path,
+                    )
+                    old_path = (
+                        _operation_file_path(user_id, paper_id, old_rel_path)
+                        if old_rel_path
+                        else None
+                    )
+                    if new_path is None or pending_path is None:
+                        raise ValueError("operation marker contains an unsafe path")
+                except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    logger.error("Invalid paper file operation marker retained: %s", exc)
+                    continue
+
+                row = conn.execute(
+                    "SELECT pdf_path FROM user_uploaded_papers "
+                    "WHERE paper_id = ? AND user_id = ?",
+                    (paper_id, user_id),
+                ).fetchone()
+                current_rel_path = row["pdf_path"] if row is not None else None
+                committed = (
+                    row is not None
+                    and _normalized_rel_path(current_rel_path)
+                    == _normalized_rel_path(new_rel_path)
+                )
+
+                cleanup_ok = _try_remove_operation_file(pending_path)
+                if committed:
+                    if (
+                        kind == "update"
+                        and _normalized_rel_path(old_rel_path)
+                        != _normalized_rel_path(new_rel_path)
+                    ):
+                        cleanup_ok = _try_remove_operation_file(old_path) and cleanup_ok
+                elif _normalized_rel_path(current_rel_path) != _normalized_rel_path(new_rel_path):
+                    cleanup_ok = _try_remove_operation_file(new_path) and cleanup_ok
+
+                paper_dir = _pdf_dir(user_id, paper_id)
+                if kind == "create" and not committed:
+                    try:
+                        os.rmdir(paper_dir)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        # Other intentional files mean the directory must be retained.
+                        pass
+
+                if cleanup_ok:
+                    _remove_pending_file_operation(entry.path)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def _pdf_rel_path(user_id: int, paper_id: str, filename: str = "paper.pdf") -> str:
     """Relative path stored in DB (relative to _KB_FILES_DIR)."""
     return os.path.join("user_papers", str(user_id), paper_id, filename)
@@ -318,11 +496,14 @@ def create_paper(
     pdf_path: Optional[str] = None
     pdf_dir: Optional[str] = None
     abs_path: Optional[str] = None
+    pending_path: Optional[str] = None
+    operation_marker: Optional[str] = None
+    committed = False
     conn = None
     try:
         conn = _connect()
+        conn.execute("BEGIN IMMEDIATE")
         if deduplicate_source and source_ref:
-            conn.execute("BEGIN IMMEDIATE")
             existing = conn.execute(
                 "SELECT * FROM user_uploaded_papers "
                 "WHERE user_id = ? AND source_type = ? AND source_ref = ? "
@@ -337,12 +518,32 @@ def create_paper(
 
         if pdf_bytes:
             pdf_dir = _pdf_dir(user_id, paper_id)
-            os.makedirs(pdf_dir, exist_ok=True)
             safe_name = _safe_filename(pdf_filename)
             abs_path = os.path.join(pdf_dir, safe_name)
-            with open(abs_path, "wb") as f:
-                f.write(pdf_bytes)
             pdf_path = _pdf_rel_path(user_id, paper_id, safe_name)
+            operation_id = uuid.uuid4().hex
+            pending_name = f".pending-create-{operation_id}.tmp"
+            pending_path = os.path.join(pdf_dir, pending_name)
+            pending_rel_path = _pdf_rel_path(user_id, paper_id, pending_name)
+            operation_marker = _write_pending_file_operation(
+                operation_id,
+                {
+                    "kind": "create",
+                    "user_id": user_id,
+                    "paper_id": paper_id,
+                    "old_rel_path": None,
+                    "new_rel_path": pdf_path,
+                    "pending_rel_path": pending_rel_path,
+                },
+            )
+            os.makedirs(pdf_dir, exist_ok=True)
+            with open(pending_path, "xb") as pending:
+                pending.write(pdf_bytes)
+                pending.flush()
+                os.fsync(pending.fileno())
+            os.replace(pending_path, abs_path)
+            _fsync_directory(pdf_dir)
+            pending_path = None
 
         conn.execute(
             """
@@ -363,8 +564,11 @@ def create_paper(
         ).fetchone()
         if row is None:
             raise RuntimeError("created paper record could not be reloaded")
-        conn.commit()
         paper = _row_to_dict(row)
+        conn.commit()
+        committed = True
+        if operation_marker:
+            _remove_pending_file_operation(operation_marker)
         if deduplicate_source:
             paper["_created"] = True
         return paper
@@ -374,17 +578,16 @@ def create_paper(
                 conn.rollback()
             except Exception:
                 pass
-        if abs_path:
-            try:
-                if os.path.isfile(abs_path):
-                    os.remove(abs_path)
-            except OSError:
-                pass
-        if pdf_dir:
-            try:
-                os.rmdir(pdf_dir)
-            except OSError:
-                pass
+        if not committed:
+            cleanup_ok = _try_remove_operation_file(pending_path)
+            cleanup_ok = _try_remove_operation_file(abs_path) and cleanup_ok
+            if pdf_dir:
+                try:
+                    os.rmdir(pdf_dir)
+                except OSError:
+                    pass
+            if operation_marker and cleanup_ok:
+                _remove_pending_file_operation(operation_marker)
         raise
     finally:
         if conn is not None:
@@ -494,6 +697,7 @@ def update_paper(
     pending_path: Optional[str] = None
     new_abs_path: Optional[str] = None
     old_abs_path: Optional[str] = None
+    operation_marker: Optional[str] = None
     new_materialized = False
     committed = False
     try:
@@ -522,10 +726,8 @@ def update_paper(
 
         if pdf_bytes is not None:
             import hashlib
-            import tempfile
 
             pdf_dir = _pdf_dir(user_id, paper_id)
-            os.makedirs(pdf_dir, exist_ok=True)
             safe_name = _safe_filename(pdf_filename)
             stem, extension = os.path.splitext(safe_name)
             if extension.lower() != ".pdf":
@@ -533,35 +735,45 @@ def update_paper(
             digest = hashlib.sha256(pdf_bytes).hexdigest()[:16]
             versioned_name = f"{stem or 'paper'}.{digest}{extension}"
             new_abs_path = os.path.join(pdf_dir, versioned_name)
-
-            pending = tempfile.NamedTemporaryFile(
-                mode="wb",
-                prefix=".pending-pdf-",
-                suffix=".tmp",
-                dir=pdf_dir,
-                delete=False,
-            )
-            pending_path = pending.name
-            try:
-                pending.write(pdf_bytes)
-                pending.flush()
-                os.fsync(pending.fileno())
-            finally:
-                pending.close()
-            os.replace(pending_path, new_abs_path)
-            new_materialized = True
-            pending_path = None
+            new_rel_path = _pdf_rel_path(user_id, paper_id, versioned_name)
 
             stored_old_path = row["pdf_path"] if "pdf_path" in row.keys() else None
+            old_rel_path: str | None = None
             if stored_old_path:
                 candidate = os.path.realpath(os.path.join(_KB_FILES_DIR, stored_old_path))
                 root = os.path.realpath(_USER_PAPERS_DIR)
                 try:
                     if os.path.commonpath((root, candidate)) == root:
                         old_abs_path = candidate
+                        old_rel_path = stored_old_path
                 except ValueError:
                     old_abs_path = None
-            fields["pdf_path"] = _pdf_rel_path(user_id, paper_id, versioned_name)
+
+            operation_id = uuid.uuid4().hex
+            pending_name = f".pending-pdf-{operation_id}.tmp"
+            pending_path = os.path.join(pdf_dir, pending_name)
+            pending_rel_path = _pdf_rel_path(user_id, paper_id, pending_name)
+            operation_marker = _write_pending_file_operation(
+                operation_id,
+                {
+                    "kind": "update",
+                    "user_id": user_id,
+                    "paper_id": paper_id,
+                    "old_rel_path": old_rel_path,
+                    "new_rel_path": new_rel_path,
+                    "pending_rel_path": pending_rel_path,
+                },
+            )
+            os.makedirs(pdf_dir, exist_ok=True)
+            with open(pending_path, "xb") as pending:
+                pending.write(pdf_bytes)
+                pending.flush()
+                os.fsync(pending.fileno())
+            os.replace(pending_path, new_abs_path)
+            _fsync_directory(pdf_dir)
+            new_materialized = True
+            pending_path = None
+            fields["pdf_path"] = new_rel_path
 
         if not fields:
             conn.rollback()
@@ -582,29 +794,27 @@ def update_paper(
             raise RuntimeError("updated paper record could not be reloaded")
         conn.commit()
         committed = True
+        cleanup_ok = True
         if (
             old_abs_path
             and new_abs_path
             and os.path.normcase(old_abs_path) != os.path.normcase(new_abs_path)
         ):
-            try:
-                if os.path.isfile(old_abs_path):
-                    os.remove(old_abs_path)
-            except OSError:
-                pass
+            cleanup_ok = _try_remove_operation_file(old_abs_path)
+        if operation_marker and cleanup_ok:
+            _remove_pending_file_operation(operation_marker)
         return _row_to_dict(updated)
     except Exception:
         try:
             conn.rollback()
         except Exception:
             pass
+        cleanup_ok = _try_remove_operation_file(pending_path)
         if new_abs_path and new_materialized and not committed:
             if not old_abs_path or os.path.normcase(old_abs_path) != os.path.normcase(new_abs_path):
-                try:
-                    if os.path.isfile(new_abs_path):
-                        os.remove(new_abs_path)
-                except OSError:
-                    pass
+                cleanup_ok = _try_remove_operation_file(new_abs_path) and cleanup_ok
+        if operation_marker and cleanup_ok and not committed:
+            _remove_pending_file_operation(operation_marker)
         raise
     finally:
         if pending_path:
