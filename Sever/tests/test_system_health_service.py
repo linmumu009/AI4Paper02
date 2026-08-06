@@ -48,7 +48,28 @@ class SystemHealthServiceTests(unittest.TestCase):
             patch.object(
                 service.pipeline_db_service,
                 "get_runs_recent",
-                return_value=[{"user_id": 0}, {"user_id": 3}],
+                return_value=[
+                    {
+                        "user_id": 0,
+                        "trigger": "scheduled",
+                        "parent_run_id": None,
+                        "status": "completed",
+                    },
+                    {
+                        "user_id": 3,
+                        "trigger": "scheduled",
+                        "parent_run_id": 1,
+                        "status": "completed",
+                    },
+                ],
+            ),
+            patch.object(
+                service,
+                "_load_schedule_config",
+                return_value=(
+                    {"enabled": True, "hour": 6, "minute": 0, "last_run_date": "2026-08-05"},
+                    True,
+                ),
             ),
             patch.object(
                 service.pipeline_db_service,
@@ -95,6 +116,11 @@ class SystemHealthServiceTests(unittest.TestCase):
                 return_value=[],
             ),
             patch.object(
+                service,
+                "_load_schedule_config",
+                return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+            ),
+            patch.object(
                 service.pipeline_db_service,
                 "get_digest_publication_readiness",
                 return_value={"user_id": 0, "ready": False, "reason": "no_result"},
@@ -106,6 +132,8 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertEqual(report["status"], "degraded")
         self.assertIn("public_digest_fallback", report["issues"])
         self.assertIn("default_digest_not_ready", report["issues"])
+        self.assertFalse(report["checks"]["api"]["ok"])
+        self.assertFalse(report["checks"]["digest"]["ok"])
 
     def test_digest_is_allowed_to_be_pending_before_deadline(self) -> None:
         with (
@@ -119,7 +147,24 @@ class SystemHealthServiceTests(unittest.TestCase):
                 "get_storage_health",
                 return_value={"state": "healthy", "used_percent": 70, "free_bytes": 9},
             ),
-            patch.object(service.pipeline_db_service, "get_runs_recent", return_value=[]),
+            patch.object(
+                service.pipeline_db_service,
+                "get_runs_recent",
+                return_value=[
+                    {
+                        "user_id": 0,
+                        "trigger": "scheduled",
+                        "parent_run_id": None,
+                        "status": "running",
+                        "started_at": "2026-08-05T00:00:00+00:00",
+                    }
+                ],
+            ),
+            patch.object(
+                service,
+                "_load_schedule_config",
+                return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+            ),
             patch.object(
                 service.pipeline_db_service,
                 "get_digest_publication_readiness",
@@ -167,6 +212,11 @@ class SystemHealthServiceTests(unittest.TestCase):
                 "get_runs_recent",
                 side_effect=RuntimeError("db"),
             ),
+            patch.object(
+                service,
+                "_load_schedule_config",
+                return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+            ),
             patch.object(service, "_systemd_active", side_effect=OSError("systemd")),
         ):
             report = service.build_health_report(now=self._now())
@@ -175,7 +225,145 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertIn("api_unreachable", report["issues"])
         self.assertIn("storage_check_failed", report["issues"])
         self.assertIn("digest_check_failed", report["issues"])
+        self.assertIn("pipeline_execution_check_failed", report["issues"])
         self.assertIn("backup_timer_inactive", report["issues"])
+
+    def test_missing_scheduled_attempt_is_detected_after_start_grace(self) -> None:
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+        ):
+            check, issues = service._scheduled_pipeline_check(
+                self._now(hour=7),
+                [],
+            )
+
+        self.assertFalse(check["ok"])
+        self.assertTrue(check["start_due"])
+        self.assertIn("scheduled_pipeline_not_started", issues)
+
+    def test_fresh_running_attempt_is_healthy(self) -> None:
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+        ):
+            check, issues = service._scheduled_pipeline_check(
+                self._now(hour=8),
+                [
+                    {
+                        "trigger": "scheduled",
+                        "parent_run_id": None,
+                        "status": "running",
+                        "started_at": "2026-08-05T00:00:00+00:00",
+                    }
+                ],
+            )
+
+        self.assertTrue(check["ok"])
+        self.assertEqual(check["running"], 1)
+        self.assertEqual(issues, [])
+
+    def test_stale_running_attempt_and_terminal_failure_are_distinguished(self) -> None:
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+        ):
+            stale, stale_issues = service._scheduled_pipeline_check(
+                self._now(hour=16),
+                [
+                    {
+                        "trigger": "scheduled",
+                        "parent_run_id": None,
+                        "status": "running",
+                        "started_at": "2026-08-04T22:00:00+00:00",
+                    }
+                ],
+            )
+            failed, failed_issues = service._scheduled_pipeline_check(
+                self._now(hour=16),
+                [
+                    {
+                        "trigger": "scheduled",
+                        "parent_run_id": None,
+                        "status": "failed",
+                        "finished_at": "2026-08-05T01:00:00+00:00",
+                    }
+                ],
+            )
+
+        self.assertEqual(stale["stale"], 1)
+        self.assertIn("scheduled_pipeline_stalled", stale_issues)
+        self.assertEqual(failed["failed"], 1)
+        self.assertIn("scheduled_pipeline_failed", failed_issues)
+
+    def test_disabled_or_unreadable_scheduler_is_never_reported_healthy(self) -> None:
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": False}, True),
+        ):
+            disabled, disabled_issues = service._scheduled_pipeline_check(
+                self._now(hour=5),
+                [],
+            )
+        with patch.object(service, "_load_schedule_config", return_value=({}, False)):
+            unreadable, unreadable_issues = service._scheduled_pipeline_check(
+                self._now(hour=5),
+                [],
+            )
+
+        self.assertFalse(disabled["ok"])
+        self.assertIn("scheduler_disabled", disabled_issues)
+        self.assertFalse(unreadable["ok"])
+        self.assertIn("scheduler_config_unreadable", unreadable_issues)
+
+    def test_temporary_notice_and_empty_completed_digest_fail_the_digest_check(self) -> None:
+        healthy_patches = self._healthy_patches()
+        for item in healthy_patches:
+            item.start()
+        try:
+            with patch.object(
+                service.pipeline_db_service,
+                "get_digest_publication_readiness",
+                return_value={
+                    "user_id": 0,
+                    "ready": True,
+                    "reason": "temporary_unavailable_notice",
+                },
+            ):
+                unavailable = service.build_health_report(now=self._now())
+            with (
+                patch.object(
+                    service.pipeline_db_service,
+                    "get_digest_publication_readiness",
+                    return_value={"user_id": 0, "ready": True, "reason": "complete"},
+                ),
+                patch.object(
+                    service,
+                    "_http_json_get",
+                    return_value=(
+                        200,
+                        {
+                            "papers": [],
+                            "total_available": 0,
+                            "effective_date": "2026-08-05",
+                            "is_fallback": False,
+                        },
+                    ),
+                ),
+            ):
+                empty = service.build_health_report(now=self._now())
+        finally:
+            for item in reversed(healthy_patches):
+                item.stop()
+
+        self.assertFalse(unavailable["checks"]["digest"]["ok"])
+        self.assertIn("digest_temporarily_unavailable", unavailable["issues"])
+        self.assertFalse(empty["checks"]["digest"]["ok"])
+        self.assertIn("public_digest_empty", empty["issues"])
 
 
 if __name__ == "__main__":

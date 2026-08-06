@@ -97,10 +97,11 @@ class SystemdUnitTests(unittest.TestCase):
         script = (_ROOT / "deploy_server.sh").read_text(encoding="utf-8")
         self.assertIn("OnCalendar=*-*-* *:00/10:00", timer)
         self.assertIn("Persistent=true", timer)
-        self.assertIn("check_system_health.py --no-alert", service)
+        self.assertIn("check_system_health.py", service)
+        self.assertNotIn("--no-alert", service)
         self.assertIn("User=ai4papers", service)
         self.assertIn("Group=ai4papers", service)
-        self.assertNotIn("EnvironmentFile", service)
+        self.assertIn("EnvironmentFile=-/etc/ai4papers/health.env", service)
         self.assertIn("systemctl enable --now ai4papers-healthcheck.timer", script)
 
     def test_backup_service_is_private_and_host_local(self) -> None:

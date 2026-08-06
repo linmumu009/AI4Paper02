@@ -8,7 +8,7 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -19,6 +19,7 @@ from services.storage_health_service import get_storage_health
 
 _SEVER_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_STATE_PATH = _SEVER_ROOT / "database" / "system_health.json"
+_SCHEDULE_CONFIG_PATH = _SEVER_ROOT / "database" / "schedule_config.json"
 _SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
@@ -53,6 +54,103 @@ def _safe_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _load_schedule_config() -> tuple[dict[str, Any], bool]:
+    try:
+        value = json.loads(_SCHEDULE_CONFIG_PATH.read_text(encoding="utf-8"))
+        return (value, True) if isinstance(value, dict) else ({}, False)
+    except (OSError, ValueError, TypeError):
+        return {}, False
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _scheduled_pipeline_check(
+    current: datetime,
+    runs: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
+    config, config_ok = _load_schedule_config()
+    enabled = bool(config.get("enabled")) if config_ok else False
+    hour = _safe_int(config.get("hour"), 6)
+    minute = _safe_int(config.get("minute"), 0)
+    hour = hour if 0 <= hour <= 23 else 6
+    minute = minute if 0 <= minute <= 59 else 0
+    grace_minutes = max(5, _env_int("PIPELINE_HEALTH_START_GRACE_MINUTES", 45))
+    pending_limit = max(10, _env_int("PIPELINE_HEALTH_PENDING_MINUTES", 30))
+    running_limit = max(60, _env_int("PIPELINE_HEALTH_RUNNING_MINUTES", 480))
+    scheduled_at = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    start_deadline = scheduled_at.timestamp() + grace_minutes * 60
+    start_due = current.timestamp() >= start_deadline
+
+    root_attempts = [
+        run
+        for run in runs
+        if run.get("trigger") == "scheduled"
+        and not _safe_int(run.get("parent_run_id"))
+    ]
+    status_counts = {
+        status: sum(1 for run in root_attempts if run.get("status") == status)
+        for status in ("pending", "running", "completed", "failed")
+    }
+    now_utc = current.astimezone(timezone.utc)
+    stale_count = 0
+    for run in root_attempts:
+        status = run.get("status")
+        if status not in {"pending", "running"}:
+            continue
+        anchor = _parse_timestamp(run.get("started_at") or run.get("created_at"))
+        if anchor is None:
+            stale_count += 1
+            continue
+        age_minutes = max(0.0, (now_utc - anchor).total_seconds() / 60)
+        limit = pending_limit if status == "pending" else running_limit
+        if age_minutes > limit:
+            stale_count += 1
+
+    issues: list[str] = []
+    if not config_ok:
+        issues.append("scheduler_config_unreadable")
+    elif not enabled:
+        issues.append("scheduler_disabled")
+    elif start_due and not root_attempts:
+        issues.append("scheduled_pipeline_not_started")
+    if stale_count:
+        issues.append("scheduled_pipeline_stalled")
+    if (
+        start_due
+        and status_counts["failed"]
+        and not status_counts["completed"]
+        and not status_counts["running"]
+        and not status_counts["pending"]
+    ):
+        issues.append("scheduled_pipeline_failed")
+
+    return {
+        "ok": not issues,
+        "config_readable": config_ok,
+        "enabled": enabled,
+        "scheduled_time": f"{hour:02d}:{minute:02d}",
+        "start_grace_minutes": grace_minutes,
+        "start_due": start_due,
+        "attempts": len(root_attempts),
+        "pending": status_counts["pending"],
+        "running": status_counts["running"],
+        "completed": status_counts["completed"],
+        "failed": status_counts["failed"],
+        "stale": stale_count,
+        "last_run_date": config.get("last_run_date") if config_ok else None,
+    }, issues
 
 
 def build_health_report(
@@ -91,6 +189,7 @@ def build_health_report(
         if status_code != 200:
             issues.append("api_http_error")
         if deadline_passed and is_fallback:
+            api_check["ok"] = False
             issues.append("public_digest_fallback")
     except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError) as exc:
         api_check["error_type"] = type(exc).__name__
@@ -118,6 +217,8 @@ def build_health_report(
 
     try:
         runs = pipeline_db_service.get_runs_recent(limit=500, date_str=date_str)
+        pipeline_check, pipeline_issues = _scheduled_pipeline_check(current, runs)
+        issues.extend(pipeline_issues)
         user_ids = {0}
         user_ids.update(
             _safe_int(run.get("user_id"))
@@ -133,34 +234,53 @@ def build_health_report(
         default_state = next(
             (item for item in readiness if item.get("user_id") == 0), {}
         )
+        default_reason = default_state.get("reason", "unknown")
+        default_unavailable = default_reason in {
+            "temporary_unavailable_notice",
+            "processing_notice",
+        }
+        public_empty = bool(
+            default_state.get("ready")
+            and default_reason == "complete"
+            and api_check.get("paper_count", 0) == 0
+        )
+        digest_failed = bool(
+            deadline_passed
+            and (
+                incomplete_count
+                or not default_state.get("ready")
+                or default_unavailable
+                or public_empty
+            )
+        )
         digest_check = {
-            "ok": not deadline_passed or incomplete_count == 0,
+            "ok": not digest_failed,
             "deadline_hour": deadline_hour,
             "deadline_passed": deadline_passed,
             "users_checked": len(readiness),
             "ready_users": ready_count,
             "incomplete_users": incomplete_count,
-            "default_reason": default_state.get("reason", "unknown"),
+            "default_reason": default_reason,
         }
         if deadline_passed and not default_state.get("ready"):
             issues.append("default_digest_not_ready")
         if (
             deadline_passed
-            and default_state.get("reason") == "temporary_unavailable_notice"
+            and default_reason == "temporary_unavailable_notice"
         ):
             issues.append("digest_temporarily_unavailable")
-        if deadline_passed and default_state.get("reason") == "processing_notice":
+        if deadline_passed and default_reason == "processing_notice":
             issues.append("digest_still_processing")
         if deadline_passed and incomplete_count:
             issues.append("user_digest_incomplete")
-        if (
-            deadline_passed
-            and default_state.get("ready")
-            and default_state.get("reason") == "complete"
-            and api_check.get("paper_count", 0) == 0
-        ):
+        if deadline_passed and public_empty:
             issues.append("public_digest_empty")
     except Exception as exc:
+        pipeline_check = {
+            "ok": False,
+            "error_type": type(exc).__name__,
+        }
+        issues.append("pipeline_execution_check_failed")
         digest_check = {
             "ok": False,
             "deadline_hour": deadline_hour,
@@ -188,6 +308,7 @@ def build_health_report(
             "api": api_check,
             "storage": storage_check,
             "digest": digest_check,
+            "pipeline": pipeline_check,
             "backup": backup_check,
         },
     }
