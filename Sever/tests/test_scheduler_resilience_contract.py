@@ -22,7 +22,7 @@ from services.pipeline_schedule_policy import (  # noqa: E402
 )
 
 
-MAX_RETRIES = 3
+MAX_RETRIES = 8
 
 
 class ArxivStartupResilienceTests(unittest.TestCase):
@@ -130,6 +130,45 @@ class SchedulerCatchUpTests(unittest.TestCase):
                 cooldown_seconds=900,
             ),
             0.0,
+        )
+
+    def test_repeated_rate_limits_back_off_exponentially_but_remain_due(self) -> None:
+        history = [
+            {
+                "date_str": "2026-08-06",
+                "trigger": "scheduled",
+                "exit_code": 2,
+                "finished_at": timestamp,
+            }
+            for timestamp in (
+                "2026-08-06T02:00:00+00:00",
+                "2026-08-06T02:45:00+00:00",
+                "2026-08-06T04:00:00+00:00",
+            )
+        ]
+        self.assertEqual(
+            rate_limit_cooldown_remaining(
+                history,
+                "2026-08-06",
+                datetime(2026, 8, 6, 5, 0, tzinfo=timezone.utc),
+                cooldown_seconds=1800,
+                max_cooldown_seconds=14400,
+            ),
+            3600.0,
+        )
+        cfg = {
+            "enabled": True,
+            "hour": 6,
+            "minute": 0,
+            "last_run_date": "2026-08-05",
+        }
+        self.assertTrue(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 6, 20, 0),
+                cfg,
+                len(history),
+                max_retries=MAX_RETRIES,
+            )
         )
 
 

@@ -57,14 +57,20 @@ def rate_limit_cooldown_remaining(
     now: datetime,
     *,
     cooldown_seconds: int,
+    max_cooldown_seconds: int | None = None,
 ) -> float:
-    """Recover remaining no-result rate-limit cooldown from persisted history."""
+    """Recover an exponential rate-limit cooldown from persisted history.
+
+    A fixed retry cap can turn a temporary upstream throttle into a full day of
+    missing content.  Persisted exponential cooldowns let the scheduler keep
+    trying at a respectful, bounded rate even after a process restart.
+    """
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     else:
         now = now.astimezone(timezone.utc)
 
-    remaining = 0.0
+    finished_times: list[datetime] = []
     for record in records:
         if (
             record.get("date_str") != date_str
@@ -85,6 +91,13 @@ def rate_limit_cooldown_remaining(
             finished = finished.replace(tzinfo=timezone.utc)
         else:
             finished = finished.astimezone(timezone.utc)
-        elapsed = (now - finished).total_seconds()
-        remaining = max(remaining, float(cooldown_seconds) - elapsed)
-    return max(0.0, remaining)
+        finished_times.append(finished)
+
+    if not finished_times:
+        return 0.0
+
+    base = max(1.0, float(cooldown_seconds))
+    cap = max(base, float(max_cooldown_seconds or cooldown_seconds))
+    delay = min(cap, base * (2 ** max(0, len(finished_times) - 1)))
+    elapsed = (now - max(finished_times)).total_seconds()
+    return max(0.0, delay - elapsed)

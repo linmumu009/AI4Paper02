@@ -1387,6 +1387,20 @@ def get_date_notice(user_id: int, date_str: str) -> Optional[dict]:
         conn.close()
 
 
+def delete_date_notices_by_type(date_str: str, notice_type: str) -> int:
+    """Delete stale notices of one type after the pipeline recovers."""
+    conn = _connect()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM pipeline_date_notices WHERE date_str=? AND notice_type=?",
+            (date_str, notice_type),
+        )
+        conn.commit()
+        return int(cursor.rowcount or 0)
+    finally:
+        conn.close()
+
+
 # ---------------------------------------------------------------------------
 # pipeline_images CRUD
 # ---------------------------------------------------------------------------
@@ -1824,11 +1838,22 @@ def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
     """Return whether one user's digest is safe to expose as a complete batch."""
     if not has_final_selections(user_id, date_str):
         notice = get_date_notice(user_id, date_str)
+        notice_type = str((notice or {}).get("type") or "")
+        transient_types = {
+            "source_temporarily_unavailable",
+            "pipeline_temporarily_unavailable",
+        }
         return {
             "ready": notice is not None,
             "user_id": user_id,
             "date_str": date_str,
-            "reason": "empty_result_notice" if notice is not None else "no_result",
+            "reason": (
+                "temporary_unavailable_notice"
+                if notice_type in transient_types
+                else "empty_result_notice"
+                if notice is not None
+                else "no_result"
+            ),
             "coverage": {},
         }
 

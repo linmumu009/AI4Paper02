@@ -144,6 +144,11 @@ def build_health_report(
         }
         if deadline_passed and not default_state.get("ready"):
             issues.append("default_digest_not_ready")
+        if (
+            deadline_passed
+            and default_state.get("reason") == "temporary_unavailable_notice"
+        ):
+            issues.append("digest_temporarily_unavailable")
         if deadline_passed and incomplete_count:
             issues.append("user_digest_incomplete")
         if (

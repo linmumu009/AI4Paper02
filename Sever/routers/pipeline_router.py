@@ -125,8 +125,47 @@ _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop_event = threading.Event()
 
 _scheduler_retry_counts: dict = {}
-_SCHEDULER_MAX_RETRIES = 3
-_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 900
+_SCHEDULER_MAX_RETRIES = 8
+_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 1800
+_SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 14400
+_TRANSIENT_DATE_NOTICE_TYPES = (
+    "source_temporarily_unavailable",
+    "pipeline_temporarily_unavailable",
+)
+
+
+def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
+    """Expose a professional empty state while the shared source is unavailable."""
+    try:
+        from services import pipeline_db_service as _pdb
+        from services.user_settings_service import list_users_with_custom_configs
+
+        user_ids = {0}
+        user_ids.update(int(uid) for uid in list_users_with_custom_configs())
+        if exit_code == 2:
+            notice_type = "source_temporarily_unavailable"
+            message = (
+                "arXiv 论文源当前限流，系统正在自动重试。"
+                "今日内容尚未生成，请稍后再查看。"
+            )
+        else:
+            notice_type = "pipeline_temporarily_unavailable"
+            message = "今日内容生成暂时失败，系统正在自动恢复，请稍后再查看。"
+        for user_id in user_ids:
+            _pdb.upsert_date_notice(user_id, date_str, notice_type, message)
+    except Exception as exc:
+        print(f"[SCHEDULER] 无法写入共享阶段故障提示: {exc!r}", flush=True)
+
+
+def _clear_shared_failure_notices(date_str: str) -> None:
+    """Remove transient notices once the shared stage succeeds."""
+    try:
+        from services import pipeline_db_service as _pdb
+
+        for notice_type in _TRANSIENT_DATE_NOTICE_TYPES:
+            _pdb.delete_date_notices_by_type(date_str, notice_type)
+    except Exception as exc:
+        print(f"[SCHEDULER] 无法清理过期共享阶段故障提示: {exc!r}", flush=True)
 _arxiv_rate_limit_last_at: Optional[float] = None
 
 
@@ -757,9 +796,12 @@ def _run_multiuser_scheduler_thread(
             shared_exit = 0
 
         if shared_exit != 0:
+            _write_shared_failure_notices(today, shared_exit)
             _orch_log(f"[SCHEDULER] 共享阶段失败 (exit={shared_exit})，终止多用户编排")
             exit_code = shared_exit
             return
+
+        _clear_shared_failure_notices(today)
 
         # Short-circuit: if shared phase found 0 papers for today, skip per_user entirely.
         # arxiv_search writes 0 rows to pipeline_arxiv_list when empty, so count=0 is the signal.
@@ -1167,6 +1209,7 @@ def _scheduler_loop():
                     today,
                     datetime.now(timezone.utc),
                     cooldown_seconds=_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS,
+                    max_cooldown_seconds=_SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS,
                 )
                 rate_limit_cooldown = persisted_remaining > 0
 

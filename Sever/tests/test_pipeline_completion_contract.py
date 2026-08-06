@@ -275,6 +275,27 @@ class TestPipelineCompletionContract(unittest.TestCase):
             pipeline_db_service.is_digest_ready_for_publication(3, self.date_str)
         )
 
+    def test_transient_failure_notice_is_visible_and_cleared_after_recovery(self) -> None:
+        pipeline_db_service.upsert_date_notice(
+            3,
+            self.date_str,
+            "source_temporarily_unavailable",
+            "系统正在自动重试。",
+        )
+
+        readiness = pipeline_db_service.get_digest_publication_readiness(
+            3, self.date_str
+        )
+        self.assertTrue(readiness["ready"])
+        self.assertEqual(readiness["reason"], "temporary_unavailable_notice")
+        self.assertEqual(
+            pipeline_db_service.delete_date_notices_by_type(
+                self.date_str, "source_temporarily_unavailable"
+            ),
+            1,
+        )
+        self.assertIsNone(pipeline_db_service.get_date_notice(3, self.date_str))
+
     def test_per_user_pipeline_never_runs_destructive_cleanup(self) -> None:
         self.assertNotIn("cleanup", app.PER_USER_STEPS)
         self.assertEqual(app.POST_USERS_CLEANUP_STEPS, ["cleanup"])

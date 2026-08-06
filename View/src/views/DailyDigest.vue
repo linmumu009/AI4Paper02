@@ -3461,10 +3461,10 @@ onBeforeRouteLeave(async (_to, _from, next) => {
           class="flex flex-col items-center gap-4 text-center px-8 max-w-sm"
         >
           <span class="text-5xl">
-            {{ dateNotice.type === 'no_papers_weekend' ? '📅' : dateNotice.type === 'no_matching_papers' ? '🔍' : '📭' }}
+            {{ dateNotice.type === 'source_temporarily_unavailable' || dateNotice.type === 'pipeline_temporarily_unavailable' ? '⏳' : dateNotice.type === 'no_papers_weekend' ? '📅' : dateNotice.type === 'no_matching_papers' ? '🔍' : '📭' }}
           </span>
           <h2 class="text-base font-semibold text-text-primary">
-            {{ selectedDate }} 暂无论文推荐
+            {{ dateNotice.type === 'source_temporarily_unavailable' || dateNotice.type === 'pipeline_temporarily_unavailable' ? `${selectedDate} 内容正在恢复` : `${selectedDate} 暂无论文推荐` }}
           </h2>
           <p class="text-sm text-text-secondary leading-relaxed">
             {{ dateNotice.message }}
