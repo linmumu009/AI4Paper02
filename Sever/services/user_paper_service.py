@@ -391,12 +391,19 @@ def update_paper(
 ) -> Optional[dict]:
     """Partial update for a user's paper. Returns updated dict or None if not found."""
     conn = _connect()
+    pending_path: Optional[str] = None
+    new_abs_path: Optional[str] = None
+    old_abs_path: Optional[str] = None
+    new_materialized = False
+    committed = False
     try:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT * FROM user_uploaded_papers WHERE paper_id = ? AND user_id = ?",
             (paper_id, user_id),
         ).fetchone()
         if not row:
+            conn.rollback()
             return None
 
         fields: dict[str, Any] = {}
@@ -414,15 +421,50 @@ def update_paper(
             fields["external_url"] = external_url
 
         if pdf_bytes is not None:
+            import hashlib
+            import tempfile
+
             pdf_dir = _pdf_dir(user_id, paper_id)
             os.makedirs(pdf_dir, exist_ok=True)
             safe_name = _safe_filename(pdf_filename)
-            abs_path = os.path.join(pdf_dir, safe_name)
-            with open(abs_path, "wb") as f:
-                f.write(pdf_bytes)
-            fields["pdf_path"] = _pdf_rel_path(user_id, paper_id, safe_name)
+            stem, extension = os.path.splitext(safe_name)
+            if extension.lower() != ".pdf":
+                extension = ".pdf"
+            digest = hashlib.sha256(pdf_bytes).hexdigest()[:16]
+            versioned_name = f"{stem or 'paper'}.{digest}{extension}"
+            new_abs_path = os.path.join(pdf_dir, versioned_name)
+
+            pending = tempfile.NamedTemporaryFile(
+                mode="wb",
+                prefix=".pending-pdf-",
+                suffix=".tmp",
+                dir=pdf_dir,
+                delete=False,
+            )
+            pending_path = pending.name
+            try:
+                pending.write(pdf_bytes)
+                pending.flush()
+                os.fsync(pending.fileno())
+            finally:
+                pending.close()
+            os.replace(pending_path, new_abs_path)
+            new_materialized = True
+            pending_path = None
+
+            stored_old_path = row["pdf_path"] if "pdf_path" in row.keys() else None
+            if stored_old_path:
+                candidate = os.path.realpath(os.path.join(_KB_FILES_DIR, stored_old_path))
+                root = os.path.realpath(_USER_PAPERS_DIR)
+                try:
+                    if os.path.commonpath((root, candidate)) == root:
+                        old_abs_path = candidate
+                except ValueError:
+                    old_abs_path = None
+            fields["pdf_path"] = _pdf_rel_path(user_id, paper_id, versioned_name)
 
         if not fields:
+            conn.rollback()
             return _row_to_dict(row)
 
         fields["updated_at"] = _now_iso()
@@ -432,13 +474,45 @@ def update_paper(
             f"UPDATE user_uploaded_papers SET {set_clause} WHERE paper_id = ? AND user_id = ?",
             values,
         )
-        conn.commit()
         updated = conn.execute(
             "SELECT * FROM user_uploaded_papers WHERE paper_id = ? AND user_id = ?",
             (paper_id, user_id),
         ).fetchone()
+        if updated is None:
+            raise RuntimeError("updated paper record could not be reloaded")
+        conn.commit()
+        committed = True
+        if (
+            old_abs_path
+            and new_abs_path
+            and os.path.normcase(old_abs_path) != os.path.normcase(new_abs_path)
+        ):
+            try:
+                if os.path.isfile(old_abs_path):
+                    os.remove(old_abs_path)
+            except OSError:
+                pass
         return _row_to_dict(updated)
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        if new_abs_path and new_materialized and not committed:
+            if not old_abs_path or os.path.normcase(old_abs_path) != os.path.normcase(new_abs_path):
+                try:
+                    if os.path.isfile(new_abs_path):
+                        os.remove(new_abs_path)
+                except OSError:
+                    pass
+        raise
     finally:
+        if pending_path:
+            try:
+                if os.path.isfile(pending_path):
+                    os.remove(pending_path)
+            except OSError:
+                pass
         conn.close()
 
 
