@@ -272,6 +272,21 @@ async def startup_event():
     _start_calibration_scheduler()
     _start_bandit_reward_scheduler()
 
+    # Daemon workers are terminated with the API process.  Reconcile their
+    # persisted active states before accepting new work so users never see a
+    # task stuck at "processing" forever after a deploy or crash.
+    try:
+        from services import background_task_recovery_service as _btr
+
+        recovered = _btr.reconcile_interrupted_tasks()
+        if recovered["total"]:
+            _logger.warning(
+                "已将 %d 个被服务重启中断的后台任务标记为可重试失败",
+                recovered["total"],
+            )
+    except Exception as exc:
+        _logger.error("background task reconciliation failed: %s", exc, exc_info=True)
+
     # Re-enqueue any classify jobs that were interrupted by the previous restart
     try:
         from services import auto_classify_service as acs
