@@ -11,7 +11,10 @@ Internal paper_id format: "up_<uuid4>" — never conflicts with arXiv IDs.
 PDF files are stored under: data/kb_files/user_papers/{user_id}/{paper_id}/paper.pdf
 """
 
+import base64
+import binascii
 import json
+import logging
 import os
 import shutil
 import sqlite3
@@ -27,6 +30,9 @@ _USER_PAPERS_DIR = os.path.join(_KB_FILES_DIR, "user_papers")
 
 _MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 _MY_PAPERS_SCOPE = "mypapers"
+_PENDING_DELETE_PREFIX = "pending-delete-"
+
+logger = logging.getLogger(__name__)
 
 
 class ArxivMetadataError(ValueError):
@@ -174,6 +180,7 @@ def init_db() -> None:
             except Exception:
                 pass  # Column already exists
         conn.commit()
+        _recover_pending_paper_deletes(conn)
     finally:
         conn.close()
 
@@ -183,7 +190,100 @@ def init_db() -> None:
 # ---------------------------------------------------------------------------
 
 def _pdf_dir(user_id: int, paper_id: str) -> str:
-    return os.path.join(_USER_PAPERS_DIR, str(user_id), paper_id)
+    root = os.path.abspath(_USER_PAPERS_DIR)
+    path = os.path.abspath(os.path.join(root, str(user_id), paper_id))
+    try:
+        contained = os.path.commonpath((root, path)) == root
+    except ValueError:
+        contained = False
+    if not contained:
+        raise ValueError("invalid paper storage path")
+    return path
+
+
+def _pending_delete_root() -> str:
+    return os.path.join(os.path.abspath(_USER_PAPERS_DIR), ".pending-deletes")
+
+
+def _pending_delete_path(user_id: int, paper_id: str) -> str:
+    identity = f"{int(user_id)}\0{paper_id}".encode("utf-8")
+    token = base64.urlsafe_b64encode(identity).decode("ascii").rstrip("=")
+    return os.path.join(
+        _pending_delete_root(),
+        f"{_PENDING_DELETE_PREFIX}{token}-{uuid.uuid4().hex}",
+    )
+
+
+def _parse_pending_delete_name(name: str) -> tuple[int, str] | None:
+    if not name.startswith(_PENDING_DELETE_PREFIX):
+        return None
+    encoded, separator, operation_id = name[len(_PENDING_DELETE_PREFIX):].rpartition("-")
+    if not separator or len(operation_id) != 32:
+        return None
+    try:
+        uuid.UUID(hex=operation_id)
+        padding = "=" * (-len(encoded) % 4)
+        identity = base64.urlsafe_b64decode(encoded + padding).decode("utf-8")
+        user_text, paper_id = identity.split("\0", 1)
+        user_id = int(user_text)
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    if not paper_id:
+        return None
+    return user_id, paper_id
+
+
+def _recover_pending_paper_deletes(conn: sqlite3.Connection) -> None:
+    """Resolve filesystem quarantines left by an interrupted paper deletion."""
+    quarantine_root = _pending_delete_root()
+    if not os.path.isdir(quarantine_root):
+        return
+
+    # Serialize recovery with live deletions. Without this lock, another process
+    # could see the pre-commit database row and restore a directory mid-delete.
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        with os.scandir(quarantine_root) as entries:
+            for entry in entries:
+                if not entry.is_dir(follow_symlinks=False):
+                    continue
+                identity = _parse_pending_delete_name(entry.name)
+                if identity is None:
+                    continue
+                user_id, paper_id = identity
+                try:
+                    original_dir = _pdf_dir(user_id, paper_id)
+                except ValueError:
+                    logger.error("Invalid pending paper deletion name retained: %s", entry.name)
+                    continue
+                row = conn.execute(
+                    "SELECT 1 FROM user_uploaded_papers "
+                    "WHERE paper_id = ? AND user_id = ?",
+                    (paper_id, user_id),
+                ).fetchone()
+                try:
+                    if row is None:
+                        shutil.rmtree(entry.path)
+                    elif not os.path.exists(original_dir):
+                        os.makedirs(os.path.dirname(original_dir), exist_ok=True)
+                        os.replace(entry.path, original_dir)
+                    else:
+                        logger.error(
+                            "Pending paper deletion conflicts with an existing directory "
+                            "for user_id=%s paper_id=%s; quarantine retained",
+                            user_id,
+                            paper_id,
+                        )
+                except OSError:
+                    logger.exception(
+                        "Could not recover pending paper deletion for user_id=%s paper_id=%s",
+                        user_id,
+                        paper_id,
+                    )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def _pdf_rel_path(user_id: int, paper_id: str, filename: str = "paper.pdf") -> str:
@@ -517,29 +617,56 @@ def update_paper(
 
 
 def delete_paper(user_id: int, paper_id: str) -> bool:
-    """Delete paper record and any associated files on disk."""
+    """Delete a paper with crash-safe, recoverable filesystem quarantine."""
     conn = _connect()
+    pdf_dir = _pdf_dir(user_id, paper_id)
+    quarantine_path: str | None = None
     try:
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT pdf_path FROM user_uploaded_papers WHERE paper_id = ? AND user_id = ?",
             (paper_id, user_id),
         ).fetchone()
         if not row:
+            conn.rollback()
             return False
 
-        # Remove directory with all uploaded files
-        pdf_dir = _pdf_dir(user_id, paper_id)
         if os.path.isdir(pdf_dir):
-            shutil.rmtree(pdf_dir, ignore_errors=True)
+            os.makedirs(_pending_delete_root(), exist_ok=True)
+            quarantine_path = _pending_delete_path(user_id, paper_id)
+            os.replace(pdf_dir, quarantine_path)
 
-        conn.execute(
+        deleted = conn.execute(
             "DELETE FROM user_uploaded_papers WHERE paper_id = ? AND user_id = ?",
             (paper_id, user_id),
         )
+        if deleted.rowcount != 1:
+            raise RuntimeError("paper record changed during deletion")
         conn.commit()
-        return True
+    except Exception:
+        conn.rollback()
+        if (
+            quarantine_path
+            and os.path.isdir(quarantine_path)
+            and not os.path.exists(pdf_dir)
+        ):
+            os.makedirs(os.path.dirname(pdf_dir), exist_ok=True)
+            os.replace(quarantine_path, pdf_dir)
+        raise
     finally:
         conn.close()
+
+    if quarantine_path and os.path.isdir(quarantine_path):
+        try:
+            shutil.rmtree(quarantine_path)
+        except OSError:
+            logger.exception(
+                "Committed paper deletion left a recoverable quarantine for "
+                "user_id=%s paper_id=%s",
+                user_id,
+                paper_id,
+            )
+    return True
 
 
 def count_papers(user_id: int) -> int:
