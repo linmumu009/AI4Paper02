@@ -61,21 +61,35 @@ def setup_logging():
     logger = logging.getLogger("arxiv")
     logger.setLevel(logging.INFO)
 
+    # Observability is not a business prerequisite.  Reused handlers can keep
+    # stale file descriptors or duplicate output during in-process probes.
+    for handler in list(logger.handlers):
+        handler.close()
+        logger.removeHandler(handler)
+
     fmt = logging.Formatter("[%(levelname)s] %(message)s")
 
     sh = logging.StreamHandler(stream=sys.stdout)
     sh.setFormatter(fmt)
     logger.addHandler(sh)
 
-    project_root = os.path.dirname(os.path.dirname(__file__))
-    log_root = os.path.join(project_root, "logs")
-    date_dir = datetime.now().strftime("%Y-%m-%d")
-    log_dir = os.path.join(log_root, date_dir)
-    os.makedirs(log_dir, exist_ok=True)
-    start_name = datetime.now().strftime("%H%M%S") + ".log"
-    fh = logging.FileHandler(os.path.join(log_dir, start_name), encoding="utf-8")
-    fh.setFormatter(logging.Formatter("%(asctime)s " + fmt._fmt))
-    logger.addHandler(fh)
+    try:
+        project_root = os.path.dirname(os.path.dirname(__file__))
+        log_root = os.path.join(project_root, "logs")
+        date_dir = datetime.now().strftime("%Y-%m-%d")
+        log_dir = os.path.join(log_root, date_dir)
+        os.makedirs(log_dir, exist_ok=True)
+        start_name = datetime.now().strftime("%H%M%S") + ".log"
+        fh = logging.FileHandler(
+            os.path.join(log_dir, start_name), encoding="utf-8"
+        )
+        fh.setFormatter(logging.Formatter("%(asctime)s " + fmt._fmt))
+        logger.addHandler(fh)
+    except OSError as exc:
+        logger.warning(
+            "File logging unavailable (%s); continuing with stdout only.",
+            type(exc).__name__,
+        )
 
     return logger
 

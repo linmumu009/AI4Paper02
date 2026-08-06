@@ -991,5 +991,13 @@ def main(argv=None):
             )
 
 
+def cli() -> None:
+    """Run the CLI while preserving a failed child step's exit code."""
+    try:
+        main()
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(exc.returncode) from exc
+
+
 if __name__ == "__main__":
-    main()
+    cli()

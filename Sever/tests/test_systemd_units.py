@@ -65,7 +65,11 @@ class SystemdUnitTests(unittest.TestCase):
         self.assertIn('"${server_root}/logs"', script)
         self.assertIn('paper_list="${server_root}/config/paperList.json"', script)
         self.assertIn('setfacl -R -m "u:${SERVICE_USER}:rwX"', script)
-        self.assertIn('setfacl -m "d:u:${SERVICE_USER}:rwx"', script)
+        self.assertIn('"u::rwx,u:${SERVICE_USER}:rwx,m::rwx"', script)
+        self.assertIn(
+            '"d:u::rwx,d:u:${SERVICE_USER}:rwx,d:g::---,d:m::rwx,d:o::---"',
+            script,
+        )
         self.assertIn('setfacl -m "u:${SERVICE_USER}:rw" "$paper_list"', script)
         self.assertNotIn('chown -R "$SERVICE_USER:$SERVICE_GROUP"', script)
         self.assertIn('"${server_root}/database/.secret_storage_key"', script)

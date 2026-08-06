@@ -21,6 +21,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from services import auth_service
+from services.pipeline_schedule_policy import (
+    count_scheduled_attempts,
+    rate_limit_cooldown_remaining,
+    scheduled_attempt_is_due,
+)
 from services.safe_logging_service import redact_sensitive_data, redact_sensitive_text
 
 router = APIRouter(prefix="/api/admin", tags=["pipeline"])
@@ -121,7 +126,6 @@ _scheduler_stop_event = threading.Event()
 
 _scheduler_retry_counts: dict = {}
 _SCHEDULER_MAX_RETRIES = 3
-_SCHEDULER_RETRY_WINDOW_SECONDS = 1800
 _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 900
 _arxiv_rate_limit_last_at: Optional[float] = None
 
@@ -202,6 +206,23 @@ def _load_schedule_history(limit: int = 50) -> list:
     except OSError:
         pass
     return records[-limit:][::-1]
+
+
+def _scheduled_attempt_count(date_str: str) -> int:
+    """Restore today's retry count from disk so API restarts cannot reset it."""
+    return count_scheduled_attempts(
+        _load_schedule_history(limit=200), date_str
+    )
+
+
+def _scheduled_attempt_is_due(now: datetime, cfg: dict, attempt_count: int) -> bool:
+    """Return whether today's job still needs a same-day start or catch-up."""
+    return scheduled_attempt_is_due(
+        now,
+        cfg,
+        attempt_count,
+        max_retries=_SCHEDULER_MAX_RETRIES,
+    )
 
 
 def _get_log_tail(log_file: str, n: int = 300) -> list:
@@ -724,10 +745,11 @@ def _run_multiuser_scheduler_thread(
         except Exception:
             pass
 
-        if shared_exit == 3:
+        if shared_exit in (2, 3):
             global _arxiv_rate_limit_last_at
             import time as _time
             _arxiv_rate_limit_last_at = _time.time()
+        if shared_exit == 3:
             _orch_log(
                 "[SCHEDULER] arxiv_search 因限流仅部分拉取 (exit=3)，"
                 "已保存部分列表；后续步骤继续。建议 15–30 分钟后再重跑 arxiv_search。"
@@ -961,7 +983,7 @@ def _run_multiuser_scheduler_thread(
                     os.remove(_lock_path)
                     print(
                         f"[SCHEDULER] 定时 Pipeline 失败 (exit={exit_code})，"
-                        "已释放 lock 文件，将在重试窗口内重新尝试",
+                        "已释放 lock 文件，将在今日稍后重新尝试",
                         flush=True,
                     )
                 except OSError:
@@ -1124,19 +1146,14 @@ def _scheduler_loop():
             cfg = {**_scheduler_state, **disk_cfg}
             today = now.date().isoformat()
 
-            cfg_hour = cfg.get("hour", 6)
-            cfg_minute = cfg.get("minute", 0)
-            scheduled_today = now.replace(
-                hour=cfg_hour, minute=cfg_minute, second=0, microsecond=0
-            )
-            elapsed_since_scheduled = (now - scheduled_today).total_seconds()
-            within_retry_window = 0 <= elapsed_since_scheduled <= _SCHEDULER_RETRY_WINDOW_SECONDS
-
             for _d in list(_scheduler_retry_counts.keys()):
                 if _d != today:
                     del _scheduler_retry_counts[_d]
 
-            retry_count_today = _scheduler_retry_counts.get(today, 0)
+            retry_count_today = max(
+                _scheduler_retry_counts.get(today, 0),
+                _scheduled_attempt_count(today),
+            )
 
             import time as _time
             rate_limit_cooldown = False
@@ -1144,13 +1161,16 @@ def _scheduler_loop():
                 since_rl = _time.time() - _arxiv_rate_limit_last_at
                 if since_rl < _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS:
                     rate_limit_cooldown = True
+            if not rate_limit_cooldown:
+                persisted_remaining = rate_limit_cooldown_remaining(
+                    _load_schedule_history(limit=200),
+                    today,
+                    datetime.now(timezone.utc),
+                    cooldown_seconds=_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS,
+                )
+                rate_limit_cooldown = persisted_remaining > 0
 
-            if (
-                cfg.get("enabled")
-                and within_retry_window
-                and cfg.get("last_run_date") != today
-                and retry_count_today < _SCHEDULER_MAX_RETRIES
-            ):
+            if _scheduled_attempt_is_due(now, cfg, retry_count_today):
                 if rate_limit_cooldown:
                     _scheduler_stop_event.wait(30)
                     continue

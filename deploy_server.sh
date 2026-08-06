@@ -63,7 +63,13 @@ prepare_api_runtime_permissions() {
   for runtime_dir in "${runtime_dirs[@]}"; do
     mkdir -p "$runtime_dir"
     setfacl -R -m "u:${SERVICE_USER}:rwX" "$runtime_dir"
-    find "$runtime_dir" -type d -exec setfacl -m "d:u:${SERVICE_USER}:rwx" {} +
+    # A partial default ACL copies the owner's current access entry.  If that
+    # entry lacks execute permission, service-created subdirectories cannot be
+    # traversed (this previously broke each new daily log directory).
+    find "$runtime_dir" -type d -exec setfacl -m \
+      "u::rwx,u:${SERVICE_USER}:rwx,m::rwx" {} +
+    find "$runtime_dir" -type d -exec setfacl -m \
+      "d:u::rwx,d:u:${SERVICE_USER}:rwx,d:g::---,d:m::rwx,d:o::---" {} +
   done
 
   touch "$paper_list"
