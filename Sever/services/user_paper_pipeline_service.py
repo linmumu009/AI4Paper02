@@ -38,6 +38,7 @@ from services.llm_response_guard import (
     require_nonempty_text,
 )
 from services.safe_logging_service import safe_failure_detail
+from services.upload_guard import PdfValidationError, validate_pdf_upload
 
 # Ensure Sever root is in sys.path so Controller imports work
 _SEVER_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -407,8 +408,12 @@ def _convert_pdf_via_mineru(pdf_path: str, extract_root: Optional[str] = None, u
 # PDF download helper
 # ---------------------------------------------------------------------------
 
-def _download_arxiv_pdf(arxiv_id: str, dest_path: str) -> bool:
-    """Download a PDF from arXiv to dest_path. Returns True on success."""
+def _download_arxiv_pdf(
+    arxiv_id: str,
+    *,
+    max_bytes: int = 50 * 1024 * 1024,
+) -> Optional[bytes]:
+    """Download at most ``max_bytes`` from arXiv and return the response bytes."""
     url = f"https://arxiv.org/pdf/{arxiv_id}"
     try:
         req = urllib.request.Request(
@@ -416,16 +421,51 @@ def _download_arxiv_pdf(arxiv_id: str, dest_path: str) -> bool:
             headers={"User-Agent": "Mozilla/5.0 ArxivPaperBot/1.0"},
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
-            data = resp.read()
-        if len(data) < 1000:
-            return False
-        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-        with open(dest_path, "wb") as f:
-            f.write(data)
-        return True
+            data = resp.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            logger.warning("arXiv PDF exceeds the %d-byte limit for %s", max_bytes, arxiv_id)
+            return None
+        return data
     except Exception as exc:
         logger.warning("arXiv PDF download failed for %s: %s", arxiv_id, exc)
-        return False
+        return None
+
+
+def _download_and_attach_arxiv_pdf(
+    user_id: int,
+    paper_id: str,
+    arxiv_id: str,
+) -> Optional[str]:
+    """Validate and transactionally attach an arXiv PDF, returning its safe path."""
+    import services.user_paper_service as svc
+
+    data = _download_arxiv_pdf(arxiv_id, max_bytes=svc._MAX_UPLOAD_SIZE)
+    if data is None:
+        return None
+    try:
+        validate_pdf_upload(data)
+    except PdfValidationError as exc:
+        logger.warning("arXiv returned an invalid PDF for %s: %s", arxiv_id, exc)
+        return None
+
+    updated = svc.update_paper(
+        user_id,
+        paper_id,
+        pdf_bytes=data,
+        pdf_filename="paper.pdf",
+    )
+    if not updated or not updated.get("pdf_path"):
+        return None
+
+    root = os.path.realpath(svc._USER_PAPERS_DIR)
+    candidate = os.path.realpath(os.path.join(svc._KB_FILES_DIR, updated["pdf_path"]))
+    try:
+        contained = os.path.commonpath((root, candidate)) == root
+    except ValueError:
+        contained = False
+    if not contained or not os.path.isfile(candidate):
+        raise RuntimeError("attached arXiv PDF could not be verified")
+    return candidate
 
 
 # ---------------------------------------------------------------------------
@@ -708,27 +748,12 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
         # For arXiv papers without a local PDF, download it
         if not pdf_path and paper.get("source_type") == "arxiv" and paper.get("source_ref"):
             arxiv_id = paper["source_ref"]
-            from services.user_paper_service import _USER_PAPERS_DIR
-            dest = os.path.join(_USER_PAPERS_DIR, str(user_id), paper_id, "paper.pdf")
             _set("processing", step="pdf_download")
-            ok = _download_arxiv_pdf(arxiv_id, dest)
-            if ok:
-                pdf_path = dest
-                # Persist pdf_path in DB (relative to kb_files)
-                rel_path = os.path.join("user_papers", str(user_id), paper_id, "paper.pdf")
-                svc.update_paper(user_id, paper_id, pdf_filename="paper.pdf")
-                try:
-                    import sqlite3
-                    from services.user_paper_service import _DB_PATH, _now_iso
-                    conn = sqlite3.connect(_DB_PATH, timeout=30)
-                    conn.execute(
-                        "UPDATE user_uploaded_papers SET pdf_path=?, updated_at=? WHERE paper_id=?",
-                        (rel_path, _now_iso(), paper_id),
-                    )
-                    conn.commit()
-                    conn.close()
-                except Exception as db_exc:
-                    logger.warning("Failed to persist pdf_path: %s", db_exc)
+            pdf_path = _download_and_attach_arxiv_pdf(
+                user_id,
+                paper_id,
+                arxiv_id,
+            )
 
         if not pdf_path:
             _set("failed", step="pdf_prepare", error="无法获取 PDF 文件（请上传 PDF 或确保 arXiv ID 正确）", finished=True)
