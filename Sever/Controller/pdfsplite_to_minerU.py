@@ -250,6 +250,58 @@ def download_zip(zip_url: str, token: str, dest: Path, max_retries: int = 6) -> 
     raise RuntimeError(f"download zip failed. last={last!r}")
 
 
+def write_pymupdf_fallback(
+    pdfs: List[Path],
+    out_root: Path,
+    statuses: dict[str, str],
+    logger: logging.Logger,
+) -> list[str]:
+    """Write plain-text Markdown when the external MinerU API cannot start.
+
+    Preview PDFs only feed institution/abstract extraction, so preserving
+    readable text is more important than preserving layout.  Failed or empty
+    local extracts remain explicit in the manifest and are never counted as
+    successful output.
+    """
+    try:
+        import fitz  # type: ignore
+    except ImportError:
+        logger.warning("PyMuPDF fallback unavailable: fitz is not installed")
+        return []
+
+    written: list[str] = []
+    for pdf_path in pdfs:
+        md_path = out_root / f"{pdf_path.stem}.md"
+        if md_path.is_file():
+            continue
+        doc = None
+        try:
+            doc = fitz.open(str(pdf_path))
+            parts: list[str] = []
+            for page in doc:
+                page_text = page.get_text().strip()
+                if page_text:
+                    parts.append(page_text)
+            text = "\n\n".join(parts).strip()
+            if not text:
+                statuses[pdf_path.stem] = "fallback_empty"
+                continue
+            md_path.write_text(text, encoding="utf-8")
+            statuses[pdf_path.stem] = "fallback_pymupdf"
+            written.append(pdf_path.stem)
+        except Exception as exc:
+            statuses[pdf_path.stem] = "fallback_failed"
+            logger.warning(
+                "PyMuPDF fallback failed for %s: %s",
+                pdf_path.name,
+                type(exc).__name__,
+            )
+        finally:
+            if doc is not None:
+                doc.close()
+    return written
+
+
 def run():
     logger = setup_logging()
     ap = argparse.ArgumentParser()
@@ -269,7 +321,7 @@ def run():
 
     token = (minerU_Token or "").strip()
     if not token:
-        raise SystemExit("MinerU token missing in config.config.minerU_Token")
+        logger.warning("MinerU token is not configured; using local PyMuPDF fallback")
 
     root = Path(PDF_PREVIEW_DIR)
     manifest_items: List[dict] = []
@@ -370,7 +422,15 @@ def run():
     }
     wrote = 0
     uploaded_total = 0
+    mineru_available = bool(token)
     for chunk_idx, chunk in enumerate(chunks):
+        if not mineru_available:
+            fallback_written = write_pymupdf_fallback(
+                chunk, out_root, statuses, logger
+            )
+            wrote += len(fallback_written)
+            continue
+
         chunk_ids = [p.stem for p in chunk]
         resumable = find_resumable_batch(batch_journal, chunk_ids)
         if resumable:
@@ -379,15 +439,31 @@ def run():
         else:
             logger.info("[batch %d/%d] Applying upload URLs for %d file(s)", chunk_idx + 1, len(chunks), len(chunk))
             files_payload = [{"name": p.name, "data_id": p.stem} for p in chunk]
-            applied = client.apply_upload_urls(
-                files_payload,
-                model_version=args.model_version,
-                extra={"return_images": True},
-            ).get("data") or {}
-            urls = applied.get("file_urls") or []
-            batch_id = applied.get("batch_id") or ""
-            if not batch_id or not urls or len(urls) != len(chunk):
-                raise SystemExit(f"Failed to apply upload URLs (batch {chunk_idx + 1}/{len(chunks)})")
+            try:
+                response = client.apply_upload_urls(
+                    files_payload,
+                    model_version=args.model_version,
+                    extra={"return_images": True},
+                )
+                if response.get("code") != 0:
+                    raise RuntimeError("MinerU rejected upload URL request")
+                applied = response.get("data") or {}
+                urls = applied.get("file_urls") or []
+                batch_id = applied.get("batch_id") or ""
+                if not batch_id or not urls or len(urls) != len(chunk):
+                    raise RuntimeError("MinerU returned incomplete upload URL data")
+            except Exception as exc:
+                mineru_available = False
+                logger.warning(
+                    "MinerU upload URL request failed (%s); "
+                    "falling back to local PyMuPDF for remaining previews",
+                    type(exc).__name__,
+                )
+                fallback_written = write_pymupdf_fallback(
+                    chunk, out_root, statuses, logger
+                )
+                wrote += len(fallback_written)
+                continue
             update_batch_journal(
                 batch_journal,
                 batch_journal_path,
