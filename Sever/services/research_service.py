@@ -43,6 +43,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Generator, Optional
 
 from openai import OpenAI
+from services.quota_stream_service import STREAM_QUOTA_COMMIT
 from openai import APIConnectionError, AuthenticationError, RateLimitError, APIStatusError
 from services.llm_utils import approx_tokens as _approx_tokens, crop as _crop
 from services.llm_response_guard import require_nonempty_text
@@ -1056,7 +1057,7 @@ def stream_research(
     config: Optional[dict] = None,
     project_id: Optional[int] = None,
     cancel_event=None,
-) -> Generator[str, None, None]:
+) -> Generator[object, None, None]:
     """
     Generator that yields SSE-formatted strings for the full research workflow.
 
@@ -1065,9 +1066,6 @@ def stream_research(
     """
     if config is None:
         config = {}
-
-    top_n: int = max(1, min(int(config.get("top_n", 5)), len(paper_ids)))
-    force_full_read: bool = bool(config.get("force_full_read", False))
 
     # Clean up stale running sessions before checking (self-healing guard)
     _cleanup_stale_sessions(user_id)
@@ -1096,6 +1094,13 @@ def stream_research(
     if not client:
         yield from _sse_error("LLM 客户端初始化失败，请检查配置。")
         return
+
+    yield STREAM_QUOTA_COMMIT
+
+    if config.get("input_hard_limit") is not None:
+        cfg["input_hard_limit"] = int(config["input_hard_limit"])
+    top_n: int = max(1, min(int(config.get("top_n", 5)), len(paper_ids)))
+    force_full_read: bool = bool(config.get("force_full_read", False))
 
     # Create session — persist scope inside config so it is available when replaying history
     session_config = dict(config)
@@ -1347,7 +1352,7 @@ def stream_continue_round3(
     user_id: int,
     session_id: int,
     cancel_event=None,
-) -> Generator[str, None, None]:
+) -> Generator[object, None, None]:
     """
     Resume a *done* research session by running Round 3 (full-text deep read)
     using the Round 1 rankings and Round 2 output that were already saved.
@@ -1398,6 +1403,8 @@ def stream_continue_round3(
     if not client:
         yield from _sse_error("LLM 客户端初始化失败，请检查配置。")
         return
+
+    yield STREAM_QUOTA_COMMIT
 
     # Build title map from paper_ids in session
     cs = _get_compare_service()
@@ -1490,7 +1497,7 @@ def stream_followup(
     question: str,
     context: Optional[str] = None,
     cancel_event=None,
-) -> Generator[str, None, None]:
+) -> Generator[object, None, None]:
     """
     Start a follow-up research session by reusing Round 1 from an existing completed session.
 
@@ -1551,6 +1558,8 @@ def stream_followup(
     if not client:
         yield from _sse_error("LLM 客户端初始化失败，请检查配置。")
         return
+
+    yield STREAM_QUOTA_COMMIT
 
     # Load paper data for title map and R2 prompting
     scope = parent.get("config", {}).get("scope", "kb")

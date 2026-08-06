@@ -31,10 +31,11 @@ import os
 import re
 import sqlite3
 from datetime import datetime, timezone
-from typing import Generator, Optional
+from typing import Callable, Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.quota_stream_service import STREAM_QUOTA_COMMIT
 from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
 from services.safe_logging_service import safe_failure_detail
 
@@ -656,8 +657,8 @@ def stream_chat(
     user_id: int,
     paper_id: str,
     user_message: str,
-    input_multiplier: float = 1.0,
-) -> Generator[str, None, None]:
+    input_multiplier: float | Callable[[], float] = 1.0,
+) -> Generator[object, None, None]:
     """
     Generator that yields SSE-formatted strings:
         data: <chunk>\\n\\n
@@ -705,11 +706,6 @@ def stream_chat(
         if p_preset and p_preset.get("prompt_content"):
             cfg["system_prompt"] = p_preset["prompt_content"]
 
-    # Apply engagement boost multiplier to input context window
-    if input_multiplier > 1.0:
-        base_limit = int(cfg.get("input_hard_limit", 129024))
-        cfg["input_hard_limit"] = int(base_limit * input_multiplier)
-
     # System-level fallback: if user has no usable credentials, try admin feature default then system defaults
     from services.llm_client_factory import has_llm_credentials
     if not has_llm_credentials(cfg):
@@ -736,6 +732,15 @@ def stream_chat(
         yield f"data: {json.dumps('请先在「个人中心 → AI 问答」中配置 LLM 的 API Key 和 Model，或选择一个模型预设。', ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
         return
+
+    yield STREAM_QUOTA_COMMIT
+
+    resolved_multiplier = (
+        float(input_multiplier()) if callable(input_multiplier) else float(input_multiplier)
+    )
+    if resolved_multiplier > 1.0:
+        base_limit = int(cfg.get("input_hard_limit", 129024))
+        cfg["input_hard_limit"] = int(base_limit * resolved_multiplier)
 
     # Get/create session and persist user message
     session = get_or_create_session(user_id, paper_id)

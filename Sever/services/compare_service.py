@@ -17,6 +17,7 @@ from typing import Generator, Optional
 
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
+from services.quota_stream_service import STREAM_QUOTA_COMMIT
 from services.llm_response_guard import EmptyLlmResponseError, require_nonempty_text
 from services.safe_logging_service import safe_failure_detail
 
@@ -349,7 +350,7 @@ def stream_compare(
     paper_ids: list[str],
     scope: str = "kb",
     compare_result_ids: Optional[list[int]] = None,
-) -> Generator[str, None, None]:
+) -> Generator[object, None, None]:
     """
     Generator that yields SSE-formatted strings:
         data: <chunk>\n\n
@@ -439,6 +440,8 @@ def stream_compare(
         yield "data: 未找到对应的论文或对比报告数据。\n\n"
         yield "data: [DONE]\n\n"
         return
+
+    yield STREAM_QUOTA_COMMIT
 
     # 2. Build prompt
     system_prompt = (cfg.get("system_prompt") or "").strip()

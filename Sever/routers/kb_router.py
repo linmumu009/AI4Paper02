@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, preference_service, translate_service, auto_classify_service
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from services.safe_logging_service import safe_stored_error
+from services.quota_stream_service import guard_quota_stream
 from routers._deps import _KB_FILES_DIR
 
 router = APIRouter(prefix="/api/kb", tags=["kb"])
@@ -486,27 +487,32 @@ def api_kb_compare(body: ComparePapersBody, _user=Depends(auth_service.require_u
         detail = f"最多可对比 {max_items} 篇论文"
         return JSONResponse(status_code=422, content={"detail": detail})
 
-    # Quota check: consume one compare session credit (Free: 3/month limit)
-    entitlement_service.consume_quota(_user["id"], "compare")
-
-    # Consume the reward only if the delta is actually meaningful
-    if body.reward_id is not None and raw_boost:
-        delta = entitlement_service.ENGAGEMENT_BOOST_DELTAS.get(
-            raw_boost.get("reward_code", ""), {}
-        ).get("compare_max_items_delta", 0)
-        if delta > 0:
+    def _commit_reward() -> None:
+        if body.reward_id is not None and raw_boost:
+            delta = entitlement_service.ENGAGEMENT_BOOST_DELTAS.get(
+                raw_boost.get("reward_code", ""), {}
+            ).get("compare_max_items_delta", 0)
+            if delta <= 0:
+                return
             try:
                 engagement_service.use_reward(
                     _user["id"], body.reward_id,
                     f"compare_{total}_items"
                 )
             except ValueError:
-                pass  # Already used / expired — boost was already applied, proceed
+                pass
 
+    receipt = entitlement_service.reserve_quota(_user["id"], "compare")
+    stream = compare_service.stream_compare(
+        _user["id"], body.paper_ids, body.scope,
+        compare_result_ids=body.compare_result_ids,
+    )
     return StreamingResponse(
-        compare_service.stream_compare(
-            _user["id"], body.paper_ids, body.scope,
-            compare_result_ids=body.compare_result_ids,
+        guard_quota_stream(
+            stream,
+            receipt.get("reservation_id"),
+            on_commit=_commit_reward,
+            operation="paper_compare",
         ),
         media_type="text/event-stream",
         headers={

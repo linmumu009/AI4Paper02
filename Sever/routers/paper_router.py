@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from services import analytics_service, auth_service, chat_service, data_service, engagement_service, entitlement_service, kb_service
+from services.quota_stream_service import guard_quota_stream
 from routers._deps import _get_optional_user, _tier_label, _tier_quota_limit, _analytics_limiter
 
 router = APIRouter(prefix="/api", tags=["papers"])
@@ -212,22 +213,40 @@ def api_post_paper_chat(
     body: PaperChatBody,
     user=Depends(auth_service.require_user),
 ):
-    # Quota check: consume one chat message credit (Free: 10/day limit)
-    entitlement_service.consume_quota(user["id"], "chat")
+    if data_service.get_paper_detail(paper_id, user_id=user["id"]) is None:
+        raise HTTPException(status_code=404, detail=f"Paper {paper_id} not found")
 
-    # Apply engagement chat boost if provided (increases input context window for this message)
-    input_multiplier = 1.0
+    boost: dict = {}
     if body.reward_id is not None:
-        boost = engagement_service.get_reward_boost(user["id"], "chat", body.reward_id)
-        if boost:
+        boost = engagement_service.get_reward_boost(
+            user["id"], "chat", body.reward_id
+        )
+    boost_state = {"input_multiplier": 1.0}
+
+    def _commit_reward() -> None:
+        if body.reward_id is not None and boost:
             try:
                 engagement_service.use_reward(user["id"], body.reward_id, f"chat_boost_{paper_id}")
-                input_multiplier = boost.get("input_hard_limit_multiplier", 1.0)
+                boost_state["input_multiplier"] = boost.get(
+                    "input_hard_limit_multiplier", 1.0
+                )
             except ValueError:
-                pass  # Already used or expired — proceed without boost
+                pass
 
+    receipt = entitlement_service.reserve_quota(user["id"], "chat")
+    stream = chat_service.stream_chat(
+        user["id"],
+        paper_id,
+        body.message,
+        input_multiplier=lambda: boost_state["input_multiplier"],
+    )
     return StreamingResponse(
-        chat_service.stream_chat(user["id"], paper_id, body.message, input_multiplier=input_multiplier),
+        guard_quota_stream(
+            stream,
+            receipt.get("reservation_id"),
+            on_commit=_commit_reward,
+            operation="paper_chat",
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -264,23 +283,38 @@ def api_post_general_chat(
     # Gate check: general chat is Pro/Pro+ only
     if not entitlement_service.check_boolean_gate(user["id"], "general_chat"):
         raise HTTPException(status_code=403, detail="通用 AI 助手仅 Pro 及以上套餐可用，请升级以继续使用")
-    # Quota check: share the same chat quota as per-paper chat messages
-    entitlement_service.consume_quota(user["id"], "chat")
-
-    # Apply engagement chat boost if provided
-    input_multiplier = 1.0
+    boost: dict = {}
     if body.reward_id is not None:
-        boost = engagement_service.get_reward_boost(user["id"], "chat", body.reward_id)
-        if boost:
+        boost = engagement_service.get_reward_boost(
+            user["id"], "chat", body.reward_id
+        )
+    boost_state = {"input_multiplier": 1.0}
+
+    def _commit_reward() -> None:
+        if body.reward_id is not None and boost:
             try:
                 engagement_service.use_reward(user["id"], body.reward_id, "chat_boost_general")
-                input_multiplier = boost.get("input_hard_limit_multiplier", 1.0)
+                boost_state["input_multiplier"] = boost.get(
+                    "input_hard_limit_multiplier", 1.0
+                )
             except ValueError:
                 pass
 
     pid = chat_service.GENERAL_CHAT_PAPER_ID
+    receipt = entitlement_service.reserve_quota(user["id"], "chat")
+    stream = chat_service.stream_chat(
+        user["id"],
+        pid,
+        body.message,
+        input_multiplier=lambda: boost_state["input_multiplier"],
+    )
     return StreamingResponse(
-        chat_service.stream_chat(user["id"], pid, body.message, input_multiplier=input_multiplier),
+        guard_quota_stream(
+            stream,
+            receipt.get("reservation_id"),
+            on_commit=_commit_reward,
+            operation="general_chat",
+        ),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

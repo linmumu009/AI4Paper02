@@ -33,6 +33,7 @@ from services import (
     project_service,
     research_service,
 )
+from services.quota_stream_service import guard_quota_stream
 
 router = APIRouter(prefix="/api/research", tags=["research"])
 
@@ -85,24 +86,18 @@ async def api_start_research(
     ):
         raise HTTPException(status_code=404, detail="Project not found")
 
-    # Quota check: consume one research session credit (Free: 2/month, Pro: 15/month)
-    entitlement_service.consume_quota(user["id"], "research")
-
-    # Apply engagement reward boost if provided.
-    # Consume the reward first; only apply the boost to config if consumption succeeds.
-    # This prevents a race where the boost takes effect even when the reward is already used/expired.
     config_dict = body.config.model_dump()
-    reward_used = False
+    boost: dict = {}
     if body.reward_id is not None:
         boost = engagement_service.get_reward_boost(user["id"], "research", body.reward_id)
-        if boost:
+
+    def _commit_reward() -> None:
+        if body.reward_id is not None and boost:
             try:
                 engagement_service.use_reward(
                     user["id"], body.reward_id,
                     f"research_start_{len(body.paper_ids)}_papers"
                 )
-                reward_used = True
-                # Apply boost only after successful consumption
                 multiplier = boost.get("input_hard_limit_multiplier", 1.0)
                 if multiplier > 1.0:
                     base_limit = config_dict.get("input_hard_limit", 200000)
@@ -111,7 +106,9 @@ async def api_start_research(
                 if config_dict.get("top_n", 5) > 20:
                     config_dict["top_n"] = min(config_dict["top_n"], max_top_n)
             except ValueError:
-                pass  # Already used, expired, or honorary — proceed without boost
+                pass
+
+    receipt = entitlement_service.reserve_quota(user["id"], "research")
 
     # Threading event shared between the async disconnect-watcher and the sync generator.
     cancel_event = threading.Event()
@@ -128,7 +125,7 @@ async def api_start_research(
 
     def _gen():
         try:
-            yield from research_service.stream_research(
+            stream = research_service.stream_research(
                 user_id=user["id"],
                 question=body.question,
                 paper_ids=body.paper_ids,
@@ -136,6 +133,12 @@ async def api_start_research(
                 config=config_dict,
                 project_id=body.project_id,
                 cancel_event=cancel_event,
+            )
+            yield from guard_quota_stream(
+                stream,
+                receipt.get("reservation_id"),
+                on_commit=_commit_reward,
+                operation="research_start",
             )
         finally:
             # Signal the watcher to stop regardless of how the generator exits.
@@ -148,7 +151,7 @@ async def api_start_research(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
-            "X-Reward-Applied": "1" if reward_used else "0",
+            "X-Reward-Applied": "deferred" if boost else "0",
         },
     )
 
@@ -159,8 +162,7 @@ async def api_continue_round3(
     request: Request,
     user=Depends(auth_service.require_user),
 ):
-    # Quota check: R3 re-runs full-text LLM calls — counts against research quota
-    entitlement_service.consume_quota(user["id"], "research")
+    receipt = entitlement_service.reserve_quota(user["id"], "research")
 
     cancel_event = threading.Event()
 
@@ -175,10 +177,15 @@ async def api_continue_round3(
 
     def _gen():
         try:
-            yield from research_service.stream_continue_round3(
+            stream = research_service.stream_continue_round3(
                 user_id=user["id"],
                 session_id=session_id,
                 cancel_event=cancel_event,
+            )
+            yield from guard_quota_stream(
+                stream,
+                receipt.get("reservation_id"),
+                operation="research_continue_round3",
             )
         finally:
             cancel_event.set()
@@ -201,8 +208,7 @@ async def api_followup_research(
     request: Request,
     user=Depends(auth_service.require_user),
 ):
-    # Quota check: followup re-runs R2+R3 LLM calls — counts against research quota
-    entitlement_service.consume_quota(user["id"], "research")
+    receipt = entitlement_service.reserve_quota(user["id"], "research")
 
     cancel_event = threading.Event()
 
@@ -217,12 +223,17 @@ async def api_followup_research(
 
     def _gen():
         try:
-            yield from research_service.stream_followup(
+            stream = research_service.stream_followup(
                 user_id=user["id"],
                 parent_session_id=session_id,
                 question=body.question,
                 context=body.context,
                 cancel_event=cancel_event,
+            )
+            yield from guard_quota_stream(
+                stream,
+                receipt.get("reservation_id"),
+                operation="research_followup",
             )
         finally:
             cancel_event.set()

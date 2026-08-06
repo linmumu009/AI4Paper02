@@ -90,6 +90,32 @@ class QuotaReservationTests(unittest.TestCase):
             conn.close()
         self.assertEqual(count, 2)
 
+    def test_init_releases_reservation_abandoned_by_crashed_process(self) -> None:
+        receipt = entitlement_service.reserve_quota(7, "translate")
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE quota_reservations SET created_at='2000-01-01T00:00:00+00:00' "
+                "WHERE reservation_id=?",
+                (receipt["reservation_id"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        entitlement_service.init_db()
+
+        self.assertEqual(entitlement_service.check_quota(7, "translate")["used"], 0)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            status = conn.execute(
+                "SELECT status FROM quota_reservations WHERE reservation_id=?",
+                (receipt["reservation_id"],),
+            ).fetchone()[0]
+        finally:
+            conn.close()
+        self.assertEqual(status, "released")
+
 
 if __name__ == "__main__":
     unittest.main()

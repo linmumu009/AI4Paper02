@@ -220,7 +220,7 @@ def _period_key(period: str) -> str:
 
 
 def init_db() -> None:
-    """Create usage_quotas table if it doesn't exist (called from api.py startup)."""
+    """Create quota tables and recover reservations abandoned by a prior crash."""
     conn = _connect()
     try:
         conn.executescript(
@@ -250,6 +250,28 @@ def init_db() -> None:
                 ON quota_reservations(user_id, feature, period_key, status);
             """
         )
+        cutoff = (_now_utc() - timedelta(hours=1)).isoformat()
+        stale_rows = conn.execute(
+            "SELECT reservation_id, user_id, feature, period_key "
+            "FROM quota_reservations WHERE status='reserved' AND created_at < ?",
+            (cutoff,),
+        ).fetchall()
+        finalized_at = _now_utc().isoformat()
+        for row in stale_rows:
+            conn.execute(
+                """
+                UPDATE usage_quotas
+                SET usage_count = CASE WHEN usage_count > 0 THEN usage_count - 1 ELSE 0 END,
+                    last_used_at = ?
+                WHERE user_id = ? AND feature = ? AND period_key = ?
+                """,
+                (finalized_at, row["user_id"], row["feature"], row["period_key"]),
+            )
+            conn.execute(
+                "UPDATE quota_reservations SET status='released', finalized_at=? "
+                "WHERE reservation_id=? AND status='reserved'",
+                (finalized_at, row["reservation_id"]),
+            )
         conn.commit()
     finally:
         conn.close()

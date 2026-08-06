@@ -348,3 +348,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_quota_reserv
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_translation_quota_wiring.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\download_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_download_export_quota_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\paper_router.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\quota_stream_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_quota_stream_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_stream_quota_wiring.py
