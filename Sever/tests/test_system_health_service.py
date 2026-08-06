@@ -298,6 +298,30 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertIn("scheduled_pipeline_stalled", stale_issues)
         self.assertEqual(failed["failed"], 1)
         self.assertIn("scheduled_pipeline_failed", failed_issues)
+        self.assertFalse(failed["retry_budget_exhausted"])
+
+    def test_exhausted_scheduled_retry_budget_is_explicit(self) -> None:
+        runs = [
+            {
+                "trigger": "scheduled",
+                "parent_run_id": None,
+                "status": "failed",
+                "finished_at": f"2026-08-05T01:0{index}:00+00:00",
+            }
+            for index in range(8)
+        ]
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+        ):
+            check, issues = service._scheduled_pipeline_check(
+                self._now(hour=16), runs
+            )
+
+        self.assertEqual(check["retry_limit"], 8)
+        self.assertTrue(check["retry_budget_exhausted"])
+        self.assertIn("scheduled_pipeline_retry_exhausted", issues)
 
     def test_disabled_or_unreadable_scheduler_is_never_reported_healthy(self) -> None:
         with patch.object(

@@ -23,7 +23,9 @@ from pydantic import BaseModel, Field
 
 from services import auth_service
 from services.pipeline_schedule_policy import (
+    DEFAULT_SCHEDULED_MAX_ATTEMPTS,
     count_scheduled_attempts,
+    failure_cooldown_remaining,
     rate_limit_cooldown_remaining,
     scheduled_attempt_is_due,
 )
@@ -128,7 +130,9 @@ _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop_event = threading.Event()
 
 _scheduler_retry_counts: dict = {}
-_SCHEDULER_MAX_RETRIES = 8
+_SCHEDULER_MAX_RETRIES = DEFAULT_SCHEDULED_MAX_ATTEMPTS
+_SCHEDULER_FAILURE_COOLDOWN_SECONDS = 300
+_SCHEDULER_FAILURE_MAX_COOLDOWN_SECONDS = 7200
 _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 1800
 _SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 14400
 _TRANSIENT_DATE_NOTICE_TYPES = (
@@ -1289,24 +1293,37 @@ def _scheduler_loop():
                 _scheduled_attempt_count(today),
             )
 
+            history = _load_schedule_history(limit=200)
             import time as _time
-            rate_limit_cooldown = False
+            retry_cooldown_remaining = 0.0
             if _arxiv_rate_limit_last_at is not None:
                 since_rl = _time.time() - _arxiv_rate_limit_last_at
                 if since_rl < _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS:
-                    rate_limit_cooldown = True
-            if not rate_limit_cooldown:
-                persisted_remaining = rate_limit_cooldown_remaining(
-                    _load_schedule_history(limit=200),
+                    retry_cooldown_remaining = max(
+                        retry_cooldown_remaining,
+                        _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS - since_rl,
+                    )
+            utc_now = datetime.now(timezone.utc)
+            retry_cooldown_remaining = max(
+                retry_cooldown_remaining,
+                rate_limit_cooldown_remaining(
+                    history,
                     today,
-                    datetime.now(timezone.utc),
+                    utc_now,
                     cooldown_seconds=_SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS,
                     max_cooldown_seconds=_SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS,
-                )
-                rate_limit_cooldown = persisted_remaining > 0
+                ),
+                failure_cooldown_remaining(
+                    history,
+                    today,
+                    utc_now,
+                    cooldown_seconds=_SCHEDULER_FAILURE_COOLDOWN_SECONDS,
+                    max_cooldown_seconds=_SCHEDULER_FAILURE_MAX_COOLDOWN_SECONDS,
+                ),
+            )
 
             if _scheduled_attempt_is_due(now, cfg, retry_count_today):
-                if rate_limit_cooldown:
+                if retry_cooldown_remaining > 0:
                     _scheduler_stop_event.wait(30)
                     continue
 

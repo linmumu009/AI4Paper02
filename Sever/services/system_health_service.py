@@ -14,6 +14,7 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from services import pipeline_db_service
+from services.pipeline_schedule_policy import DEFAULT_SCHEDULED_MAX_ATTEMPTS
 from services.storage_health_service import get_storage_health
 
 
@@ -135,6 +136,16 @@ def _scheduled_pipeline_check(
         and not status_counts["pending"]
     ):
         issues.append("scheduled_pipeline_failed")
+    retry_budget_exhausted = bool(
+        start_due
+        and len(root_attempts) >= DEFAULT_SCHEDULED_MAX_ATTEMPTS
+        and status_counts["failed"]
+        and not status_counts["completed"]
+        and not status_counts["running"]
+        and not status_counts["pending"]
+    )
+    if retry_budget_exhausted:
+        issues.append("scheduled_pipeline_retry_exhausted")
 
     return {
         "ok": not issues,
@@ -148,6 +159,8 @@ def _scheduled_pipeline_check(
         "running": status_counts["running"],
         "completed": status_counts["completed"],
         "failed": status_counts["failed"],
+        "retry_limit": DEFAULT_SCHEDULED_MAX_ATTEMPTS,
+        "retry_budget_exhausted": retry_budget_exhausted,
         "stale": stale_count,
         "last_run_date": config.get("last_run_date") if config_ok else None,
     }, issues

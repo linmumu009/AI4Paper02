@@ -17,6 +17,7 @@ import app  # noqa: E402
 from Controller import arxiv_search04  # noqa: E402
 from services.pipeline_schedule_policy import (  # noqa: E402
     count_scheduled_attempts,
+    failure_cooldown_remaining,
     rate_limit_cooldown_remaining,
     scheduled_attempt_is_due,
 )
@@ -169,6 +170,69 @@ class SchedulerCatchUpTests(unittest.TestCase):
                 len(history),
                 max_retries=MAX_RETRIES,
             )
+        )
+
+    def test_generic_failures_use_persisted_exponential_cooldown(self) -> None:
+        history = [
+            {
+                "date_str": "2026-08-06",
+                "trigger": "scheduled",
+                "exit_code": 1,
+                "finished_at": timestamp,
+            }
+            for timestamp in (
+                "2026-08-06T02:00:00+00:00",
+                "2026-08-06T02:10:00+00:00",
+                "2026-08-06T02:30:00+00:00",
+            )
+        ]
+
+        self.assertEqual(
+            failure_cooldown_remaining(
+                reversed(history),
+                "2026-08-06",
+                datetime(2026, 8, 6, 2, 35, tzinfo=timezone.utc),
+                cooldown_seconds=300,
+                max_cooldown_seconds=7200,
+            ),
+            900.0,
+        )
+        self.assertEqual(
+            failure_cooldown_remaining(
+                history,
+                "2026-08-06",
+                datetime(2026, 8, 6, 2, 51, tzinfo=timezone.utc),
+                cooldown_seconds=300,
+                max_cooldown_seconds=7200,
+            ),
+            0.0,
+        )
+
+    def test_success_resets_generic_failure_cooldown(self) -> None:
+        history = [
+            {
+                "date_str": "2026-08-06",
+                "trigger": "scheduled",
+                "exit_code": 1,
+                "finished_at": "2026-08-06T02:00:00+00:00",
+            },
+            {
+                "date_str": "2026-08-06",
+                "trigger": "scheduled",
+                "exit_code": 0,
+                "finished_at": "2026-08-06T02:10:00+00:00",
+            },
+        ]
+
+        self.assertEqual(
+            failure_cooldown_remaining(
+                history,
+                "2026-08-06",
+                datetime(2026, 8, 6, 2, 11, tzinfo=timezone.utc),
+                cooldown_seconds=300,
+                max_cooldown_seconds=7200,
+            ),
+            0.0,
         )
 
 
