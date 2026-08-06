@@ -9,6 +9,7 @@ scheduler never pollutes the composition root.
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
@@ -27,8 +28,10 @@ from services.pipeline_schedule_policy import (
     scheduled_attempt_is_due,
 )
 from services.safe_logging_service import redact_sensitive_data, redact_sensitive_text
+from services.safe_logging_service import safe_failure_detail
 
 router = APIRouter(prefix="/api/admin", tags=["pipeline"])
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -233,6 +236,72 @@ def _save_runtime_state(state: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False)
     os.replace(tmp, _RUNTIME_STATE_PATH)
+
+
+def _admin_pipeline_failure_detail(exc: BaseException, operation: str) -> str:
+    return safe_failure_detail(
+        logger,
+        "流水线管理操作失败，请稍后重试",
+        exc,
+        operation=operation,
+    )
+
+
+def _rollback_rerun_launch(
+    new_run_id: int,
+    started_at: str,
+    params: dict,
+    log_file: str,
+    public_error: str,
+) -> None:
+    """Make a failed rerun launch visible as failed everywhere it was registered."""
+    finished_at = datetime.now(timezone.utc).isoformat()
+    run_key = f"rerun_{new_run_id}"
+
+    if new_run_id:
+        try:
+            from services import pipeline_db_service as _pdb
+            _pdb.update_run_status(new_run_id, "failed", error=public_error)
+        except Exception as rollback_exc:
+            logger.error(
+                "rerun_launch_db_rollback_failed run_id=%s error=%s",
+                new_run_id,
+                redact_sensitive_text(rollback_exc),
+            )
+
+    owns_runtime_state = False
+    with _pipeline_lock:
+        if _pipeline_state.get("run_id") == run_key:
+            owns_runtime_state = True
+            _pipeline_state["running"] = False
+            _pipeline_state["process"] = None
+            _pipeline_state["current_step"] = "重跑启动失败"
+            _pipeline_state["finished_at"] = finished_at
+            _pipeline_state["exit_code"] = -1
+            _pipeline_state["params"] = params
+
+    if not owns_runtime_state:
+        return
+
+    try:
+        _save_runtime_state({
+            "running": False,
+            "pid": None,
+            "current_step": "重跑启动失败",
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "exit_code": -1,
+            "params": params,
+            "run_id": run_key,
+            "log_file": log_file,
+            "error": public_error,
+        })
+    except Exception as rollback_exc:
+        logger.error(
+            "rerun_launch_runtime_rollback_failed run_id=%s error=%s",
+            new_run_id,
+            redact_sensitive_text(rollback_exc),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1705,7 +1774,10 @@ def api_pipeline_runs(
         runs = _pdb.get_runs_recent_with_summary(limit=limit, date_str=date, user_id=user_id)
         return {"runs": redact_sensitive_data(runs), "total": len(runs)}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_runs_list"),
+        )
 
 
 @router.get("/pipeline/runs/{run_id}", summary="Get pipeline run detail with steps")
@@ -1722,7 +1794,10 @@ def api_pipeline_run_detail(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_run_detail"),
+        )
 
 
 @router.get("/pipeline/runs/{run_id}/steps", summary="Get step timeline for a run")
@@ -1744,7 +1819,10 @@ def api_pipeline_run_steps(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_run_steps"),
+        )
 
 
 @router.get("/pipeline/runs/{run_id}/events", summary="Get structured events for a run")
@@ -1768,7 +1846,10 @@ def api_pipeline_run_events(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_run_events"),
+        )
 
 
 @router.get("/pipeline/runs/{run_id}/artifacts", summary="Get artifacts for a run")
@@ -1790,7 +1871,10 @@ def api_pipeline_run_artifacts(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_run_artifacts"),
+        )
 
 
 @router.get("/pipeline/runs/{run_id}/log", summary="Get log content for a pipeline run")
@@ -1836,7 +1920,10 @@ def api_pipeline_run_log(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_run_log"),
+        )
 
 
 @router.post("/pipeline/rerun", summary="Rerun a pipeline from a specific step")
@@ -1850,6 +1937,11 @@ def api_pipeline_rerun(
     """
     lease_token: Optional[str] = None
     thread_started = False
+    new_run_id = 0
+    runtime_registered = False
+    started_at = ""
+    rerun_params: dict = {}
+    log_file = ""
     try:
         from services import pipeline_db_service as _pdb
 
@@ -1886,6 +1978,8 @@ def api_pipeline_rerun(
             config={"sllm": sllm, "zo": zo, "force": body.force,
                     "from_step": body.from_step, "only_step": body.only_step},
         )
+        if not new_run_id:
+            raise RuntimeError("pipeline rerun record could not be created")
 
         cmd = [sys.executable, "-u", _APP_PY_PATH, pipeline,
                "--date", date_str, "--Zo", zo,
@@ -1967,6 +2061,12 @@ def api_pipeline_rerun(
                 _release_execution_lease(lease_token)
 
         started_at = datetime.now(timezone.utc).isoformat()
+        rerun_params = {
+            "pipeline": pipeline,
+            "date": date_str,
+            "user_id": user_id,
+            "rerun_of": body.run_id,
+        }
         with _pipeline_lock:
             _pipeline_state["running"] = True
             _pipeline_state["current_step"] = f"重跑 run_id={body.run_id}"
@@ -1974,8 +2074,10 @@ def api_pipeline_rerun(
             _pipeline_state["started_at"] = started_at
             _pipeline_state["finished_at"] = None
             _pipeline_state["exit_code"] = None
+            _pipeline_state["params"] = rerun_params
             _pipeline_state["run_id"] = f"rerun_{new_run_id}"
             _pipeline_state["log_file"] = log_file
+            runtime_registered = True
 
         _save_runtime_state({
             "running": True,
@@ -1984,12 +2086,7 @@ def api_pipeline_rerun(
             "started_at": started_at,
             "finished_at": None,
             "exit_code": None,
-            "params": {
-                "pipeline": pipeline,
-                "date": date_str,
-                "user_id": user_id,
-                "rerun_of": body.run_id,
-            },
+            "params": rerun_params,
             "run_id": f"rerun_{new_run_id}",
             "log_file": log_file,
         })
@@ -2004,14 +2101,41 @@ def api_pipeline_rerun(
             "new_run_id": new_run_id,
             "log_file": log_file,
         }
-    except HTTPException:
+    except HTTPException as exc:
+        if runtime_registered and not thread_started:
+            _rollback_rerun_launch(
+                new_run_id,
+                started_at,
+                rerun_params,
+                log_file,
+                str(exc.detail),
+            )
         if lease_token and not thread_started:
             _release_execution_lease(lease_token)
         raise
     except Exception as exc:
+        public_error = _admin_pipeline_failure_detail(exc, "pipeline_rerun_start")
+        if runtime_registered and not thread_started:
+            _rollback_rerun_launch(
+                new_run_id,
+                started_at,
+                rerun_params,
+                log_file,
+                public_error,
+            )
+        elif new_run_id and not thread_started:
+            try:
+                from services import pipeline_db_service as _pdb
+                _pdb.update_run_status(new_run_id, "failed", error=public_error)
+            except Exception as rollback_exc:
+                logger.error(
+                    "rerun_launch_db_rollback_failed run_id=%s error=%s",
+                    new_run_id,
+                    redact_sensitive_text(rollback_exc),
+                )
         if lease_token and not thread_started:
             _release_execution_lease(lease_token)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail=public_error)
 
 
 # ---------------------------------------------------------------------------
@@ -2027,7 +2151,10 @@ def api_get_pipeline_step_config(_admin=Depends(auth_service.require_admin_user)
         config = get_step_config()
         return {"ok": True, "definitions": definitions, "config": config}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_step_config_get"),
+        )
 
 
 @router.post("/pipeline/step-config/validate", summary="Validate a proposed step config")
@@ -2041,7 +2168,10 @@ def api_validate_pipeline_step_config(
         errors = validate_step_config(body.config)
         return {"ok": True, "valid": len(errors) == 0, "errors": errors}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_step_config_validate"),
+        )
 
 
 @router.post("/pipeline/step-config", summary="Save pipeline step config")
@@ -2059,7 +2189,10 @@ def api_save_pipeline_step_config(
     except HTTPException:
         raise
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_step_config_save"),
+        )
 
 
 @router.post("/pipeline/step-config/reset", summary="Reset step config to defaults")
@@ -2070,4 +2203,7 @@ def api_reset_pipeline_step_config(_admin=Depends(auth_service.require_admin_use
         reset_step_config()
         return {"ok": True, "message": "步骤配置已恢复默认"}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=_admin_pipeline_failure_detail(exc, "pipeline_step_config_reset"),
+        )
