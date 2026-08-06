@@ -16,15 +16,16 @@ class UploadRouteWiringTests(unittest.TestCase):
         self.assertNotIn("await file.read()", user_paper)
         self.assertNotIn("await file.read()", kb)
 
-    def test_pdf_import_validates_before_consuming_quota(self) -> None:
+    def test_pdf_import_validates_before_reserving_and_finalizing_quota(self) -> None:
         source = (_SEVER / "routers" / "user_paper_router.py").read_text(encoding="utf-8")
         start = source.index('async def api_user_paper_import_pdf(')
         end = source.index("\n\n# ---------------------------------------------------------------------------", start)
         route = source[start:end]
         self.assertLess(
             route.index("read_upload_with_limit"),
-            route.index('consume_quota(_user["id"], "upload")'),
+            route.index("_create_paper_with_quota"),
         )
+        self.assertNotIn("consume_quota", route)
 
 
 if __name__ == "__main__":

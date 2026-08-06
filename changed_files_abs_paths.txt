@@ -356,3 +356,6 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\routers\idea_router.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\idea_pipeline_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_idea_generation_quota_contract.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_research_export_quota_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\user_paper_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_import_quota_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_task_center_public_errors.py

@@ -22,6 +22,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from services import auth_service
+from services.safe_logging_service import safe_failure_detail
 
 logger = logging.getLogger(__name__)
 
@@ -161,8 +162,13 @@ def api_retry_task(task_id: str, _user=Depends(auth_service.require_user)):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("task retry failed for %s: %s", task_id, exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        public_error = safe_failure_detail(
+            logger,
+            "任务重试失败，请稍后再试",
+            exc,
+            operation="task_center_retry",
+        )
+        raise HTTPException(status_code=500, detail=public_error) from exc
 
 
 @router.post("/{task_id:path}/cancel", summary="Cancel a running task")
@@ -207,8 +213,13 @@ def api_cancel_task(task_id: str, _user=Depends(auth_service.require_user)):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("task cancel failed for %s: %s", task_id, exc)
-        raise HTTPException(status_code=500, detail=str(exc))
+        public_error = safe_failure_detail(
+            logger,
+            "任务取消失败，请稍后再试",
+            exc,
+            operation="task_center_cancel",
+        )
+        raise HTTPException(status_code=500, detail=public_error) from exc
 
 
 @router.post("/{task_id:path}/continue", summary="Continue or resume a task")

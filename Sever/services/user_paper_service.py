@@ -170,17 +170,20 @@ def create_paper(
     authors_json = json.dumps(authors or [], ensure_ascii=False)
 
     pdf_path: Optional[str] = None
-    if pdf_bytes:
-        pdf_dir = _pdf_dir(user_id, paper_id)
-        os.makedirs(pdf_dir, exist_ok=True)
-        safe_name = _safe_filename(pdf_filename)
-        abs_path = os.path.join(pdf_dir, safe_name)
-        with open(abs_path, "wb") as f:
-            f.write(pdf_bytes)
-        pdf_path = _pdf_rel_path(user_id, paper_id, safe_name)
-
-    conn = _connect()
+    pdf_dir: Optional[str] = None
+    abs_path: Optional[str] = None
+    conn = None
     try:
+        if pdf_bytes:
+            pdf_dir = _pdf_dir(user_id, paper_id)
+            os.makedirs(pdf_dir, exist_ok=True)
+            safe_name = _safe_filename(pdf_filename)
+            abs_path = os.path.join(pdf_dir, safe_name)
+            with open(abs_path, "wb") as f:
+                f.write(pdf_bytes)
+            pdf_path = _pdf_rel_path(user_id, paper_id, safe_name)
+
+        conn = _connect()
         conn.execute(
             """
             INSERT INTO user_uploaded_papers
@@ -195,13 +198,34 @@ def create_paper(
                 pdf_path, external_url, now, now,
             ),
         )
-        conn.commit()
         row = conn.execute(
             "SELECT * FROM user_uploaded_papers WHERE paper_id = ?", (paper_id,)
         ).fetchone()
+        if row is None:
+            raise RuntimeError("created paper record could not be reloaded")
+        conn.commit()
         return _row_to_dict(row)
+    except Exception:
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        if abs_path:
+            try:
+                if os.path.isfile(abs_path):
+                    os.remove(abs_path)
+            except OSError:
+                pass
+        if pdf_dir:
+            try:
+                os.rmdir(pdf_dir)
+            except OSError:
+                pass
+        raise
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()
 
 
 def list_papers(

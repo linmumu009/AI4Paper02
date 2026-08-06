@@ -6,6 +6,7 @@ All routes are prefixed with /api/user-papers and registered in api.py via
 """
 
 import json
+import logging
 import os
 from typing import Optional
 
@@ -14,10 +15,40 @@ from pydantic import BaseModel, Field
 
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
-from services.safe_logging_service import safe_stored_error
+from services.safe_logging_service import safe_failure_detail, safe_stored_error
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
+logger = logging.getLogger(__name__)
+
+
+def _finalize_upload_quota(reservation_id: Optional[str], *, commit: bool) -> None:
+    if not reservation_id:
+        return
+    try:
+        if commit:
+            entitlement_service.commit_quota_reservation(reservation_id)
+        else:
+            entitlement_service.release_quota_reservation(reservation_id)
+    except Exception as exc:
+        safe_failure_detail(
+            logger,
+            "论文导入额度状态更新失败",
+            exc,
+            operation="user_paper_upload_quota_finalize",
+        )
+
+
+def _create_paper_with_quota(user_id: int, **kwargs) -> dict:
+    receipt = entitlement_service.reserve_quota(user_id, "upload")
+    reservation_id = receipt.get("reservation_id")
+    try:
+        paper = user_paper_service.create_paper(user_id, **kwargs)
+    except Exception:
+        _finalize_upload_quota(reservation_id, commit=False)
+        raise
+    _finalize_upload_quota(reservation_id, commit=True)
+    return paper
 
 
 # ---------------------------------------------------------------------------
@@ -126,9 +157,7 @@ def api_user_paper_import_manual(
     body: UserPaperManualBody,
     _user=Depends(auth_service.require_user),
 ):
-    # Quota check: consume one upload credit (Free: 5 total, Pro: 30/month)
-    entitlement_service.consume_quota(_user["id"], "upload")
-    paper = user_paper_service.create_paper(
+    paper = _create_paper_with_quota(
         _user["id"],
         source_type="manual",
         source_ref="",
@@ -153,12 +182,15 @@ def api_user_paper_import_arxiv(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"arXiv 请求失败: {exc}")
+        public_error = safe_failure_detail(
+            logger,
+            "arXiv 服务暂时不可用，请稍后重试",
+            exc,
+            operation="user_paper_arxiv_metadata_fetch",
+        )
+        raise HTTPException(status_code=502, detail=public_error) from exc
 
-    # Quota check: consume one upload credit (Free: 5 total, Pro: 30/month)
-    entitlement_service.consume_quota(_user["id"], "upload")
-
-    paper = user_paper_service.create_paper(
+    paper = _create_paper_with_quota(
         _user["id"],
         source_type="arxiv",
         source_ref=meta["arxiv_id"],
@@ -201,10 +233,7 @@ async def api_user_paper_import_pdf(
     except Exception:
         authors_list = []
 
-    # Only valid, bounded uploads consume quota.
-    entitlement_service.consume_quota(_user["id"], "upload")
-
-    paper = user_paper_service.create_paper(
+    paper = _create_paper_with_quota(
         _user["id"],
         source_type="pdf",
         source_ref="",
