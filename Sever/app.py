@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import shutil
@@ -510,6 +511,14 @@ def step_output_exists(step: str, date_str: str) -> bool:
         return False
     path = STEP_OUTPUT_PATHS[step](date_str)
     if os.path.isfile(path):
+        if step in _IDEA_STEPS:
+            try:
+                with open(path, "r", encoding="utf-8") as handle:
+                    first_line = next((line for line in handle if line.strip()), "")
+                payload = json.loads(first_line)
+            except (OSError, StopIteration, json.JSONDecodeError, TypeError):
+                return False
+            return payload.get("status") in {"done", "skipped"}
         return True
     if os.path.isdir(path):
         return True

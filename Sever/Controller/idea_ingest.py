@@ -36,6 +36,10 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openai import OpenAI
+from services.llm_response_guard import (
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
 from services.llm_request_options import build_thinking_kwargs
 
 import config.config as _config_module  # noqa: E402
@@ -276,14 +280,13 @@ def _extract_atoms_llm(
         )
         text = resp.choices[0].message.content if resp.choices else ""
 
-    atoms = _parse_atoms(text)
-    if not atoms:
-        preview = (text or "").strip()[:300].replace("\n", "\\n")
-        print(
-            f"[IDEA_INGEST][DEBUG] 0 atoms parsed. model={cfg.get('model')} "
-            f"json_mode={used_json_mode} resp_len={len(text)} preview={preview!r}",
-            flush=True,
-        )
+    text = require_nonempty_text(text, operation="idea atom extraction")
+    atoms = _validate_atoms(_parse_atoms(text))
+    print(
+        f"[IDEA_INGEST] validated model result model={cfg.get('model')} "
+        f"json_mode={used_json_mode} resp_len={len(text)} atoms={len(atoms)}",
+        flush=True,
+    )
     return atoms
 
 
@@ -407,6 +410,39 @@ def _parse_atoms(text: str) -> List[Dict[str, Any]]:
     return []
 
 
+def _validate_atoms(atoms: Any) -> List[Dict[str, Any]]:
+    """Require a non-empty atom list that satisfies the model's output contract."""
+    if not isinstance(atoms, list) or not atoms:
+        raise InvalidLlmResponseError(
+            "model returned invalid or empty structured content during idea atom extraction"
+        )
+
+    allowed_types = {"claim", "method", "setup", "limitation", "tag"}
+    validated: List[Dict[str, Any]] = []
+    for index, atom in enumerate(atoms):
+        if isinstance(atom, str):
+            atom = {"type": "claim", "content": atom}
+        if not isinstance(atom, dict):
+            raise InvalidLlmResponseError(
+                f"idea atom {index} is not an object"
+            )
+        atom_type = atom.get("type")
+        content = atom.get("content")
+        if atom_type not in allowed_types:
+            raise InvalidLlmResponseError(
+                f"idea atom {index} has an invalid type"
+            )
+        if not isinstance(content, str) or not content.strip():
+            raise InvalidLlmResponseError(
+                f"idea atom {index} has empty content"
+            )
+        normalized = dict(atom)
+        normalized["type"] = atom_type
+        normalized["content"] = content.strip()
+        validated.append(normalized)
+    return validated
+
+
 # ---------------------------------------------------------------------------
 # Paper discovery
 # ---------------------------------------------------------------------------
@@ -494,10 +530,7 @@ def process_one(
     paper_id = paper["paper_id"]
     content = _read_file(paper["content_file"])
     if not content or not content.strip():
-        return paper_id, 0
-
-    # Delete existing atoms for re-extraction
-    idea_service.delete_atoms_for_paper(user_id, paper_id)
+        raise ValueError("paper source content is empty")
 
     # Extract
     raw_atoms = _extract_atoms_llm(client, cfg, content)
@@ -518,7 +551,7 @@ def process_one(
             "source_file": paper.get("source_file", ""),
         })
 
-    count = idea_service.create_atoms_batch(user_id, batch) if batch else 0
+    count = idea_service.replace_atoms_for_paper(user_id, paper_id, batch)
     return paper_id, count
 
 
@@ -576,6 +609,7 @@ def run() -> None:
     start = time.monotonic()
     done = 0
     errors = 0
+    succeeded = 0
     total_atoms = 0
 
     def task(p: Dict[str, str]) -> Tuple[str, int]:
@@ -588,6 +622,7 @@ def run() -> None:
             try:
                 pid, count = fut.result()
                 total_atoms += count
+                succeeded += 1
                 print(f"\r[IDEA_INGEST] {pid}: {count} atoms", end="", flush=True)
             except Exception as e:
                 errors += 1
@@ -601,14 +636,18 @@ def run() -> None:
     print(f"[IDEA_INGEST] total={total} atoms_created={total_atoms} errors={errors}", flush=True)
     print(f"============结束 灵感原子抽取 (idea_ingest) ============", flush=True)
 
+    status = "done" if errors == 0 and succeeded == total else "failed"
     _write_manifest(date_str, {
-        "status": "done",
+        "status": status,
         "date": date_str,
         "user_id": user_id,
         "total_papers": total,
+        "succeeded": succeeded,
         "total_atoms": total_atoms,
         "errors": errors,
     })
+    if status != "done":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

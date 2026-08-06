@@ -281,6 +281,22 @@ class TestPipelineCompletionContract(unittest.TestCase):
         self.assertFalse(app._db_step_done("paper_theme_filter", 3, self.date_str))
         self.assertFalse(app._db_step_done("instutions_filter", 3, self.date_str))
 
+    def test_failed_idea_manifest_never_suppresses_retry(self) -> None:
+        manifest = self.tmp_path / "idea_combine.jsonl"
+        with patch.object(
+            app,
+            "STEP_OUTPUT_PATHS",
+            {"idea_combine": lambda _date: str(manifest)},
+        ):
+            manifest.write_text('{"status":"failed"}\n', encoding="utf-8")
+            self.assertFalse(app.step_output_exists("idea_combine", self.date_str))
+
+            manifest.write_text('{"status":"done"}\n', encoding="utf-8")
+            self.assertTrue(app.step_output_exists("idea_combine", self.date_str))
+
+            manifest.write_text("not json\n", encoding="utf-8")
+            self.assertFalse(app.step_output_exists("idea_combine", self.date_str))
+
     def test_raw_pdf_cleanup_preserves_selections_from_every_user(self) -> None:
         self._select_final(0, ["2608.00001"])
         self._select_final(3, ["2608.00002"])

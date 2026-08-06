@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from datetime import datetime
@@ -26,6 +27,10 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openai import OpenAI
+from services.llm_response_guard import (
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
 from services.llm_request_options import build_thinking_kwargs
 
 import config.config as _config_module  # noqa: E402
@@ -220,12 +225,12 @@ def _call_llm_json(
         **kwargs,
     )
     text = resp.choices[0].message.content if resp.choices else ""
+    text = require_nonempty_text(text, operation="idea review")
     return _parse_json(text)
 
 
 def _parse_json(text: str) -> Dict[str, Any]:
-    if not text:
-        return {}
+    text = require_nonempty_text(text, operation="idea review JSON parsing")
     s = text.strip()
     start = s.find("{")
     end = s.rfind("}")
@@ -234,7 +239,44 @@ def _parse_json(text: str) -> Dict[str, Any]:
             return json.loads(s[start:end + 1])
         except json.JSONDecodeError:
             pass
-    return {}
+    raise InvalidLlmResponseError(
+        "model returned invalid structured content during idea review"
+    )
+
+
+def _validate_review(review: Any) -> Dict[str, Any]:
+    if not isinstance(review, dict):
+        raise InvalidLlmResponseError("idea review is not an object")
+    scores = review.get("scores")
+    if not isinstance(scores, dict):
+        raise InvalidLlmResponseError("idea review scores are missing")
+    for key in ("consistency", "novelty", "feasibility", "impact", "overall"):
+        value = scores.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise InvalidLlmResponseError(f"idea review score {key} is not numeric")
+        numeric = float(value)
+        if not math.isfinite(numeric) or numeric < 0.0 or numeric > 1.0:
+            raise InvalidLlmResponseError(f"idea review score {key} is out of range")
+        scores[key] = numeric
+    verdict = review.get("verdict")
+    if verdict not in {"approve", "revise", "reject"}:
+        raise InvalidLlmResponseError("idea review verdict is invalid")
+    summary = review.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        raise InvalidLlmResponseError("idea review summary is empty")
+    return review
+
+
+def _validate_revision(revision: Any) -> Dict[str, Any]:
+    if not isinstance(revision, dict):
+        raise InvalidLlmResponseError("idea revision is not an object")
+    normalized = dict(revision)
+    for field in ("title", "goal", "mechanism", "risks"):
+        value = revision.get(field)
+        if not isinstance(value, str) or not value.strip():
+            raise InvalidLlmResponseError(f"idea revision {field} is empty")
+        normalized[field] = value.strip()
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +303,9 @@ def review_candidate(
         user_text_key="review_system_prompt",
         config_var_name="idea_review_system_prompt",
     )
-    return _call_llm_json(client, cfg, review_prompt, user_content)
+    return _validate_review(
+        _call_llm_json(client, cfg, review_prompt, user_content)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -300,7 +344,9 @@ def revise_candidate(
         user_text_key="revise_system_prompt",
         config_var_name="idea_revise_system_prompt",
     )
-    return _call_llm_json(client, cfg, revise_prompt, user_content)
+    return _validate_revision(
+        _call_llm_json(client, cfg, revise_prompt, user_content)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -363,6 +409,7 @@ def run() -> None:
     reviewed = 0
     revised = 0
     published = 0
+    errors = 0
 
     for i, c in enumerate(candidates):
         cid = c["id"]
@@ -371,8 +418,8 @@ def run() -> None:
         try:
             # Step 15-19: Multi-critic review (uses review-phase model)
             review = review_candidate(rv_client, rv_cfg, c, user_id=user_id)
-            scores = review.get("scores", {})
-            verdict = review.get("verdict", "revise")
+            scores = review["scores"]
+            verdict = review["verdict"]
 
             # Save scores to candidate
             idea_service.update_candidate(
@@ -425,19 +472,27 @@ def run() -> None:
                     idea_service.update_candidate(cid, user_id, status="review")
 
         except Exception as e:
-            print(f"[IDEA_REVIEW]   → error: {e!r}", flush=True)
+            errors += 1
+            print(
+                f"[IDEA_REVIEW]   → error: {type(e).__name__}",
+                flush=True,
+            )
 
     print(f"[IDEA_REVIEW] reviewed={reviewed} revised={revised} published={published}", flush=True)
     print(f"============结束 灵感评审 (idea_review) ============", flush=True)
 
+    status = "done" if errors == 0 else "failed"
     _write_manifest(date_str, {
-        "status": "done",
+        "status": status,
         "date": date_str,
         "user_id": user_id,
         "reviewed": reviewed,
         "revised": revised,
         "published": published,
+        "errors": errors,
     })
+    if status != "done":
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

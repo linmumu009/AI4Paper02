@@ -24,6 +24,10 @@ from typing import Any, Dict, List, Optional, Tuple
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from openai import OpenAI
+from services.llm_response_guard import (
+    InvalidLlmResponseError,
+    require_nonempty_text,
+)
 from services.llm_request_options import build_thinking_kwargs
 import config.config as _config_module  # noqa: E402
 from config.config import (  # noqa: E402
@@ -228,12 +232,12 @@ def _call_llm_json(
         **kwargs,
     )
     text = resp.choices[0].message.content if resp.choices else ""
+    text = require_nonempty_text(text, operation="idea combination")
     return _parse_json(text)
 
 
 def _parse_json(text: str) -> Dict[str, Any]:
-    if not text:
-        return {}
+    text = require_nonempty_text(text, operation="idea combination JSON parsing")
     s = text.strip()
     start = s.find("{")
     end = s.rfind("}")
@@ -249,7 +253,9 @@ def _parse_json(text: str) -> Dict[str, Any]:
             return {"items": json.loads(s[start:end + 1])}
         except json.JSONDecodeError:
             pass
-    return {}
+    raise InvalidLlmResponseError(
+        "model returned invalid structured content during idea combination"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -267,7 +273,7 @@ def generate_questions(
     if not atoms:
         atoms = idea_service.list_atoms(user_id=user_id, limit=50)
     if not atoms:
-        return []
+        raise ValueError("no usable atoms are available for question generation")
 
     atoms_text = (
         "\n\n".join(
@@ -287,21 +293,36 @@ def generate_questions(
     )
     result = _call_llm_json(client, cfg, question_prompt, atoms_text)
     questions_raw = result.get("questions") or result.get("items") or []
+    if not isinstance(questions_raw, list) or not questions_raw:
+        raise InvalidLlmResponseError(
+            "model returned no research questions during idea combination"
+        )
 
-    created = []
-    for q in questions_raw:
+    question_specs = []
+    source_atom_ids = [a["id"] for a in atoms[:5]]
+    for index, q in enumerate(questions_raw):
         if isinstance(q, str):
             q = {"question": q, "strategy": "general"}
-        qobj = idea_service.create_question(
-            user_id=user_id,
-            question_text=q.get("question", ""),
-            source_atom_ids=[a["id"] for a in atoms[:5]],
-            strategy=q.get("strategy", "general"),
-            context={"raw_context": q.get("context", "")},
-        )
-        created.append(qobj)
+        if not isinstance(q, dict):
+            raise InvalidLlmResponseError(
+                f"research question {index} is not an object"
+            )
+        question_text = q.get("question")
+        if not isinstance(question_text, str) or not question_text.strip():
+            raise InvalidLlmResponseError(
+                f"research question {index} has empty content"
+            )
+        context = q.get("context", {})
+        if not isinstance(context, dict):
+            context = {"raw_context": str(context)}
+        question_specs.append({
+            "question_text": question_text.strip(),
+            "source_atom_ids": source_atom_ids,
+            "strategy": q.get("strategy", "general"),
+            "context": context,
+        })
 
-    return created
+    return question_specs
 
 
 # ---------------------------------------------------------------------------
@@ -317,8 +338,6 @@ def generate_candidates_for_question(
     from services import idea_service
 
     q_text = question.get("question_text", "")
-    q_id = question.get("id")
-
     # Retrieve relevant atoms (FTS first, fallback to recent)
     try:
         atoms = idea_service.search_atoms_fts(q_text, user_id=user_id, limit=20)
@@ -327,7 +346,7 @@ def generate_candidates_for_question(
     if not atoms:
         atoms = idea_service.list_atoms(user_id=user_id, limit=20)
     if not atoms:
-        return []
+        raise ValueError("no usable atoms are available for candidate generation")
 
     atoms_context = "\n\n".join(
         f"[ATOM-{a['id']}] [{a['atom_type'].upper()}] (paper: {a['paper_id']})\n{a['content']}"
@@ -349,26 +368,38 @@ def generate_candidates_for_question(
     )
     result = _call_llm_json(client, cfg, candidate_prompt, user_content)
     candidates_raw = result.get("candidates") or result.get("items") or []
-
-    created = []
-    for c in candidates_raw:
-        if isinstance(c, str):
-            continue
-        cobj = idea_service.create_candidate(
-            user_id=user_id,
-            title=c.get("title", "未命名灵感"),
-            goal=c.get("goal", ""),
-            mechanism=c.get("mechanism", ""),
-            risks=c.get("risks", ""),
-            strategy=c.get("strategy", ""),
-            question_id=q_id,
-            tags=c.get("tags", []),
-            input_atom_ids=c.get("input_atom_ids", []),
-            source_type="question_pipeline",
+    if not isinstance(candidates_raw, list) or not candidates_raw:
+        raise InvalidLlmResponseError(
+            "model returned no candidates during idea combination"
         )
-        created.append(cobj)
 
-    return created
+    candidate_specs = []
+    for index, c in enumerate(candidates_raw):
+        if not isinstance(c, dict):
+            raise InvalidLlmResponseError(
+                f"idea candidate {index} is not an object"
+            )
+        required = {}
+        for field in ("title", "goal", "mechanism", "risks"):
+            value = c.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise InvalidLlmResponseError(
+                    f"idea candidate {index} has empty {field}"
+                )
+            required[field] = value.strip()
+        candidate_specs.append({
+            **required,
+            "strategy": c.get("strategy", ""),
+            "tags": c.get("tags", []) if isinstance(c.get("tags", []), list) else [],
+            "input_atom_ids": (
+                c.get("input_atom_ids", [])
+                if isinstance(c.get("input_atom_ids", []), list)
+                else []
+            ),
+            "source_type": "question_pipeline",
+        })
+
+    return candidate_specs
 
 
 # ---------------------------------------------------------------------------
@@ -432,33 +463,39 @@ def run() -> None:
     print(f"============开始 灵感组合 (idea_combine) ============", flush=True)
     print(f"[IDEA_COMBINE] date={date_str} user_id={user_id} atoms={atom_count}", flush=True)
 
-    # Idempotency: remove questions and candidates created today before re-generating
-    q_del = idea_service.delete_questions_for_date(user_id, date_str)
-    c_del = idea_service.delete_candidates_for_date(user_id, date_str)
-    if q_del or c_del:
-        print(f"[IDEA_COMBINE] Idempotency: removed {q_del} old questions, {c_del} old candidates for {date_str}.", flush=True)
+    try:
+        # Generate and validate the complete replacement before mutating the DB.
+        print("[IDEA_COMBINE] Generating research questions...", flush=True)
+        question_batches = generate_questions(q_client, q_cfg, user_id)
+        print(f"[IDEA_COMBINE] Validated {len(question_batches)} questions.", flush=True)
 
-    # Step 11: Generate questions (using question-phase model)
-    print("[IDEA_COMBINE] Generating research questions...", flush=True)
-    questions = generate_questions(q_client, q_cfg, user_id)
-    print(f"[IDEA_COMBINE] Generated {len(questions)} questions.", flush=True)
+        for i, question in enumerate(question_batches):
+            print(
+                f"[IDEA_COMBINE] Q{i+1}/{len(question_batches)}: "
+                f"{question.get('question_text', '')[:80]}...",
+                flush=True,
+            )
+            candidates = generate_candidates_for_question(
+                c_client, c_cfg, user_id, question
+            )
+            question["candidates"] = candidates
+            print(f"[IDEA_COMBINE]   → validated {len(candidates)} candidates", flush=True)
 
-    if not questions:
-        print("[IDEA_COMBINE] No questions generated; stopping.", flush=True)
-        _write_manifest(date_str, {"status": "done", "date": date_str, "user_id": user_id,
-                                   "total_questions": 0, "total_candidates": 0})
-        return
-
-    # Step 12-14: Generate candidates for each question (using candidate-phase model)
-    total_candidates = 0
-    for i, q in enumerate(questions):
-        print(f"[IDEA_COMBINE] Q{i+1}/{len(questions)}: {q.get('question_text', '')[:80]}...", flush=True)
-        try:
-            candidates = generate_candidates_for_question(c_client, c_cfg, user_id, q)
-            total_candidates += len(candidates)
-            print(f"[IDEA_COMBINE]   → {len(candidates)} candidates", flush=True)
-        except Exception as e:
-            print(f"[IDEA_COMBINE]   → error: {e!r}", flush=True)
+        questions, total_candidates = (
+            idea_service.replace_questions_and_candidates_for_date(
+                user_id, date_str, question_batches
+            )
+        )
+    except Exception as exc:
+        error_type = type(exc).__name__
+        print(f"[IDEA_COMBINE] generation failed: {error_type}", flush=True)
+        _write_manifest(date_str, {
+            "status": "failed",
+            "date": date_str,
+            "user_id": user_id,
+            "error_type": error_type,
+        })
+        raise SystemExit(1) from exc
 
     print(f"[IDEA_COMBINE] Total: {len(questions)} questions, {total_candidates} candidates", flush=True)
     print(f"============结束 灵感组合 (idea_combine) ============", flush=True)

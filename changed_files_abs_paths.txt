@@ -329,3 +329,8 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\llm_select_t
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_structured_response_contract.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pdf_info_db_contract.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_user_paper_pipeline_contract.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\idea_ingest.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\idea_combine.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\idea_review.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\idea_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_idea_batch_response_contract.py

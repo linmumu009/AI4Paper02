@@ -103,6 +103,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS idea_questions (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id         INTEGER NOT NULL DEFAULT 0,
+                date_str        TEXT    NOT NULL DEFAULT '',
                 source_atom_ids TEXT    NOT NULL DEFAULT '[]',
                 question_text   TEXT    NOT NULL DEFAULT '',
                 strategy        TEXT    NOT NULL DEFAULT '',
@@ -114,6 +115,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS idea_candidates (
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id              INTEGER NOT NULL DEFAULT 0,
+                date_str             TEXT    NOT NULL DEFAULT '',
                 question_id          INTEGER DEFAULT NULL,
                 title                TEXT    NOT NULL DEFAULT '',
                 goal                 TEXT    NOT NULL DEFAULT '',
@@ -227,6 +229,11 @@ def init_db() -> None:
 
         # Migration: add research memory fields to idea_atoms
         _migrate_add_atom_research_fields(conn)
+
+        # Daily regeneration must be keyed by the requested pipeline date, not
+        # inferred from a UTC timestamp.  The old inference breaks around
+        # timezone boundaries and when operators rerun a historical date.
+        _migrate_add_generation_date_fields(conn)
     finally:
         conn.close()
 
@@ -241,6 +248,17 @@ def _migrate_add_atom_research_fields(conn: sqlite3.Connection) -> None:
     ]:
         if col not in cols:
             conn.execute(f"ALTER TABLE idea_atoms ADD COLUMN {col} {definition}")
+    conn.commit()
+
+
+def _migrate_add_generation_date_fields(conn: sqlite3.Connection) -> None:
+    """Add explicit pipeline-date ownership to generated questions/candidates."""
+    for table in ("idea_questions", "idea_candidates"):
+        cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if "date_str" not in cols:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN date_str TEXT NOT NULL DEFAULT ''"
+            )
     conn.commit()
 
 
@@ -312,6 +330,51 @@ def create_atoms_batch(user_id: int, atoms: list[dict]) -> int:
         )
         conn.commit()
         return len(rows)
+    finally:
+        conn.close()
+
+
+def replace_atoms_for_paper(user_id: int, paper_id: str, atoms: list[dict]) -> int:
+    """Atomically replace one paper's atoms after callers validate the new batch."""
+    if not atoms:
+        raise ValueError("refusing to replace atoms with an empty batch")
+
+    now = _now_iso()
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "DELETE FROM idea_atoms WHERE user_id = ? AND paper_id = ?",
+            (user_id, paper_id),
+        )
+        rows = [
+            (
+                user_id,
+                paper_id,
+                a.get("date_str", ""),
+                a.get("atom_type", "claim"),
+                a.get("content", ""),
+                json.dumps(a.get("tags", []), ensure_ascii=False),
+                json.dumps(a.get("evidence", []), ensure_ascii=False),
+                a.get("section", ""),
+                a.get("source_file", ""),
+                now,
+                now,
+            )
+            for a in atoms
+        ]
+        conn.executemany(
+            """INSERT INTO idea_atoms
+               (user_id, paper_id, date_str, atom_type, content, tags_json,
+                evidence_json, section, source_file, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.commit()
+        return len(rows)
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -483,14 +546,16 @@ def delete_atoms_for_paper(user_id: int, paper_id: str) -> int:
 def delete_questions_for_date(user_id: int, date_str: str) -> int:
     """Delete all questions created on *date_str* for this user.
 
-    Uses ``created_at LIKE '{date_str}%'`` because idea_questions has no
-    explicit date_str column.  Returns count of rows deleted.
+    Explicit ``date_str`` owns new rows; the timestamp predicate keeps legacy
+    rows removable after the online schema migration.
     """
     conn = _connect()
     try:
         cur = conn.execute(
-            "DELETE FROM idea_questions WHERE user_id = ? AND created_at LIKE ?",
-            (user_id, f"{date_str}%"),
+            """DELETE FROM idea_questions
+               WHERE user_id = ?
+                 AND (date_str = ? OR (date_str = '' AND created_at LIKE ?))""",
+            (user_id, date_str, f"{date_str}%"),
         )
         conn.commit()
         return cur.rowcount
@@ -501,14 +566,16 @@ def delete_questions_for_date(user_id: int, date_str: str) -> int:
 def delete_candidates_for_date(user_id: int, date_str: str) -> int:
     """Delete all candidates created on *date_str* for this user.
 
-    Uses ``created_at LIKE '{date_str}%'`` because idea_candidates has no
-    explicit date_str column.  Returns count of rows deleted.
+    Explicit ``date_str`` owns new rows; the timestamp predicate keeps legacy
+    rows removable after the online schema migration.
     """
     conn = _connect()
     try:
         cur = conn.execute(
-            "DELETE FROM idea_candidates WHERE user_id = ? AND created_at LIKE ?",
-            (user_id, f"{date_str}%"),
+            """DELETE FROM idea_candidates
+               WHERE user_id = ?
+                 AND (date_str = ? OR (date_str = '' AND created_at LIKE ?))""",
+            (user_id, date_str, f"{date_str}%"),
         )
         conn.commit()
         return cur.rowcount
@@ -563,15 +630,17 @@ def create_question(
     source_atom_ids: list[int] | None = None,
     strategy: str = "",
     context: dict | None = None,
+    date_str: str = "",
 ) -> dict:
     now = _now_iso()
     conn = _connect()
     try:
         cur = conn.execute(
             """INSERT INTO idea_questions
-               (user_id, source_atom_ids, question_text, strategy, context_json, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (user_id, json.dumps(source_atom_ids or []),
+               (user_id, date_str, source_atom_ids, question_text, strategy,
+                context_json, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, date_str, json.dumps(source_atom_ids or []),
              question_text, strategy, json.dumps(context or {}), now),
         )
         conn.commit()
@@ -629,19 +698,20 @@ def create_candidate(
     folder_id: int | None = None,
     source_type: str = "",
     source_paper_id: str = "",
+    date_str: str = "",
 ) -> dict:
     now = _now_iso()
     conn = _connect()
     try:
         cur = conn.execute(
             """INSERT INTO idea_candidates
-               (user_id, question_id, title, goal, mechanism, input_atom_ids,
-                evidence_json, risks, scores_json, status, revision_history_json,
-                strategy, folder_id, tags_json, source_type, source_paper_id,
-                created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, question_id, title, goal, mechanism,
-             json.dumps(input_atom_ids or []),
+               (user_id, date_str, question_id, title, goal, mechanism, input_atom_ids,
+                 evidence_json, risks, scores_json, status, revision_history_json,
+                 strategy, folder_id, tags_json, source_type, source_paper_id,
+                 created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, date_str, question_id, title, goal, mechanism,
+              json.dumps(input_atom_ids or []),
              json.dumps(evidence or []),
              risks,
              json.dumps(scores or {}),
@@ -653,6 +723,103 @@ def create_candidate(
         conn.commit()
         row = conn.execute("SELECT * FROM idea_candidates WHERE id = ?", (cur.lastrowid,)).fetchone()
         return _candidate_row_to_dict(row)
+    finally:
+        conn.close()
+
+
+def replace_questions_and_candidates_for_date(
+    user_id: int,
+    date_str: str,
+    question_batches: list[dict],
+) -> tuple[list[dict], int]:
+    """Atomically publish a fully validated daily question/candidate generation."""
+    if not question_batches:
+        raise ValueError("refusing to replace generated ideas with an empty batch")
+    if any(not batch.get("candidates") for batch in question_batches):
+        raise ValueError("every generated question must have at least one candidate")
+
+    now = _now_iso()
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        legacy_pattern = f"{date_str}%"
+        conn.execute(
+            """DELETE FROM idea_candidates
+               WHERE user_id = ?
+                 AND (date_str = ? OR (date_str = '' AND created_at LIKE ?))""",
+            (user_id, date_str, legacy_pattern),
+        )
+        conn.execute(
+            """DELETE FROM idea_questions
+               WHERE user_id = ?
+                 AND (date_str = ? OR (date_str = '' AND created_at LIKE ?))""",
+            (user_id, date_str, legacy_pattern),
+        )
+
+        created_questions: list[dict] = []
+        candidate_count = 0
+        for batch in question_batches:
+            cur = conn.execute(
+                """INSERT INTO idea_questions
+                   (user_id, date_str, source_atom_ids, question_text, strategy,
+                    context_json, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    user_id,
+                    date_str,
+                    json.dumps(batch.get("source_atom_ids", [])),
+                    batch["question_text"],
+                    batch.get("strategy", "general"),
+                    json.dumps(batch.get("context", {}), ensure_ascii=False),
+                    now,
+                ),
+            )
+            question_id = int(cur.lastrowid)
+            qrow = conn.execute(
+                "SELECT * FROM idea_questions WHERE id = ?", (question_id,)
+            ).fetchone()
+            created_questions.append(_question_row_to_dict(qrow))
+
+            candidate_rows = []
+            for candidate in batch["candidates"]:
+                candidate_rows.append(
+                    (
+                        user_id,
+                        date_str,
+                        question_id,
+                        candidate["title"],
+                        candidate.get("goal", ""),
+                        candidate.get("mechanism", ""),
+                        json.dumps(candidate.get("input_atom_ids", [])),
+                        json.dumps(candidate.get("evidence", []), ensure_ascii=False),
+                        candidate.get("risks", ""),
+                        json.dumps(candidate.get("scores", {}), ensure_ascii=False),
+                        candidate.get("status", "draft"),
+                        candidate.get("strategy", ""),
+                        candidate.get("folder_id"),
+                        json.dumps(candidate.get("tags", []), ensure_ascii=False),
+                        candidate.get("source_type", "question_pipeline"),
+                        candidate.get("source_paper_id", ""),
+                        now,
+                        now,
+                    )
+                )
+            conn.executemany(
+                """INSERT INTO idea_candidates
+                   (user_id, date_str, question_id, title, goal, mechanism,
+                    input_atom_ids, evidence_json, risks, scores_json, status,
+                    revision_history_json, strategy, folder_id, tags_json,
+                    source_type, source_paper_id, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, ?, ?, ?)""",
+                candidate_rows,
+            )
+            candidate_count += len(candidate_rows)
+
+        conn.commit()
+        return created_questions, candidate_count
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
