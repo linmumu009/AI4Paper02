@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
 from services.private_file_access_service import build_signed_kb_file_url
 from services.safe_logging_service import safe_failure_detail, safe_stored_error
-from services.upload_guard import UploadTooLarge, read_upload_with_limit
+from services.upload_guard import (
+    PdfValidationError,
+    UploadTooLarge,
+    read_upload_with_limit,
+    validate_pdf_upload,
+)
 
 router = APIRouter(prefix="/api/user-papers", tags=["user-papers"])
 logger = logging.getLogger(__name__)
@@ -263,6 +268,10 @@ async def api_user_paper_import_pdf(
         pdf_bytes = await read_upload_with_limit(file, _MAX_UPLOAD_SIZE)
     except UploadTooLarge:
         raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50 MB）")
+    try:
+        validate_pdf_upload(pdf_bytes)
+    except PdfValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     try:
         authors_list: list[str] = json.loads(authors)
@@ -397,6 +406,10 @@ async def api_user_paper_upload_pdf(
         pdf_bytes = await read_upload_with_limit(file, _MAX_UPLOAD_SIZE)
     except UploadTooLarge:
         raise HTTPException(status_code=413, detail="文件大小超过限制（最大 50 MB）")
+    try:
+        validate_pdf_upload(pdf_bytes)
+    except PdfValidationError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     updated = user_paper_service.update_paper(
         _user["id"],

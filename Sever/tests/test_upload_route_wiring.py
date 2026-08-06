@@ -23,9 +23,31 @@ class UploadRouteWiringTests(unittest.TestCase):
         route = source[start:end]
         self.assertLess(
             route.index("read_upload_with_limit"),
+            route.index("validate_pdf_upload"),
+        )
+        self.assertLess(
+            route.index("validate_pdf_upload"),
             route.index("_create_paper_with_quota"),
         )
         self.assertNotIn("consume_quota", route)
+
+    def test_both_user_pdf_routes_validate_content_before_persistence(self) -> None:
+        source = (_SEVER / "routers" / "user_paper_router.py").read_text(encoding="utf-8")
+        for function_name, persistence_call in (
+            ("api_user_paper_import_pdf", "_create_paper_with_quota"),
+            ("api_user_paper_upload_pdf", "update_paper"),
+        ):
+            start = source.index(f"async def {function_name}(")
+            end = source.index("\n\n# ---------------------------------------------------------------------------", start)
+            route = source[start:end]
+            self.assertLess(
+                route.index("read_upload_with_limit"),
+                route.index("validate_pdf_upload"),
+            )
+            self.assertLess(
+                route.index("validate_pdf_upload"),
+                route.index(persistence_call),
+            )
 
 
 if __name__ == "__main__":
