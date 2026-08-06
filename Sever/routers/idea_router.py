@@ -16,6 +16,7 @@ Quota policy (idea_gen):
 """
 
 from datetime import datetime, timezone
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,9 +24,29 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from services import auth_service, data_service, engagement_service, entitlement_service, idea_pipeline_service, idea_service, kb_service, research_memory_service
+from services.quota_stream_service import guard_quota_stream
+from services.safe_logging_service import safe_failure_detail
 from routers._deps import _get_optional_user, _tier_quota_limit, _tier_label
 
 router = APIRouter(prefix="/api/idea", tags=["idea"])
+logger = logging.getLogger(__name__)
+
+
+def _finalize_idea_quota(reservation_id: Optional[str], *, commit: bool) -> None:
+    if not reservation_id:
+        return
+    try:
+        if commit:
+            entitlement_service.commit_quota_reservation(reservation_id)
+        else:
+            entitlement_service.release_quota_reservation(reservation_id)
+    except Exception as exc:
+        safe_failure_detail(
+            logger,
+            "灵感生成额度状态更新失败",
+            exc,
+            operation="idea_generation_quota_finalize",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -553,28 +574,36 @@ def api_idea_manual_review(candidate_id: int, body: ManualReviewBody, _user=Depe
 
 @router.post("/candidates/generate", summary="Generate candidates (SSE stream)")
 def api_idea_generate_candidates(body: GenerateCandidatesBody, _user=Depends(auth_service.require_user)):
-    # Quota check: consume one idea generation credit (Free: 3/month, Pro: 30/month)
-    entitlement_service.consume_quota(_user["id"], "idea_gen")
-
-    # Apply engagement idea_gen boost if provided (increases atom retrieval pool for richer candidates)
+    boost: dict = {}
     atoms_limit = 20
     if body.reward_id is not None:
         boost = engagement_service.get_reward_boost(_user["id"], "idea_gen", body.reward_id)
         if boost:
+            multiplier = boost.get("atoms_limit_multiplier", 1.0)
+            atoms_limit = int(20 * multiplier)
+
+    def _commit_reward() -> None:
+        if body.reward_id is not None and boost:
             try:
                 engagement_service.use_reward(_user["id"], body.reward_id, "idea_gen_boost")
-                multiplier = boost.get("atoms_limit_multiplier", 1.0)
-                atoms_limit = int(20 * multiplier)
             except ValueError:
-                pass  # Already used or expired — proceed with default
+                pass
+
+    receipt = entitlement_service.reserve_quota(_user["id"], "idea_gen")
+    stream = idea_pipeline_service.stream_generate_candidates(
+        _user["id"],
+        question_id=body.question_id,
+        custom_question=body.custom_question,
+        strategies=body.strategies,
+        atoms_limit=atoms_limit,
+    )
 
     return StreamingResponse(
-        idea_pipeline_service.stream_generate_candidates(
-            _user["id"],
-            question_id=body.question_id,
-            custom_question=body.custom_question,
-            strategies=body.strategies,
-            atoms_limit=atoms_limit,
+        guard_quota_stream(
+            stream,
+            receipt.get("reservation_id"),
+            on_commit=_commit_reward,
+            operation="idea_generate_candidates",
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -583,11 +612,19 @@ def api_idea_generate_candidates(body: GenerateCandidatesBody, _user=Depends(aut
 
 @router.post("/candidates/generate-for-paper", summary="Generate candidates for a user paper")
 def api_idea_generate_candidates_for_paper(body: GenerateForPaperBody, _user=Depends(auth_service.require_user)):
-    # Quota check: consume one idea generation credit
-    entitlement_service.consume_quota(_user["id"], "idea_gen")
-    result = idea_pipeline_service.generate_candidates_for_paper(_user["id"], body.paper_id, force=body.force)
+    receipt = entitlement_service.reserve_quota(_user["id"], "idea_gen")
+    reservation_id = receipt.get("reservation_id")
+    try:
+        result = idea_pipeline_service.generate_candidates_for_paper(
+            _user["id"], body.paper_id, force=body.force
+        )
+    except Exception:
+        _finalize_idea_quota(reservation_id, commit=False)
+        raise
     if "error" in result:
+        _finalize_idea_quota(reservation_id, commit=False)
         raise HTTPException(status_code=422, detail=result["error"])
+    _finalize_idea_quota(reservation_id, commit=bool(result.get("generated")))
     return result
 
 

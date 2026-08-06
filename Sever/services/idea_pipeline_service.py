@@ -30,6 +30,7 @@ from services.llm_response_guard import (
     require_meaningful_structure,
     require_nonempty_text,
 )
+from services.quota_stream_service import STREAM_QUOTA_COMMIT
 from services.safe_logging_service import safe_failure_detail
 
 
@@ -600,7 +601,11 @@ def generate_candidates_for_paper(user_id: int, paper_id: str, force: bool = Fal
             limit=500,
         )
         if paper_candidates:
-            return {"candidates": paper_candidates, "count": len(paper_candidates)}
+            return {
+                "candidates": paper_candidates,
+                "count": len(paper_candidates),
+                "generated": False,
+            }
 
     cfg = _get_llm_config(user_id, module="combine_candidate")
     err = _check_credentials(cfg)
@@ -688,7 +693,7 @@ def generate_candidates_for_paper(user_id: int, paper_id: str, force: bool = Fal
         )
         created.append(cobj)
 
-    return {"candidates": created, "count": len(created)}
+    return {"candidates": created, "count": len(created), "generated": True}
 
 
 # ---------------------------------------------------------------------------
@@ -776,7 +781,7 @@ def stream_generate_candidates(
     custom_question: str = "",
     strategies: list[str] | None = None,
     atoms_limit: int = 20,
-) -> Generator[str, None, None]:
+) -> Generator[object, None, None]:
     """Generate inspiration candidates as SSE stream.
 
     Args:
@@ -827,6 +832,7 @@ def stream_generate_candidates(
     )
 
     system_prompt = cfg.get("system_prompt") or ""
+    yield STREAM_QUOTA_COMMIT
     yield from _sse_stream_llm(client, cfg, system_prompt, user_content)
 
 

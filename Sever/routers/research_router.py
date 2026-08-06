@@ -18,12 +18,15 @@ Registered in api.py via app.include_router(research_router).
 """
 
 import asyncio
+import logging
+import os
 import threading
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 from starlette.requests import Request
 
 from services import (
@@ -34,8 +37,48 @@ from services import (
     research_service,
 )
 from services.quota_stream_service import guard_quota_stream
+from services.safe_logging_service import safe_failure_detail
 
 router = APIRouter(prefix="/api/research", tags=["research"])
+logger = logging.getLogger(__name__)
+
+
+def _remove_research_export_quietly(path: str) -> None:
+    try:
+        if path and os.path.isfile(path):
+            os.remove(path)
+    except OSError as exc:
+        logger.warning("research_export_cleanup_failed path=%s error=%s", path, exc)
+
+
+def _finalize_research_export_quota(
+    reservation_id: Optional[str], *, commit: bool
+) -> None:
+    if not reservation_id:
+        return
+    try:
+        if commit:
+            entitlement_service.commit_quota_reservation(reservation_id)
+        else:
+            entitlement_service.release_quota_reservation(reservation_id)
+    except Exception as exc:
+        safe_failure_detail(
+            logger,
+            "研究导出额度状态更新失败",
+            exc,
+            operation="research_export_quota_finalize",
+        )
+
+
+def _validate_research_export(path: str, file_format: str) -> None:
+    if not path or not os.path.isfile(path) or os.path.getsize(path) <= 0:
+        raise RuntimeError("export artifact is missing or empty")
+    with open(path, "rb") as handle:
+        signature = handle.read(5)
+    if file_format == "pdf" and not signature.startswith(b"%PDF-"):
+        raise RuntimeError("invalid PDF export artifact")
+    if file_format == "docx" and not signature.startswith(b"PK"):
+        raise RuntimeError("invalid DOCX export artifact")
 
 
 # ---------------------------------------------------------------------------
@@ -347,15 +390,11 @@ def api_download_research(
 ):
     import re
     import tempfile
-    from fastapi.responses import FileResponse, Response
     from services import export_service
 
     format = format.lower().strip()
     if format not in ("md", "docx", "pdf"):
         raise HTTPException(status_code=400, detail="format must be md | docx | pdf")
-
-    if format in ("docx", "pdf"):
-        entitlement_service.consume_quota(user["id"], "export")
 
     session = research_service.get_session(user["id"], session_id)
     if session is None:
@@ -396,22 +435,35 @@ def api_download_research(
             headers={"Content-Disposition": f"attachment; filename*=utf-8''{encoded_md_filename}"},
         )
 
-    if format == "docx":
-        tmp = tempfile.NamedTemporaryFile(suffix=".docx", delete=False)
+    receipt = entitlement_service.reserve_quota(user["id"], "export")
+    reservation_id = receipt.get("reservation_id")
+    tmp_path = ""
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=f".{format}", delete=False)
+        tmp_path = tmp.name
         tmp.close()
-        export_service.markdown_to_docx(final_text, tmp.name)
-        return FileResponse(
-            tmp.name,
-            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            filename=f"{base_name}.docx",
+        if format == "docx":
+            export_service.markdown_to_docx(final_text, tmp_path)
+            media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        else:
+            export_service.markdown_to_pdf(final_text, tmp_path)
+            media_type = "application/pdf"
+        _validate_research_export(tmp_path, format)
+        response = FileResponse(
+            tmp_path,
+            media_type=media_type,
+            filename=f"{base_name}.{format}",
+            background=BackgroundTask(_remove_research_export_quietly, tmp_path),
         )
-
-    # pdf
-    tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    tmp.close()
-    export_service.markdown_to_pdf(final_text, tmp.name)
-    return FileResponse(
-        tmp.name,
-        media_type="application/pdf",
-        filename=f"{base_name}.pdf",
-    )
+    except Exception as exc:
+        _remove_research_export_quietly(tmp_path)
+        _finalize_research_export_quota(reservation_id, commit=False)
+        public_error = safe_failure_detail(
+            logger,
+            f"{format.upper()} 转换失败，请稍后重试",
+            exc,
+            operation=f"research_export_{format}",
+        )
+        raise HTTPException(status_code=500, detail=public_error) from exc
+    _finalize_research_export_quota(reservation_id, commit=True)
+    return response
