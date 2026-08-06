@@ -349,16 +349,42 @@ def start_kb_paper_process(
     if not _mark_running(paper_id):
         return False, "处理已在进行中"
 
-    # Reset status immediately so the UI shows progress
-    kbs.set_kb_paper_process_status(
-        user_id, paper_id, status="pending", step="queued", error="", scope=scope
-    )
+    try:
+        # Reset status immediately so the UI shows progress.
+        kbs.set_kb_paper_process_status(
+            user_id, paper_id, status="pending", step="queued", error="", scope=scope
+        )
 
-    t = threading.Thread(
-        target=process_kb_paper,
-        args=(user_id, paper_id, scope),
-        daemon=True,
-        name=f"kb-paper-process-{paper_id}",
-    )
-    t.start()
-    return True, "处理已启动"
+        t = threading.Thread(
+            target=process_kb_paper,
+            args=(user_id, paper_id, scope),
+            daemon=True,
+            name=f"kb-paper-process-{paper_id}",
+        )
+        t.start()
+        return True, "处理已启动"
+    except Exception as exc:
+        _mark_done(paper_id)
+        public_error = safe_failure_detail(
+            logger,
+            "知识库论文处理任务启动失败，请稍后重试",
+            exc,
+            operation="kb_paper_pipeline_start",
+        )
+        try:
+            kbs.set_kb_paper_process_status(
+                user_id,
+                paper_id,
+                status="failed",
+                step="",
+                error=public_error,
+                scope=scope,
+            )
+        except Exception as status_exc:
+            safe_failure_detail(
+                logger,
+                "知识库论文处理任务状态更新失败",
+                status_exc,
+                operation="kb_paper_pipeline_start_status",
+            )
+        return False, public_error

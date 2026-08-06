@@ -1219,18 +1219,44 @@ def start_translation(user_id: int, paper_id: str) -> Tuple[bool, str]:
     if not _claim(paper_id):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
 
-    # Set processing status before starting the thread so the frontend sees it
-    # in the very next tree poll and can start its per-paper poller immediately.
-    svc.set_translate_status(paper_id, status="processing", error="", progress=0)
+    try:
+        # Set processing status before starting the thread so the frontend sees it
+        # in the very next tree poll and can start its per-paper poller immediately.
+        svc.set_translate_status(paper_id, status="processing", error="", progress=0)
 
-    t = threading.Thread(
-        target=run_translation,
-        args=(user_id, paper_id),
-        daemon=True,
-        name=f"user-paper-translate-{paper_id}",
-    )
-    t.start()
-    return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
+        t = threading.Thread(
+            target=run_translation,
+            args=(user_id, paper_id),
+            daemon=True,
+            name=f"user-paper-translate-{paper_id}",
+        )
+        t.start()
+        return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
+    except Exception as exc:
+        _clear_cancel(paper_id)
+        _release(paper_id)
+        public_error = safe_failure_detail(
+            logger,
+            "翻译任务启动失败，请稍后重试",
+            exc,
+            operation="user_paper_translation_start",
+        )
+        try:
+            svc.set_translate_status(
+                paper_id,
+                status="failed",
+                error=public_error,
+                finished=True,
+                progress=0,
+            )
+        except Exception as status_exc:
+            safe_failure_detail(
+                logger,
+                "翻译任务状态更新失败",
+                status_exc,
+                operation="user_paper_translation_start_status",
+            )
+        return False, public_error
 
 
 def paper_derivative_paths(user_id: int, paper_id: str) -> dict[str, str]:
@@ -1581,19 +1607,46 @@ def start_kb_translation(user_id: int, paper_id: str, scope: str = "kb") -> Tupl
     if not _claim(paper_id):
         return False, "\u7ffb\u8bd1\u5df2\u5728\u8fdb\u884c\u4e2d"
 
-    # Set status immediately so the UI shows progress before thread starts
-    kbs.set_kb_paper_translate_status(
-        user_id, paper_id, status="processing", error="", progress=0, scope=scope
-    )
+    try:
+        # Set status immediately so the UI shows progress before thread starts.
+        kbs.set_kb_paper_translate_status(
+            user_id, paper_id, status="processing", error="", progress=0, scope=scope
+        )
 
-    t = threading.Thread(
-        target=run_kb_translation,
-        args=(user_id, paper_id, scope),
-        daemon=True,
-        name=f"kb-paper-translate-{paper_id}",
-    )
-    t.start()
-    return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
+        t = threading.Thread(
+            target=run_kb_translation,
+            args=(user_id, paper_id, scope),
+            daemon=True,
+            name=f"kb-paper-translate-{paper_id}",
+        )
+        t.start()
+        return True, "\u7ffb\u8bd1\u5df2\u542f\u52a8"
+    except Exception as exc:
+        _clear_cancel(paper_id)
+        _release(paper_id)
+        public_error = safe_failure_detail(
+            logger,
+            "翻译任务启动失败，请稍后重试",
+            exc,
+            operation="kb_paper_translation_start",
+        )
+        try:
+            kbs.set_kb_paper_translate_status(
+                user_id,
+                paper_id,
+                status="failed",
+                error=public_error,
+                progress=0,
+                scope=scope,
+            )
+        except Exception as status_exc:
+            safe_failure_detail(
+                logger,
+                "翻译任务状态更新失败",
+                status_exc,
+                operation="kb_paper_translation_start_status",
+            )
+        return False, public_error
 
 
 def delete_kb_derivative(

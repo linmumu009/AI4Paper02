@@ -385,10 +385,12 @@ def api_user_paper_process(
             except ValueError:
                 pass  # Reward already used or expired — proceed normally
 
-    started = user_paper_pipeline_service.start_processing(_user["id"], paper_id, priority=priority)
+    started, message = user_paper_pipeline_service.start_processing(
+        _user["id"], paper_id, priority=priority
+    )
     if not started:
-        return {"ok": False, "message": "处理已在进行中", "paper_id": paper_id}
-    return {"ok": True, "message": "处理已启动", "paper_id": paper_id, "priority": priority, "reward_applied": reward_applied}
+        return {"ok": False, "message": message, "paper_id": paper_id}
+    return {"ok": True, "message": message, "paper_id": paper_id, "priority": priority, "reward_applied": reward_applied}
 
 
 class BatchProcessBody(BaseModel):
@@ -428,11 +430,13 @@ def api_user_paper_batch_process(
         if paper is None:
             results.append({"paper_id": pid, "ok": False, "message": "论文不存在"})
             continue
-        started = user_paper_pipeline_service.start_processing(_user["id"], pid, priority=priority)
+        started, message = user_paper_pipeline_service.start_processing(
+            _user["id"], pid, priority=priority
+        )
         results.append({
             "paper_id": pid,
             "ok": started,
-            "message": "处理已启动" if started else "处理已在进行中",
+            "message": message,
         })
 
     return {

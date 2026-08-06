@@ -114,15 +114,28 @@ def api_retry_task(task_id: str, _user=Depends(auth_service.require_user)):
             if not kb_service.is_paper_in_kb(user_id, paper_id, scope=scope):
                 raise HTTPException(status_code=404, detail="论文不在知识库中")
             enqueued = auto_classify_service.enqueue_classify(user_id, paper_id, scope=scope)
-            return {"ok": True, "message": "已重新加入分类队列" if enqueued else "已在队列中"}
+            if not enqueued:
+                if auto_classify_service.is_classifying(user_id, paper_id, scope=scope):
+                    return {"ok": True, "message": "自动分类已在进行中"}
+                from services.safe_logging_service import safe_stored_error
+
+                paper = kb_service.get_kb_paper(user_id, paper_id, scope=scope) or {}
+                raise HTTPException(
+                    status_code=503,
+                    detail=safe_stored_error(
+                        paper.get("classify_error"),
+                        "自动分类任务启动失败，请稍后重试",
+                    ),
+                )
+            return {"ok": True, "message": "已重新加入分类队列"}
 
         elif kind == "user_paper_process":
             paper_id = ":".join(parts)
             from services import user_paper_pipeline_service
-            ok = user_paper_pipeline_service.start_processing(user_id, paper_id)
+            ok, msg = user_paper_pipeline_service.start_processing(user_id, paper_id)
             if not ok:
-                raise HTTPException(status_code=400, detail="无法启动处理（任务已在进行中或论文不存在）")
-            return {"ok": True, "message": "已重新提交处理任务"}
+                raise HTTPException(status_code=400, detail=msg)
+            return {"ok": True, "message": msg}
 
         elif kind == "user_paper_translate":
             paper_id = ":".join(parts)

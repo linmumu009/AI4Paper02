@@ -553,18 +553,43 @@ def enqueue_classify(user_id: int, paper_id: str, scope: str = "kb") -> bool:
     if not _mark_running(key):
         return False  # Already running
 
-    # Mark as pending immediately so the UI can show it
-    kbs.set_classify_status(user_id, paper_id, status="pending", scope=scope)
+    try:
+        # Mark as pending immediately so the UI can show it.
+        kbs.set_classify_status(user_id, paper_id, status="pending", scope=scope)
 
-    def _worker():
+        def _worker():
+            try:
+                _do_classify(user_id, paper_id, scope)
+            finally:
+                _mark_done(key)
+
+        t = threading.Thread(target=_worker, daemon=True, name=f"auto_classify_{paper_id}")
+        t.start()
+        return True
+    except Exception as exc:
+        _mark_done(key)
+        public_error = safe_failure_detail(
+            logger,
+            "自动分类任务启动失败，请稍后重试",
+            exc,
+            operation="auto_classify_start",
+        )
         try:
-            _do_classify(user_id, paper_id, scope)
-        finally:
-            _mark_done(key)
-
-    t = threading.Thread(target=_worker, daemon=True, name=f"auto_classify_{paper_id}")
-    t.start()
-    return True
+            kbs.set_classify_status(
+                user_id,
+                paper_id,
+                status="failed",
+                error=public_error,
+                scope=scope,
+            )
+        except Exception as status_exc:
+            safe_failure_detail(
+                logger,
+                "自动分类任务状态更新失败",
+                status_exc,
+                operation="auto_classify_start_status",
+            )
+        return False
 
 
 def enqueue_reclassify_all(user_id: int, scope: str = "kb") -> int:

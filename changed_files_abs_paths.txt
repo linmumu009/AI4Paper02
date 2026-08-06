@@ -340,3 +340,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_scheduler_re
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_recap_auto_classify_response_contract.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\background_task_recovery_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_background_task_recovery.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_background_task_launch_failure.py

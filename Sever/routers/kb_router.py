@@ -864,7 +864,17 @@ def api_kb_classify_paper(
     if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=scope):
         raise HTTPException(status_code=404, detail="Paper not in knowledge base")
     enqueued = auto_classify_service.enqueue_classify(_user["id"], paper_id, scope=scope)
-    return {"ok": True, "enqueued": enqueued}
+    if not enqueued:
+        if auto_classify_service.is_classifying(_user["id"], paper_id, scope=scope):
+            return {"ok": True, "enqueued": False, "message": "自动分类已在进行中"}
+        paper = kb_service.get_kb_paper(_user["id"], paper_id, scope=scope) or {}
+        raise HTTPException(
+            status_code=503,
+            detail=safe_stored_error(
+                paper.get("classify_error"), "自动分类任务启动失败，请稍后重试"
+            ),
+        )
+    return {"ok": True, "enqueued": True, "message": "自动分类已启动"}
 
 
 @router.get("/papers/{paper_id}/classify-status", summary="获取论文分类状态")

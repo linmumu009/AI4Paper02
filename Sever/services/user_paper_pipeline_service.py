@@ -956,7 +956,7 @@ def process_single_paper(user_id: int, paper_id: str) -> None:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def start_processing(user_id: int, paper_id: str, priority: int = 0) -> bool:
+def start_processing(user_id: int, paper_id: str, priority: int = 0) -> tuple[bool, str]:
     """Launch pipeline in background thread.
 
     Args:
@@ -966,27 +966,53 @@ def start_processing(user_id: int, paper_id: str, priority: int = 0) -> bool:
                   threads start with a slightly boosted OS thread priority on
                   platforms that support it.
 
-    Returns True if started; False if already running.
+    Returns ``(ok, message)`` so callers can distinguish an active duplicate
+    from a launch failure.
     """
     if not _mark_running(paper_id):
-        return False
+        return False, "处理已在进行中"
 
     import services.user_paper_service as svc
-    step = "queued_priority" if priority > 0 else "queued"
-    svc.set_process_status(paper_id, status="pending", step=step)
+    try:
+        step = "queued_priority" if priority > 0 else "queued"
+        svc.set_process_status(paper_id, status="pending", step=step)
 
-    t = threading.Thread(
-        target=process_single_paper,
-        args=(user_id, paper_id),
-        daemon=True,
-        name=f"user-paper-pipeline-{'priority-' if priority > 0 else ''}{paper_id}",
-    )
-    # Boost thread priority for fast-track reward users on POSIX platforms
-    if priority > 0:
+        t = threading.Thread(
+            target=process_single_paper,
+            args=(user_id, paper_id),
+            daemon=True,
+            name=f"user-paper-pipeline-{'priority-' if priority > 0 else ''}{paper_id}",
+        )
+        # Boost thread priority for fast-track reward users on POSIX platforms
+        if priority > 0:
+            try:
+                import os as _os
+                _os.nice(-5)  # Slightly lower niceness = higher priority
+            except (OSError, AttributeError):
+                pass  # Windows or permission issue — silently skip
+        t.start()
+        return True, "处理已启动"
+    except Exception as exc:
+        _mark_done(paper_id)
+        public_error = safe_failure_detail(
+            logger,
+            "论文处理任务启动失败，请稍后重试",
+            exc,
+            operation="user_paper_pipeline_start",
+        )
         try:
-            import os as _os
-            _os.nice(-5)  # Slightly lower niceness = higher priority
-        except (OSError, AttributeError):
-            pass  # Windows or permission issue — silently skip
-    t.start()
-    return True
+            svc.set_process_status(
+                paper_id,
+                status="failed",
+                step="",
+                error=public_error,
+                finished=True,
+            )
+        except Exception as status_exc:
+            safe_failure_detail(
+                logger,
+                "论文处理任务状态更新失败",
+                status_exc,
+                operation="user_paper_pipeline_start_status",
+            )
+        return False, public_error
