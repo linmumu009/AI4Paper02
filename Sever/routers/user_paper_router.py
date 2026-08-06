@@ -134,6 +134,12 @@ def _enrich_user_paper(p: dict) -> dict:
             p["paper_assets"] = None
     else:
         p["paper_assets"] = None
+    p["process_error"] = safe_stored_error(
+        p.get("process_error"), "论文处理失败，请重试"
+    )
+    p["translate_error"] = safe_stored_error(
+        p.get("translate_error"), "论文翻译失败，请重试"
+    )
     return p
 
 
@@ -160,16 +166,32 @@ def api_user_paper_import_manual(
     body: UserPaperManualBody,
     _user=Depends(auth_service.require_user),
 ):
-    paper = _create_paper_with_quota(
-        _user["id"],
-        source_type="manual",
-        source_ref="",
+    source_ref = user_paper_service.build_manual_source_ref(
         title=body.title,
         authors=body.authors,
         abstract=body.abstract,
         institution=body.institution,
         year=body.year,
         external_url=body.external_url,
+    )
+    existing = user_paper_service.get_paper_by_source(
+        _user["id"], "manual", source_ref
+    )
+    if existing is not None:
+        existing["already_exists"] = True
+        return _enrich_user_paper(existing)
+
+    paper = _create_paper_with_quota(
+        _user["id"],
+        source_type="manual",
+        source_ref=source_ref,
+        title=body.title,
+        authors=body.authors,
+        abstract=body.abstract,
+        institution=body.institution,
+        year=body.year,
+        external_url=body.external_url,
+        deduplicate_source=True,
     )
     return paper
 
@@ -249,10 +271,18 @@ async def api_user_paper_import_pdf(
     except Exception:
         authors_list = []
 
+    source_ref = user_paper_service.build_pdf_source_ref(pdf_bytes)
+    existing = user_paper_service.get_paper_by_source(
+        _user["id"], "pdf", source_ref
+    )
+    if existing is not None:
+        existing["already_exists"] = True
+        return _enrich_user_paper(existing)
+
     paper = _create_paper_with_quota(
         _user["id"],
         source_type="pdf",
-        source_ref="",
+        source_ref=source_ref,
         title=title or (file.filename or "未命名论文").replace(".pdf", ""),
         authors=authors_list,
         abstract=abstract,
@@ -261,6 +291,7 @@ async def api_user_paper_import_pdf(
         external_url=external_url,
         pdf_bytes=pdf_bytes,
         pdf_filename=file.filename or "paper.pdf",
+        deduplicate_source=True,
     )
     return paper
 

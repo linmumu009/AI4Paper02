@@ -66,6 +66,58 @@ class UserPaperImportQuotaContractTests(unittest.TestCase):
         self.assertLess(route.index("fetch_arxiv_metadata"), route.index("_create_paper_with_quota"))
         self.assertIn("deduplicate_source=True", route)
 
+    def test_manual_and_pdf_duplicates_short_circuit_before_quota(self) -> None:
+        manual = _function_source(_ROUTER, "api_user_paper_import_manual")
+        pdf = _function_source(_ROUTER, "api_user_paper_import_pdf")
+
+        self.assertLess(manual.index("build_manual_source_ref"), manual.index("get_paper_by_source"))
+        self.assertLess(manual.index("get_paper_by_source"), manual.index("_create_paper_with_quota"))
+        self.assertIn("deduplicate_source=True", manual)
+
+        self.assertLess(pdf.index("read_upload_with_limit"), pdf.index("build_pdf_source_ref"))
+        self.assertLess(pdf.index("build_pdf_source_ref"), pdf.index("get_paper_by_source"))
+        self.assertLess(pdf.index("get_paper_by_source"), pdf.index("_create_paper_with_quota"))
+        self.assertIn("deduplicate_source=True", pdf)
+
+    def test_manual_fingerprint_uses_complete_normalized_metadata(self) -> None:
+        first = user_paper_service.build_manual_source_ref(
+            title="  A   Paper ",
+            authors=["Alice", "BOB"],
+            abstract="An abstract",
+            institution="PKU",
+            year=2026,
+            external_url="HTTPS://EXAMPLE.COM/PAPER",
+        )
+        equivalent = user_paper_service.build_manual_source_ref(
+            title="a paper",
+            authors=["alice", "bob"],
+            abstract="an   abstract",
+            institution="pku",
+            year=2026,
+            external_url="https://example.com/paper",
+        )
+        different = user_paper_service.build_manual_source_ref(
+            title="a paper",
+            authors=["alice", "bob"],
+            abstract="a different abstract",
+            institution="pku",
+            year=2026,
+            external_url="https://example.com/paper",
+        )
+
+        self.assertEqual(first, equivalent)
+        self.assertNotEqual(first, different)
+        self.assertTrue(first.startswith("manual-sha256:"))
+
+    def test_pdf_fingerprint_depends_only_on_exact_content(self) -> None:
+        first = user_paper_service.build_pdf_source_ref(b"%PDF-same")
+        second = user_paper_service.build_pdf_source_ref(b"%PDF-same")
+        different = user_paper_service.build_pdf_source_ref(b"%PDF-different")
+
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, different)
+        self.assertTrue(first.startswith("pdf-sha256:"))
+
     def test_arxiv_id_normalization_is_strict_and_canonical(self) -> None:
         self.assertEqual(
             user_paper_service.normalize_arxiv_id(
@@ -126,6 +178,44 @@ class UserPaperImportQuotaContractTests(unittest.TestCase):
                 self.assertEqual({item["paper_id"] for item in results}, {results[0]["paper_id"]})
                 self.assertEqual(sorted(item["_created"] for item in results), [False, True])
                 self.assertEqual(len(user_paper_service.list_papers(7)), 1)
+
+    def test_concurrent_pdf_create_writes_only_one_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            pdf_bytes = b"%PDF-identical"
+            source_ref = user_paper_service.build_pdf_source_ref(pdf_bytes)
+            with (
+                patch.object(user_paper_service, "_DB_PATH", str(root / "papers.db")),
+                patch.object(user_paper_service, "_KB_DB_PATH", str(root / "analysis.db")),
+                patch.object(user_paper_service, "_USER_PAPERS_DIR", str(root / "files")),
+            ):
+                user_paper_service.init_db()
+
+                def create_once(_: int) -> dict:
+                    return user_paper_service.create_paper(
+                        7,
+                        source_type="pdf",
+                        source_ref=source_ref,
+                        title="paper",
+                        pdf_bytes=pdf_bytes,
+                        deduplicate_source=True,
+                    )
+
+                with ThreadPoolExecutor(max_workers=2) as pool:
+                    results = list(pool.map(create_once, range(2)))
+
+                self.assertEqual({item["paper_id"] for item in results}, {results[0]["paper_id"]})
+                self.assertEqual(sorted(item["_created"] for item in results), [False, True])
+                self.assertEqual(len(user_paper_service.list_papers(7)), 1)
+                self.assertEqual(len(list((root / "files").rglob("*.pdf"))), 1)
+
+    def test_duplicate_response_sanitizes_stored_task_errors(self) -> None:
+        router_source = _ROUTER.read_text(encoding="utf-8")
+        enrich = _function_source(_ROUTER, "_enrich_user_paper")
+
+        self.assertIn("safe_stored_error", router_source)
+        self.assertIn('p.get("process_error")', enrich)
+        self.assertIn('p.get("translate_error")', enrich)
 
     def test_failed_database_connection_removes_written_pdf(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

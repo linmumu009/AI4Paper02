@@ -63,6 +63,43 @@ def _new_paper_id() -> str:
     return f"up_{uuid.uuid4().hex}"
 
 
+def build_manual_source_ref(
+    *,
+    title: str,
+    authors: list[str] | None,
+    abstract: str,
+    institution: str,
+    year: int | None,
+    external_url: str,
+) -> str:
+    import hashlib
+
+    def normalize(value: Any) -> str:
+        return " ".join(str(value or "").split()).casefold()
+
+    payload = {
+        "title": normalize(title),
+        "authors": [normalize(author) for author in (authors or [])],
+        "abstract": normalize(abstract),
+        "institution": normalize(institution),
+        "year": int(year) if year is not None else None,
+        "external_url": normalize(external_url),
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"manual-sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+def build_pdf_source_ref(pdf_bytes: bytes) -> str:
+    import hashlib
+
+    return f"pdf-sha256:{hashlib.sha256(pdf_bytes).hexdigest()}"
+
+
 def _row_to_dict(row: sqlite3.Row) -> dict:
     d = dict(row)
     for field in ("authors", "tags"):
