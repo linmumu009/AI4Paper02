@@ -369,3 +369,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\index.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\PaperDetailEmbed.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\papers.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useWorkspaceRouteState.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\router\routeLoading.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\router\routeLoading.test.ts

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, createWebHashHistory } from 'vue-router'
 import { ref } from 'vue'
 import { ensureAuthInitialized, isAdmin, isAuthenticated } from '../stores/auth'
+import { shouldShowRouteLoading } from './routeLoading'
 
 export const routeLoading = ref(true)
 export const routeLoadError = ref('')
@@ -282,8 +283,8 @@ router.afterEach((to) => {
   setPageMeta(m?.title || DEFAULT_TITLE, m?.description)
 })
 
-router.beforeEach(async (to) => {
-  routeLoading.value = true
+router.beforeEach(async (to, from) => {
+  routeLoading.value = shouldShowRouteLoading(to, from)
   routeLoadError.value = ''
   // 确保认证状态已初始化
   await ensureAuthInitialized()
