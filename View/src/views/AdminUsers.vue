@@ -598,6 +598,7 @@ const recommendConfigModules = [
     desc: '压缩摘要各部分至字数上限（按需触发）',
     llmPrefix: 'summary_limit' as string | null,
     prompts: [
+      { variable: 'summary_limit_prompt_card', label: '八字段整卡终稿精简提示词' },
       { variable: 'summary_limit_prompt_intro', label: '文章简介精简提示词' },
       { variable: 'summary_limit_prompt_method', label: '重点思路精简提示词' },
       { variable: 'summary_limit_prompt_findings', label: '分析总结精简提示词' },
@@ -726,6 +727,7 @@ const selectedLlmConfigIds = ref<Record<string, number | null>>({
 const selectedPromptConfigIds = ref<Record<string, number | null>>({
   theme_select_system_prompt: null,
   system_prompt: null,
+  summary_limit_prompt_card: null,
   summary_limit_prompt_intro: null,
   summary_limit_prompt_method: null,
   summary_limit_prompt_findings: null,
@@ -1533,6 +1535,7 @@ const promptConfigApplying = ref<number | null>(null)
 const promptVariableOptions = [
   { value: 'theme_select_system_prompt', label: '主题评分提示词 (theme_select_system_prompt)' },
   { value: 'system_prompt', label: '摘要生成提示词 (system_prompt)' },
+  { value: 'summary_limit_prompt_card', label: '摘要精简-八字段整卡终稿 (summary_limit_prompt_card)' },
   { value: 'summary_limit_prompt_intro', label: '摘要精简-文章简介 (summary_limit_prompt_intro)' },
   { value: 'summary_limit_prompt_method', label: '摘要精简-重点思路 (summary_limit_prompt_method)' },
   { value: 'summary_limit_prompt_findings', label: '摘要精简-分析总结 (summary_limit_prompt_findings)' },

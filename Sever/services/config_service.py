@@ -148,6 +148,7 @@ _CONFIG_GROUPS = {
         "theme_select_system_prompt",
         "summary_example",
         "system_prompt",
+        "summary_limit_prompt_card",
         "summary_limit_prompt_intro",
         "summary_limit_prompt_method",
         "summary_limit_prompt_findings",
@@ -387,6 +388,7 @@ def _get_config_description(key: str) -> str:
         "idea_eval_system_prompt": "灵感评测回放系统提示词（灵感评测回放）",
         "paper_assets_max_tokens": "结构化分析（13块 JSON）输出最大 Token 数，建议不低于 12288",
         "paper_assets_system_prompt": "结构化分析系统提示词（13块 JSON 抽取器，控制输出语言、字段规则等）",
+        "summary_limit_prompt_card": "推荐卡片八字段整卡终稿精简提示词",
     }
     return descriptions.get(key, "")
 

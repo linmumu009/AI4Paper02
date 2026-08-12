@@ -111,6 +111,20 @@ class AdminSecretStorageTests(unittest.TestCase):
         self.assertEqual(qwen_items[0]["value"], secrets.SECRET_MASK)
         self.assertEqual(groups["defaults"]["qwen_api_key"], secrets.SECRET_MASK)
 
+    def test_card_refinement_prompt_is_exposed_in_admin_prompt_group(self) -> None:
+        groups = config_service.get_config_with_groups()["groups"]
+        prompt_group = next(group for group in groups if group["name"] == "提示词配置")
+        card_items = [
+            item
+            for item in prompt_group["items"]
+            if item["key"] == "summary_limit_prompt_card"
+        ]
+        self.assertEqual(len(card_items), 1)
+        self.assertEqual(
+            card_items[0]["description"],
+            "推荐卡片八字段整卡终稿精简提示词",
+        )
+
     def test_migration_covers_admin_config_pool_and_config_json(self) -> None:
         now = "2026-08-05T00:00:00+00:00"
         with closing(sqlite3.connect(self.db_path)) as connection:
