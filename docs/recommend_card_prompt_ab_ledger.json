@@ -1,0 +1,507 @@
+{
+  "schema_version": 2,
+  "run": {
+    "started_at": "2026-08-12T06:30:04.720592+00:00",
+    "finished_at": "2026-08-12T06:30:04.724508+00:00",
+    "seed": 20260812,
+    "generation_model": "deepseek-v4-flash",
+    "judge_model": "deepseek-v4-pro",
+    "base_url_host": "api.deepseek.com",
+    "generation_temperature": 0.0,
+    "generation_thinking": false,
+    "judge_thinking": false,
+    "judge_weight": 0.8,
+    "deterministic_weight": 0.2
+  },
+  "samples": {
+    "dev": [
+      {
+        "paper_id": "2608.06218",
+        "sha256": "d8109fe41c691022602b22f14d609a2847b20232cc17668d83ef459f124d5830",
+        "bytes": 35860
+      },
+      {
+        "paper_id": "2608.06301",
+        "sha256": "7a5052ba7356045a9e4863ca37304169005cf4a07069eb1ff86a0b358b966615",
+        "bytes": 60463
+      },
+      {
+        "paper_id": "2608.09772",
+        "sha256": "d7e203f61ffb0b1d5aeedefaee365ae49739217a314f3cab51f464d57a991e3c",
+        "bytes": 49810
+      }
+    ],
+    "holdout": [
+      {
+        "paper_id": "2608.05069",
+        "sha256": "11f73b6a7ff6a43293e20c872eff95bcd98001bed4350a2cd44b5831a724dcde",
+        "bytes": 31892
+      },
+      {
+        "paper_id": "2608.09880",
+        "sha256": "bf03a517c60285cde988cf4830457f28ce7e230b2b118e693500d023185ca2a0",
+        "bytes": 60573
+      }
+    ]
+  },
+  "generation": {
+    "rounds": [
+      {
+        "round": 1,
+        "baseline": "current",
+        "challenger": "g1_field_contracts",
+        "baseline_score": 96.25,
+        "challenger_score": 93.1,
+        "delta": -3.15,
+        "zero_delta": 1.62,
+        "wins": 0,
+        "paper_count": 3,
+        "factuality_delta": -1.9,
+        "worst_field": "personal_opinion",
+        "worst_field_delta": -6.23,
+        "promoted": false,
+        "champion_after": "current"
+      },
+      {
+        "round": 2,
+        "baseline": "current",
+        "challenger": "g2_evidence_ladder",
+        "baseline_score": 96.25,
+        "challenger_score": 95.3,
+        "delta": -0.95,
+        "zero_delta": 3.82,
+        "wins": 2,
+        "paper_count": 3,
+        "factuality_delta": 0.0,
+        "worst_field": "personal_opinion",
+        "worst_field_delta": -4.05,
+        "promoted": false,
+        "champion_after": "current"
+      },
+      {
+        "round": 3,
+        "baseline": "current",
+        "challenger": "g3_type_aware_dedup",
+        "baseline_score": 96.25,
+        "challenger_score": 95.37,
+        "delta": -0.88,
+        "zero_delta": 3.89,
+        "wins": 1,
+        "paper_count": 3,
+        "factuality_delta": 0.12,
+        "worst_field": "personal_opinion",
+        "worst_field_delta": -3.47,
+        "promoted": false,
+        "champion_after": "current"
+      },
+      {
+        "round": 4,
+        "baseline": "current",
+        "challenger": "g4_current_type_guard",
+        "baseline_score": 96.25,
+        "challenger_score": 94.17,
+        "delta": -2.08,
+        "zero_delta": 2.69,
+        "wins": 1,
+        "paper_count": 3,
+        "factuality_delta": -0.47,
+        "worst_field": "key_ideas",
+        "worst_field_delta": -3.5,
+        "promoted": false,
+        "champion_after": "current"
+      },
+      {
+        "round": 5,
+        "baseline": "current",
+        "challenger": "g5_theory_branch_minimal",
+        "baseline_score": 96.25,
+        "challenger_score": 97.18,
+        "delta": 0.93,
+        "zero_delta": 5.7,
+        "wins": 1,
+        "paper_count": 3,
+        "factuality_delta": 2.86,
+        "worst_field": "analysis_summary",
+        "worst_field_delta": -1.03,
+        "promoted": false,
+        "champion_after": "current"
+      },
+      {
+        "round": 6,
+        "baseline": "current",
+        "challenger": "g6_theory_exception_only",
+        "baseline_score": 96.25,
+        "challenger_score": 95.29,
+        "delta": -0.96,
+        "zero_delta": 3.81,
+        "wins": 1,
+        "paper_count": 3,
+        "factuality_delta": 0.12,
+        "worst_field": "short_title",
+        "worst_field_delta": -2.93,
+        "promoted": false,
+        "champion_after": "current"
+      }
+    ],
+    "champion": "current",
+    "version_scores": {
+      "zero": {
+        "score": 91.48,
+        "factuality_score": 98.1,
+        "field_scores": {
+          "short_title": 90.33,
+          "recommendation_reason": 90.8,
+          "research_question": 92.34,
+          "main_contribution": 91.43,
+          "key_ideas": 92.0,
+          "analysis_summary": 92.0,
+          "personal_opinion": 90.91,
+          "memory_sentence": 91.38
+        },
+        "paper_count": 3
+      },
+      "current": {
+        "score": 96.25,
+        "factuality_score": 97.14,
+        "field_scores": {
+          "short_title": 96.52,
+          "recommendation_reason": 97.6,
+          "research_question": 97.87,
+          "main_contribution": 97.6,
+          "key_ideas": 96.53,
+          "analysis_summary": 93.92,
+          "personal_opinion": 96.27,
+          "memory_sentence": 93.78
+        },
+        "paper_count": 3
+      },
+      "g1_field_contracts": {
+        "score": 93.1,
+        "factuality_score": 95.24,
+        "field_scores": {
+          "short_title": 92.6,
+          "recommendation_reason": 95.2,
+          "research_question": 95.2,
+          "main_contribution": 94.41,
+          "key_ideas": 93.13,
+          "analysis_summary": 90.26,
+          "personal_opinion": 90.04,
+          "memory_sentence": 94.24
+        },
+        "paper_count": 3
+      },
+      "g2_evidence_ladder": {
+        "score": 95.3,
+        "factuality_score": 97.14,
+        "field_scores": {
+          "short_title": 93.4,
+          "recommendation_reason": 96.8,
+          "research_question": 97.07,
+          "main_contribution": 96.07,
+          "key_ideas": 96.8,
+          "analysis_summary": 93.84,
+          "personal_opinion": 92.22,
+          "memory_sentence": 95.25
+        },
+        "paper_count": 3
+      },
+      "g3_type_aware_dedup": {
+        "score": 95.37,
+        "factuality_score": 97.26,
+        "field_scores": {
+          "short_title": 96.0,
+          "recommendation_reason": 96.0,
+          "research_question": 96.8,
+          "main_contribution": 95.43,
+          "key_ideas": 95.31,
+          "analysis_summary": 95.27,
+          "personal_opinion": 92.8,
+          "memory_sentence": 94.98
+        },
+        "paper_count": 3
+      },
+      "g4_current_type_guard": {
+        "score": 94.17,
+        "factuality_score": 96.67,
+        "field_scores": {
+          "short_title": 93.61,
+          "recommendation_reason": 96.47,
+          "research_question": 97.07,
+          "main_contribution": 97.07,
+          "key_ideas": 93.03,
+          "analysis_summary": 90.85,
+          "personal_opinion": 92.8,
+          "memory_sentence": 93.0
+        },
+        "paper_count": 3
+      },
+      "g5_theory_branch_minimal": {
+        "score": 97.18,
+        "factuality_score": 100.0,
+        "field_scores": {
+          "short_title": 96.79,
+          "recommendation_reason": 98.95,
+          "research_question": 100.0,
+          "main_contribution": 100.0,
+          "key_ideas": 96.54,
+          "analysis_summary": 92.89,
+          "personal_opinion": 97.98,
+          "memory_sentence": 95.22
+        },
+        "paper_count": 3
+      },
+      "g6_theory_exception_only": {
+        "score": 95.29,
+        "factuality_score": 97.26,
+        "field_scores": {
+          "short_title": 93.59,
+          "recommendation_reason": 97.33,
+          "research_question": 97.6,
+          "main_contribution": 96.81,
+          "key_ideas": 95.17,
+          "analysis_summary": 94.03,
+          "personal_opinion": 93.85,
+          "memory_sentence": 93.24
+        },
+        "paper_count": 3
+      }
+    },
+    "field_deltas": [
+      [
+        "中文短标题",
+        96.52,
+        96.52,
+        0.0
+      ],
+      [
+        "推荐理由",
+        97.6,
+        97.6,
+        0.0
+      ],
+      [
+        "研究问题",
+        97.87,
+        97.87,
+        0.0
+      ],
+      [
+        "主要贡献",
+        97.6,
+        97.6,
+        0.0
+      ],
+      [
+        "重点思路",
+        96.53,
+        96.53,
+        0.0
+      ],
+      [
+        "分析总结",
+        93.92,
+        93.92,
+        0.0
+      ],
+      [
+        "个人观点",
+        96.27,
+        96.27,
+        0.0
+      ],
+      [
+        "一句话记忆",
+        93.78,
+        93.78,
+        0.0
+      ]
+    ],
+    "zero_comparison": {
+      "zero_score": 91.48,
+      "current_score": 96.25,
+      "delta": 4.77
+    }
+  },
+  "refinement": {
+    "draft_version": "zero",
+    "rounds": [
+      {
+        "round": 1,
+        "baseline": "legacy",
+        "challenger": "r1_field_limits",
+        "baseline_score": 85.95,
+        "challenger_score": 94.32,
+        "delta": 8.37,
+        "zero_delta": null,
+        "wins": 3,
+        "paper_count": 3,
+        "factuality_delta": 4.4,
+        "worst_field": "short_title",
+        "worst_field_delta": 3.22,
+        "promoted": true,
+        "champion_after": "r1_field_limits"
+      },
+      {
+        "round": 2,
+        "baseline": "r1_field_limits",
+        "challenger": "r2_evidence_preservation",
+        "baseline_score": 94.32,
+        "challenger_score": 93.87,
+        "delta": -0.45,
+        "zero_delta": null,
+        "wins": 0,
+        "paper_count": 3,
+        "factuality_delta": 0.0,
+        "worst_field": "recommendation_reason",
+        "worst_field_delta": -1.35,
+        "promoted": false,
+        "champion_after": "r1_field_limits"
+      },
+      {
+        "round": 3,
+        "baseline": "r1_field_limits",
+        "challenger": "r3_type_aware_dedup",
+        "baseline_score": 94.32,
+        "challenger_score": 94.31,
+        "delta": -0.01,
+        "zero_delta": null,
+        "wins": 1,
+        "paper_count": 3,
+        "factuality_delta": 0.0,
+        "worst_field": "key_ideas",
+        "worst_field_delta": -0.8,
+        "promoted": false,
+        "champion_after": "r1_field_limits"
+      }
+    ],
+    "champion": "r1_field_limits",
+    "version_scores": {
+      "r3_type_aware_dedup": {
+        "score": 94.31,
+        "factuality_score": 98.21,
+        "field_scores": {
+          "short_title": 92.29,
+          "recommendation_reason": 95.95,
+          "research_question": 97.69,
+          "main_contribution": 93.58,
+          "key_ideas": 92.8,
+          "analysis_summary": 94.13,
+          "personal_opinion": 92.42,
+          "memory_sentence": 95.88
+        },
+        "paper_count": 3
+      },
+      "legacy": {
+        "score": 85.95,
+        "factuality_score": 93.81,
+        "field_scores": {
+          "short_title": 89.07,
+          "recommendation_reason": 85.73,
+          "research_question": 88.34,
+          "main_contribution": 87.16,
+          "key_ideas": 83.73,
+          "analysis_summary": 83.73,
+          "personal_opinion": 85.84,
+          "memory_sentence": 85.78
+        },
+        "paper_count": 3
+      },
+      "r1_field_limits": {
+        "score": 94.32,
+        "factuality_score": 98.21,
+        "field_scores": {
+          "short_title": 92.29,
+          "recommendation_reason": 96.0,
+          "research_question": 97.69,
+          "main_contribution": 93.71,
+          "key_ideas": 93.6,
+          "analysis_summary": 94.13,
+          "personal_opinion": 92.51,
+          "memory_sentence": 94.37
+        },
+        "paper_count": 3
+      },
+      "r2_evidence_preservation": {
+        "score": 93.87,
+        "factuality_score": 98.21,
+        "field_scores": {
+          "short_title": 92.35,
+          "recommendation_reason": 94.65,
+          "research_question": 97.03,
+          "main_contribution": 93.06,
+          "key_ideas": 93.07,
+          "analysis_summary": 94.4,
+          "personal_opinion": 92.15,
+          "memory_sentence": 94.02
+        },
+        "paper_count": 3
+      }
+    },
+    "field_deltas": [
+      [
+        "中文短标题",
+        89.07,
+        92.29,
+        3.22
+      ],
+      [
+        "推荐理由",
+        85.73,
+        96.0,
+        10.27
+      ],
+      [
+        "研究问题",
+        88.34,
+        97.69,
+        9.35
+      ],
+      [
+        "主要贡献",
+        87.16,
+        93.71,
+        6.55
+      ],
+      [
+        "重点思路",
+        83.73,
+        93.6,
+        9.87
+      ],
+      [
+        "分析总结",
+        83.73,
+        94.13,
+        10.4
+      ],
+      [
+        "个人观点",
+        85.84,
+        92.51,
+        6.67
+      ],
+      [
+        "一句话记忆",
+        85.78,
+        94.37,
+        8.59
+      ]
+    ]
+  },
+  "holdout": {
+    "generation": {
+      "zero_score": 86.99,
+      "baseline_score": 93.61,
+      "champion_score": 93.61,
+      "delta": 0.0,
+      "prompt_delta": 6.62
+    },
+    "refinement": {
+      "baseline_score": 88.75,
+      "champion_score": 93.34,
+      "delta": 4.59
+    },
+    "passed": true,
+    "decision": "冠军通过，允许集成"
+  }
+}

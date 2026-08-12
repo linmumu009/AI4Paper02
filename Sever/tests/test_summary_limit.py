@@ -14,9 +14,15 @@ if str(_SEVER) not in sys.path:
     sys.path.insert(0, str(_SEVER))
 
 from Controller.summary_limit import (  # noqa: E402
+    SECTION_PROMPTS_DEFAULT,
     _choice_text,
+    build_effective_cfg,
+    card_contract_errors,
+    card_needs_refinement,
     load_pdf_info_map_for_run,
+    process_one,
     process_one_with_fallback,
+    rewrite_card,
     structure_matches_example,
 )
 from services.llm_response_guard import (  # noqa: E402
@@ -29,6 +35,57 @@ def _resp_with_content(content):
     return SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content=content))]
     )
+
+
+LONG_CARD = """笔记标题：受控评测智能体运行框架的独立贡献
+📖标题：A Controlled Benchmark
+🌐来源：arXiv,2608.00001
+推荐理由：用受控协议将模型与运行框架分开评估，避免把框架收益误归因给模型，并通过统一预算、隔离数据和完整修改轨迹让不同框架的贡献可复现、可审计、可比较。
+
+🛎️文章简介
+🔸研究问题：如何在固定模型和任务的条件下测量运行框架的独立贡献？
+🔸主要贡献：构建一套受控评测协议，让模型、任务和运行框架的影响可分离测量。
+
+📝重点思路
+🔸固定模型和下游任务，只替换运行框架。
+🔸将开发、验证和测试数据隔离，减少适应性过拟合。
+🔸在统一预算下记录完整修改轨迹并比较收益。
+
+🔎分析总结
+🔸不同运行框架会改变同一模型的任务表现。
+🔸框架收益随任务变化，不能用单一任务外推。
+🔸受控协议能分开模型能力与框架贡献。
+
+💡个人观点
+该协议提高了框架比较的可解释性，但结论仍受任务范围限制。
+
+一句话记忆版：只有固定模型与任务，才能看清运行框架本身对智能体表现的独立贡献。
+"""
+
+REFINED_CARD = """笔记标题：分离测量框架贡献
+📖标题：A Controlled Benchmark
+🌐来源：arXiv,2608.00001
+推荐理由：用受控协议分开模型与框架收益。
+
+🛎️文章简介
+🔸研究问题：如何测量运行框架的独立贡献？
+🔸主要贡献：构建受控协议，分离测量模型、任务与框架影响。
+
+📝重点思路
+🔸固定模型和任务，只替换框架。
+🔸隔离开发、验证和测试数据。
+🔸在统一预算下记录并比较收益。
+
+🔎分析总结
+🔸框架会改变同一模型的任务表现。
+🔸框架收益随任务变化。
+🔸受控协议可分开模型与框架贡献。
+
+💡个人观点
+协议提高了框架比较的可解释性，但受任务范围限制。
+
+一句话记忆版：固定模型和任务，才能看清框架贡献。
+"""
 
 
 class TestChoiceText(unittest.TestCase):
@@ -101,6 +158,135 @@ class TestLoadPdfInfoMapForRun(unittest.TestCase):
         )
         self.assertEqual(out["2605.20006"]["instution"], "MIT")
         self.assertEqual(out["2605.20006"]["title"], "GeoX")
+
+
+class TestFullCardRefinement(unittest.TestCase):
+    def test_long_complete_card_requires_refinement(self):
+        self.assertTrue(card_needs_refinement(LONG_CARD))
+        self.assertFalse(card_needs_refinement(REFINED_CARD))
+
+    def test_rewrite_card_accepts_valid_eight_field_result(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = _resp_with_content(REFINED_CARD)
+        result = rewrite_card(
+            client,
+            LONG_CARD,
+            effective_cfg={
+                "card_prompt": "compress",
+                "model": "test-model",
+                "max_tokens": 2048,
+                "input_hard_limit": 129024,
+                "input_safety_margin": 4096,
+            },
+        )
+
+        self.assertIn("笔记标题:分离测量框架贡献", result)
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+
+    def test_process_refines_before_injecting_institution_once(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "2608.00001.md"
+            output = root / "out.md"
+            source.write_text(LONG_CARD, encoding="utf-8")
+            client = MagicMock()
+            client.chat.completions.create.return_value = _resp_with_content(
+                REFINED_CARD
+            )
+
+            _, status = process_one(
+                client,
+                source,
+                output,
+                {
+                    "2608.00001": {
+                        "title": "A Controlled Benchmark",
+                        "source": "arXiv,2608.00001",
+                        "instution": "MIT",
+                    }
+                },
+                effective_cfg={
+                    "card_prompt": "compress",
+                    "model": "test-model",
+                    "max_tokens": 2048,
+                    "input_hard_limit": 129024,
+                    "input_safety_margin": 4096,
+                },
+            )
+
+            result = output.read_text(encoding="utf-8")
+            self.assertEqual(status, "rewritten")
+            self.assertTrue(result.startswith("MIT:分离测量框架贡献\n"))
+            self.assertNotIn("MIT:MIT", result)
+            self.assertEqual(client.chat.completions.create.call_count, 1)
+
+    def test_contract_rejects_changed_metadata_and_new_number(self):
+        candidate = REFINED_CARD.replace(
+            "A Controlled Benchmark", "Changed Title"
+        ).replace("框架收益。", "框架收益99%。")
+
+        errors = card_contract_errors(candidate, source_draft=LONG_CARD)
+
+        self.assertIn("original_title_changed", errors)
+        self.assertTrue(any(item.startswith("unsupported_numbers=") for item in errors))
+
+    def test_existing_section_customization_disables_default_card_prompt(self):
+        user_cfg = {
+            "llm_api_key": "dummy-key",
+            "llm_base_url": "https://example.com/v1",
+            "llm_model": "dummy-model",
+            "summary_limit_prompt_intro": "my custom intro compressor",
+        }
+        with patch(
+            "Controller.summary_limit._load_user_config", return_value=user_cfg
+        ), patch(
+            "Controller.summary_limit._load_explicit_user_config",
+            return_value=user_cfg,
+        ):
+            cfg = build_effective_cfg(user_id=7)
+
+        self.assertEqual(cfg["card_prompt"], "")
+        self.assertEqual(
+            cfg["section_prompts"]["intro"], "my custom intro compressor"
+        )
+
+    def test_equivalent_quote_style_is_not_treated_as_customization(self):
+        method_prompt = SECTION_PROMPTS_DEFAULT["method"].replace("“", '"').replace(
+            "”", '"'
+        )
+        merged = {
+            "llm_api_key": "dummy-key",
+            "llm_base_url": "https://example.com/v1",
+            "llm_model": "dummy-model",
+            "summary_limit_prompt_method": method_prompt,
+        }
+        explicit = {"summary_limit_prompt_method": method_prompt}
+        with patch(
+            "Controller.summary_limit._load_user_config", return_value=merged
+        ), patch(
+            "Controller.summary_limit._load_explicit_user_config",
+            return_value=explicit,
+        ):
+            cfg = build_effective_cfg(user_id=7)
+
+        self.assertTrue(cfg["card_prompt"])
+
+    def test_explicit_empty_card_prompt_disables_full_card_refinement(self):
+        merged = {
+            "llm_api_key": "dummy-key",
+            "llm_base_url": "https://example.com/v1",
+            "llm_model": "dummy-model",
+            "summary_limit_prompt_card": "",
+        }
+        with patch(
+            "Controller.summary_limit._load_user_config", return_value=merged
+        ), patch(
+            "Controller.summary_limit._load_explicit_user_config",
+            return_value={"summary_limit_prompt_card": ""},
+        ):
+            cfg = build_effective_cfg(user_id=7)
+
+        self.assertEqual(cfg["card_prompt"], "")
 
 
 if __name__ == "__main__":

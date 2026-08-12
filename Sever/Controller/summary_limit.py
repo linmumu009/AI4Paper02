@@ -36,6 +36,7 @@ from config.config import (  # noqa: E402
     summary_limit_section_limit_findings,
     summary_limit_section_limit_opinion,
     summary_limit_headline_limit,
+    summary_limit_prompt_card,
     summary_limit_prompt_intro,
     summary_limit_prompt_method,
     summary_limit_prompt_findings,
@@ -51,6 +52,12 @@ from config.config import (  # noqa: E402
     summary_limit_model_3,
     DATA_ROOT,
     SLLM,
+)
+from config.recommend_card_prompts import CARD_FIELD_LIMITS
+from services.recommend_card_prompt_eval import (
+    FIELD_ORDER as CARD_FIELD_ORDER,
+    deterministic_report as card_deterministic_report,
+    parse_card,
 )
 
 
@@ -81,6 +88,7 @@ SECTION_PROMPTS_DEFAULT: Dict[str, str] = {
 # don't receive an explicit effective_cfg).
 SECTION_LIMITS = dict(SECTION_LIMITS_DEFAULT)
 SECTION_PROMPTS = dict(SECTION_PROMPTS_DEFAULT)
+CARD_LIMITS_DEFAULT: Dict[str, int] = dict(CARD_FIELD_LIMITS)
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +101,29 @@ def _load_user_config(user_id: int, feature: str = "paper_recommend") -> Dict[st
         return get_settings(user_id, feature)
     except Exception:
         return {}
+
+
+def _load_explicit_user_config(
+    user_id: int,
+    feature: str = "paper_recommend",
+) -> Dict[str, Any]:
+    """Return only explicit admin/user overrides, with user values winning."""
+    try:
+        from services.user_settings_service import (
+            get_admin_overrides,
+            get_raw_settings,
+        )
+
+        values = dict(get_admin_overrides(feature) or {})
+        values.update(get_raw_settings(user_id, feature) or {})
+        return values
+    except Exception:
+        return {}
+
+
+def _prompt_signature(value: Any) -> str:
+    punctuation = str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"})
+    return re.sub(r"\s+", "", str(value or "").translate(punctuation))
 
 
 def _resolve_llm_preset(user_id: int, preset_id: Any) -> Dict[str, Any]:
@@ -133,6 +164,8 @@ def build_effective_cfg(user_id: Optional[int] = None, feature: str = "paper_rec
         "headline_limit": summary_limit_headline_limit,
         "section_limits": dict(SECTION_LIMITS_DEFAULT),
         "section_prompts": dict(SECTION_PROMPTS_DEFAULT),
+        "card_prompt": summary_limit_prompt_card,
+        "card_limits": dict(CARD_LIMITS_DEFAULT),
     }
 
     import config.config as _sys_cfg_sl
@@ -144,6 +177,7 @@ def build_effective_cfg(user_id: Optional[int] = None, feature: str = "paper_rec
 
     if user_id is not None:
         ucfg = _load_user_config(user_id, feature)
+        explicit_ucfg = _load_explicit_user_config(user_id, feature)
         if ucfg:
             # LLM connection — module-specific preset first, then generic fallback, then cascade from first step
             preset_id = ucfg.get("summary_limit_llm_preset_id") or ucfg.get("llm_preset_id") or ucfg.get("theme_select_llm_preset_id")
@@ -199,6 +233,75 @@ def build_effective_cfg(user_id: Optional[int] = None, feature: str = "paper_rec
                     cfg["section_prompts"][sec] = prompt_content
                 elif ucfg.get(text_key):
                     cfg["section_prompts"][sec] = ucfg[text_key]
+
+            card_preset_content = (
+                _resolve_prompt_preset(
+                    user_id, ucfg.get("summary_limit_prompt_card_preset_id")
+                )
+                if ucfg.get("summary_limit_prompt_card_preset_id")
+                else ""
+            )
+            card_text = str(ucfg.get("summary_limit_prompt_card") or "").strip()
+            explicit_card_prompt = bool(
+                explicit_ucfg.get("summary_limit_prompt_card_preset_id")
+            ) or bool(
+                "summary_limit_prompt_card" in explicit_ucfg
+                and _prompt_signature(explicit_ucfg.get("summary_limit_prompt_card"))
+                != _prompt_signature(summary_limit_prompt_card)
+            )
+            if card_preset_content:
+                cfg["card_prompt"] = card_preset_content
+            elif "summary_limit_prompt_card" in explicit_ucfg:
+                cfg["card_prompt"] = str(
+                    explicit_ucfg.get("summary_limit_prompt_card") or ""
+                ).strip()
+            elif card_text:
+                cfg["card_prompt"] = card_text
+
+            limit_keys = {
+                "headline_limit": summary_limit_headline_limit,
+                "section_limit_intro": SECTION_LIMITS_DEFAULT["intro"],
+                "section_limit_method": SECTION_LIMITS_DEFAULT["method"],
+                "section_limit_findings": SECTION_LIMITS_DEFAULT["findings"],
+                "section_limit_opinion": SECTION_LIMITS_DEFAULT["opinion"],
+            }
+            legacy_limits_customized = any(
+                key in explicit_ucfg
+                and explicit_ucfg.get(key) is not None
+                and int(explicit_ucfg[key]) != int(default)
+                for key, default in limit_keys.items()
+            )
+            section_prompt_keys = {
+                "intro": (
+                    "summary_limit_prompt_intro_preset_id",
+                    "summary_limit_prompt_intro",
+                ),
+                "method": (
+                    "summary_limit_prompt_method_preset_id",
+                    "summary_limit_prompt_method",
+                ),
+                "findings": (
+                    "summary_limit_prompt_findings_preset_id",
+                    "summary_limit_prompt_findings",
+                ),
+                "opinion": (
+                    "summary_limit_prompt_opinion_preset_id",
+                    "summary_limit_prompt_opinion",
+                ),
+            }
+            legacy_prompts_customized = any(
+                bool(explicit_ucfg.get(preset_key))
+                or (
+                    text_key in explicit_ucfg
+                    and _prompt_signature(explicit_ucfg.get(text_key))
+                    != _prompt_signature(SECTION_PROMPTS_DEFAULT[sec])
+                )
+                for sec, (preset_key, text_key) in section_prompt_keys.items()
+            )
+            if (legacy_limits_customized or legacy_prompts_customized) and not explicit_card_prompt:
+                # Existing custom section behavior remains authoritative until
+                # the user explicitly opts into a full-card prompt.
+                cfg["card_prompt"] = ""
 
     if user_id is not None and not user_llm_configured:
         try:
@@ -510,6 +613,149 @@ def normalize_style(text: str) -> str:
         out.append(line)
         i += 1
     return "\n".join(out).strip() + "\n"
+
+
+def card_needs_refinement(
+    text: str,
+    *,
+    limits: Optional[Dict[str, int]] = None,
+) -> bool:
+    """Return whether a complete eight-field card exceeds the final contract."""
+    card = parse_card(text)
+    if not all(card.field_text(key).strip() for key in CARD_FIELD_ORDER):
+        # A compressor must not invent a missing field. The existing structure
+        # repair path is safer for incomplete model output.
+        return False
+    effective_limits = limits or CARD_LIMITS_DEFAULT
+    if any(
+        non_ws_len(card.field_text(key)) > int(effective_limits.get(key, 0) or 0)
+        for key in CARD_FIELD_ORDER
+        if effective_limits.get(key)
+    ):
+        return True
+    return len(card.key_ideas) > 3 or len(card.analysis_summary) > 3
+
+
+def card_contract_errors(
+    candidate: str,
+    *,
+    source_draft: str,
+    limits: Optional[Dict[str, int]] = None,
+) -> List[str]:
+    """Validate structure, limits, metadata and numeric preservation."""
+    effective_limits = limits or CARD_LIMITS_DEFAULT
+    card = parse_card(candidate)
+    source_card = parse_card(source_draft)
+    errors: List[str] = []
+
+    missing = [key for key in CARD_FIELD_ORDER if not card.field_text(key).strip()]
+    if missing:
+        errors.append("missing=" + ",".join(missing))
+    for key in CARD_FIELD_ORDER:
+        limit = int(effective_limits.get(key, 0) or 0)
+        if limit and non_ws_len(card.field_text(key)) > limit:
+            errors.append(f"{key}>{limit}")
+    if len(card.key_ideas) != 3:
+        errors.append(f"key_ideas_count={len(card.key_ideas)}")
+    if len(card.analysis_summary) != 3:
+        errors.append(f"analysis_summary_count={len(card.analysis_summary)}")
+    if card.research_question and not card.research_question.rstrip().endswith(("？", "?")):
+        errors.append("research_question_not_question")
+
+    for key in ("original_title", "source"):
+        expected = str(getattr(source_card, key) or "").strip()
+        actual = str(getattr(card, key) or "").strip()
+        if expected and actual != expected:
+            errors.append(f"{key}_changed")
+
+    trace = card_deterministic_report(
+        candidate,
+        source_text=source_draft,
+        refinement_input=source_draft,
+    )
+    unsupported_numbers = trace.get("unsupported_numbers") or {}
+    if unsupported_numbers:
+        errors.append("unsupported_numbers=" + ",".join(sorted(unsupported_numbers)))
+    return errors
+
+
+def rewrite_card(
+    client: OpenAI,
+    text: str,
+    *,
+    effective_cfg: Optional[Dict[str, Any]] = None,
+    max_retries: int = 3,
+) -> str:
+    """Compress all eight recommendation fields in one validated LLM call."""
+    ecfg = effective_cfg or {}
+    raw_prompt = (
+        ecfg["card_prompt"] if "card_prompt" in ecfg else summary_limit_prompt_card
+    )
+    sys_prompt = str(raw_prompt or "").strip()
+    source_draft = text.strip()
+    if not sys_prompt or not source_draft:
+        return text
+
+    hard_limit = int(ecfg.get("input_hard_limit") or summary_limit_input_hard_limit)
+    safety_margin = int(
+        ecfg.get("input_safety_margin") or summary_limit_input_safety_margin
+    )
+    limit_total = hard_limit - safety_margin
+    max_tok = ecfg.get("max_tokens")
+    if max_tok is None:
+        max_tok = summary_limit_max_tokens
+    last_error: Optional[BaseException] = None
+    previous_errors: List[str] = []
+
+    for _ in range(max_retries):
+        retry_note = ""
+        if previous_errors:
+            retry_note = (
+                "\n\n上一次输出未通过程序校验："
+                + "；".join(previous_errors)
+                + "。请从原始卡片重新精简，不要解释。"
+            )
+        prompt = sys_prompt + retry_note
+        user_budget = max(1, limit_total - approx_input_tokens(prompt))
+        user_content = crop_to_input_tokens(source_draft, user_budget)
+        kwargs: Dict[str, Any] = {
+            "temperature": 0,
+            "max_tokens": int(max_tok or 2048),
+        }
+        kwargs.update(build_thinking_kwargs(ecfg))
+        resp = client.chat.completions.create(
+            model=get_summary_limit_model(ecfg),
+            messages=[
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": user_content},
+            ],
+            stream=False,
+            **kwargs,
+        )
+        try:
+            candidate = require_nonempty_text(
+                _choice_text(resp),
+                operation="summary_limit_card_rewrite",
+            )
+        except EmptyLlmResponseError as exc:
+            last_error = exc
+            previous_errors = ["empty_response"]
+            continue
+        candidate = ensure_section_spacing(normalize_style(candidate))
+        previous_errors = card_contract_errors(
+            candidate,
+            source_draft=source_draft,
+            limits=ecfg.get("card_limits", CARD_LIMITS_DEFAULT),
+        )
+        if not previous_errors:
+            return candidate
+        last_error = InvalidLlmResponseError(
+            "full-card refinement failed validation: " + "; ".join(previous_errors)
+        )
+
+    if last_error is not None:
+        raise last_error
+    raise InvalidLlmResponseError("full-card refinement did not produce output")
 
 
 def rewrite_block(
@@ -883,14 +1129,33 @@ def process_one(
     if not text.strip():
         raise ValueError(f"summary_limit input is empty: {md_path.name}")
     status = "copied"
-    text = inject_pdf_info(text, md_path, pdf_info_map)
     base_text = normalize_style(text)
+    card_rewritten = False
+    raw_card_prompt = (
+        ecfg["card_prompt"] if "card_prompt" in ecfg else summary_limit_prompt_card
+    )
+    card_prompt = str(raw_card_prompt or "").strip()
+    if card_prompt and card_needs_refinement(
+        base_text,
+        limits=ecfg.get("card_limits", CARD_LIMITS_DEFAULT),
+    ):
+        try:
+            base_text = rewrite_card(client, base_text, effective_cfg=ecfg)
+            card_rewritten = True
+        except Exception as exc:
+            print(
+                f"[SUMMARY_LIMIT] fallback=legacy_sections for {md_path.stem}: "
+                f"{redact_sensitive_text(repr(exc), max_length=500)}",
+                flush=True,
+            )
+    base_text = normalize_style(inject_pdf_info(base_text, md_path, pdf_info_map))
     lines = base_text.splitlines(keepends=True)
     lines = apply_headline_limit(client, lines, effective_cfg=ecfg)
     base_text = "".join(lines)
-    if structure_matches_example(
+    structure_ok = card_rewritten or structure_matches_example(
         client, base_text, effective_cfg=ecfg, paper_id=md_path.stem
-    ):
+    )
+    if structure_ok:
         prefix, sections = split_sections(lines)
         if sections:
             out_lines: List[str] = []
@@ -915,7 +1180,7 @@ def process_one(
                         block_text += "\n"
                     out_lines.append(block_text)
             out_text = ensure_section_spacing("".join(out_lines))
-            status = "rewritten" if rewritten_any else "copied"
+            status = "rewritten" if card_rewritten or rewritten_any else "copied"
     else:
         out_text = restructure_to_example(client, base_text, effective_cfg=ecfg)
         out_text = ensure_section_spacing(normalize_style(out_text))

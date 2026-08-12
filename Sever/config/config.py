@@ -5,6 +5,12 @@
 
 import os
 
+from config.recommend_card_prompts import (
+    ACTIVE_GENERATION_PROMPT,
+    ACTIVE_REFINEMENT_PROMPT,
+    upgrade_known_generation_prompt,
+)
+
 """
 ========================
 一、数据与流程基础配置
@@ -570,6 +576,12 @@ system_prompt = (
     "（一句话，判断这篇论文真正重要的价值或局限）\n"
     "一句话记忆版：（一句话概括整篇论文）"
 )
+
+# A/B 冠军是生产默认值；下方 JSON 加载仍可覆盖它。
+system_prompt = ACTIVE_GENERATION_PROMPT
+
+# [Controller/summary_limit.py] 八字段整卡精简提示词（A/B 冠军）
+summary_limit_prompt_card = ACTIVE_REFINEMENT_PROMPT
 
 # [Controller/summary_limit.py] 摘要精简提示词：文章简介
 summary_limit_prompt_intro = (
@@ -1208,3 +1220,6 @@ def _auto_load_from_json() -> None:
 
 
 _auto_load_from_json()
+
+# 仅升级未修改的历史默认值；管理员自定义提示词原样保留。
+system_prompt = upgrade_known_generation_prompt(system_prompt)

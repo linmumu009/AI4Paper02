@@ -371,3 +371,10 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\api\papers.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useWorkspaceRouteState.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\router\routeLoading.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\router\routeLoading.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\config\config.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\config\recommend_card_prompts.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\recommend_card_prompt_eval.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\recommend_card_prompt_ab.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_recommend_card_prompt_eval.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_prompt_ab_results.md
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_prompt_ab_ledger.json

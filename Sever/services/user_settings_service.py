@@ -29,6 +29,11 @@ from services.secret_storage_service import (
     protect_secret_mapping,
     unprotect_secret_mapping,
 )
+from config.recommend_card_prompts import (
+    ACTIVE_GENERATION_PROMPT,
+    ACTIVE_REFINEMENT_PROMPT,
+    upgrade_known_generation_prompt,
+)
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
@@ -101,6 +106,7 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
         # Per-module prompt preset IDs
         "theme_select_prompt_preset_id", "org_prompt_preset_id",
         "summary_prompt_preset_id",
+        "summary_limit_prompt_card_preset_id",
         "summary_limit_prompt_intro_preset_id", "summary_limit_prompt_method_preset_id",
         "summary_limit_prompt_findings_preset_id", "summary_limit_prompt_opinion_preset_id",
         # MinerU 服务密钥
@@ -112,6 +118,7 @@ _NO_DEFAULT_KEYS: dict[str, set[str]] = {
         "org_llm_preset_id", "summary_llm_preset_id", "summary_limit_llm_preset_id",
         # Per-module prompt preset IDs
         "org_prompt_preset_id", "summary_prompt_preset_id",
+        "summary_limit_prompt_card_preset_id",
         "summary_limit_prompt_intro_preset_id", "summary_limit_prompt_method_preset_id",
         "summary_limit_prompt_findings_preset_id", "summary_limit_prompt_opinion_preset_id",
         # MinerU 服务密钥
@@ -231,6 +238,11 @@ _PAPER_RECOMMEND_SYSTEM_PROMPT_DEFAULT = (
     '（一句话，判断这篇论文真正重要的价值或局限）\n'
     '一句话记忆版：（一句话概括整篇论文）'
 )
+
+# Keep the historical literal above for exact-default migration while exposing
+# the version selected by the recorded A/B experiment to new configurations.
+_PAPER_RECOMMEND_SYSTEM_PROMPT_DEFAULT = ACTIVE_GENERATION_PROMPT
+_PAPER_RECOMMEND_LIMIT_PROMPT_CARD = ACTIVE_REFINEMENT_PROMPT
 
 _PAPER_CHAT_SYSTEM_PROMPT_DEFAULT = (
     "你是一位专业的学术论文问答助手。用户会就论文内容向你提问，请基于提供的论文内容作出准确、有深度的回答。\n"
@@ -358,6 +370,7 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
         "input_safety_margin": 4096,
         # --- 提示词配置 ---
         "system_prompt": _PAPER_RECOMMEND_SYSTEM_PROMPT_DEFAULT,
+        "summary_limit_prompt_card": _PAPER_RECOMMEND_LIMIT_PROMPT_CARD,
         "summary_limit_prompt_intro": _PAPER_RECOMMEND_LIMIT_PROMPT_INTRO,
         "summary_limit_prompt_method": _PAPER_RECOMMEND_LIMIT_PROMPT_METHOD,
         "summary_limit_prompt_findings": _PAPER_RECOMMEND_LIMIT_PROMPT_FINDINGS,
@@ -382,6 +395,7 @@ _FEATURE_DEFAULTS: dict[str, dict[str, Any]] = {
         "input_safety_margin": 4096,
         # --- 提示词配置 ---
         "system_prompt": _PAPER_RECOMMEND_SYSTEM_PROMPT_DEFAULT,
+        "summary_limit_prompt_card": _PAPER_RECOMMEND_LIMIT_PROMPT_CARD,
         "summary_limit_prompt_intro": _PAPER_RECOMMEND_LIMIT_PROMPT_INTRO,
         "summary_limit_prompt_method": _PAPER_RECOMMEND_LIMIT_PROMPT_METHOD,
         "summary_limit_prompt_findings": _PAPER_RECOMMEND_LIMIT_PROMPT_FINDINGS,
@@ -482,11 +496,14 @@ def get_defaults(feature: str) -> dict[str, Any]:
     if not hardcoded:
         return {}
     admin_overrides = get_admin_overrides(feature)
+    merged = dict(hardcoded)
     if admin_overrides:
-        merged = dict(hardcoded)
         merged.update(admin_overrides)
-        return merged
-    return hardcoded
+    if feature in {"paper_recommend", "my_papers"}:
+        merged["system_prompt"] = upgrade_known_generation_prompt(
+            str(merged.get("system_prompt") or "")
+        )
+    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +674,11 @@ def get_settings(user_id: int, feature: str) -> dict[str, Any]:
         no_defaults = _NO_DEFAULT_KEYS.get(feature, set())
         for key in no_defaults:
             merged[key] = user_vals.get(key, "")
+
+        if feature in {"paper_recommend", "my_papers"}:
+            merged["system_prompt"] = upgrade_known_generation_prompt(
+                str(merged.get("system_prompt") or "")
+            )
 
         return merged
     finally:
