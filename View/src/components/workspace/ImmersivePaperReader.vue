@@ -23,6 +23,7 @@ const props = withDefaults(defineProps<{
   position: number
   total: number
   collected?: boolean
+  collecting?: boolean
   bookmarked?: boolean
   canGoPrevious?: boolean
   canGoNext?: boolean
@@ -548,9 +549,9 @@ function scrollToSection(sectionId: string) {
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--blue"><img :src="scaleIcon" alt=""></span>
           <span class="immersive-reader__dock-copy"><strong>{{ isResearchDecision ? '原文' : '对比' }}</strong><small>{{ isResearchDecision ? '打开 PDF 核验' : '与相关文章比较' }}</small></span>
         </button>
-        <button v-if="showCollectionAction" type="button" :class="{ 'is-active': collected }" @click="emit('collect')">
+        <button v-if="showCollectionAction" type="button" :class="{ 'is-active': collected }" :disabled="collecting" :aria-busy="collecting" @click="emit('collect')">
           <span class="immersive-reader__dock-icon immersive-reader__dock-icon--green"><img :src="heartIcon" alt=""></span>
-          <span class="immersive-reader__dock-copy"><strong>{{ isKnowledgeDecision ? '移出知识库' : collected ? '已收藏' : '收藏' }}</strong><small>{{ isKnowledgeDecision ? '保留笔记' : '加入知识库' }}</small></span>
+          <span class="immersive-reader__dock-copy"><strong>{{ collecting ? '收藏中…' : isKnowledgeDecision ? '移出知识库' : collected ? '已收藏' : '收藏' }}</strong><small>{{ collecting ? '请稍候' : isKnowledgeDecision ? '保留笔记' : '加入知识库' }}</small></span>
         </button>
         <button type="button" class="immersive-reader__dock-primary" @click="emit('startResearch')">
           <span class="immersive-reader__dock-icon"><img :src="beakerIcon" alt=""></span>

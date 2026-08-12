@@ -13,6 +13,7 @@ interface UsePaperDecisionActionsOptions<T extends PaperDecisionTarget> {
   collectPaper: (paper: T) => Promise<unknown>
   onDismiss?: (paper: T) => void
   onCollect?: (paper: T) => void
+  onCollectError?: (error: unknown, paper: T) => void
   bookmarkStorageKey?: string
   storage?: Pick<Storage, 'getItem' | 'setItem'> | null
 }
@@ -36,6 +37,7 @@ export function usePaperDecisionActions<T extends PaperDecisionTarget>(
     ? (typeof window === 'undefined' ? null : window.localStorage)
     : options.storage
   const bookmarkedPaperIds = ref(loadBookmarks(storage, storageKey))
+  const collectingPaperIds = ref<Set<string>>(new Set())
 
   function saveBookmarks(ids: Set<string>) {
     try { storage?.setItem(storageKey, JSON.stringify([...ids])) } catch { /* Ignore storage failures. */ }
@@ -52,18 +54,30 @@ export function usePaperDecisionActions<T extends PaperDecisionTarget>(
     return true
   }
 
-  function collectTarget(paper: T, advance = false): boolean {
+  async function collectTarget(paper: T, advance = false): Promise<boolean> {
     if (!options.isAuthenticated.value) {
       options.redirectToLogin()
       return false
     }
-    if (advance) options.advance('right')
-    void options.collectPaper(paper).catch(() => {})
-    options.onCollect?.(paper)
-    return true
+    if (collectingPaperIds.value.has(paper.paper_id)) return false
+
+    collectingPaperIds.value = new Set([...collectingPaperIds.value, paper.paper_id])
+    try {
+      await options.collectPaper(paper)
+      options.onCollect?.(paper)
+      if (advance) options.advance('right')
+      return true
+    } catch (error) {
+      options.onCollectError?.(error, paper)
+      return false
+    } finally {
+      const updated = new Set(collectingPaperIds.value)
+      updated.delete(paper.paper_id)
+      collectingPaperIds.value = updated
+    }
   }
 
-  function collect(): boolean {
+  async function collect(): Promise<boolean> {
     const paper = options.currentPaper.value
     return paper ? collectTarget(paper, true) : false
   }
@@ -88,6 +102,7 @@ export function usePaperDecisionActions<T extends PaperDecisionTarget>(
 
   return {
     bookmarkedPaperIds,
+    collectingPaperIds,
     skip,
     collect,
     collectTarget,

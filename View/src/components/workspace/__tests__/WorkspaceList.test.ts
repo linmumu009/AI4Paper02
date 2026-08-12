@@ -97,6 +97,25 @@ describe('WorkspacePaperRow', () => {
     await wrapper.trigger('keydown', { key: 'Enter' })
     expect(wrapper.emitted('open')).toHaveLength(1)
   })
+
+  it('disables collection while the paper is being saved', async () => {
+    const wrapper = mount(WorkspacePaperRow, {
+      props: {
+        paper,
+        index: 0,
+        active: true,
+        selected: false,
+        collected: false,
+        collecting: true,
+        bookmarked: false,
+      },
+    })
+    const collectButton = wrapper.findAll('button').find(button => button.text().includes('收藏中'))
+    expect(collectButton?.attributes('disabled')).toBeDefined()
+    expect(collectButton?.attributes('aria-busy')).toBe('true')
+    await collectButton?.trigger('click')
+    expect(wrapper.emitted('collect')).toBeUndefined()
+  })
 })
 
 describe('PaperInspector', () => {
@@ -128,5 +147,19 @@ describe('PaperInspector', () => {
     const collectButton = wrapper.findAll('button').find(button => button.text() === '收藏到知识库')
     await collectButton?.trigger('click')
     expect(wrapper.emitted('collect')).toHaveLength(1)
+  })
+
+  it('shows a pending collection state and blocks duplicate submission', async () => {
+    const wrapper = mount(PaperInspector, {
+      props: {
+        paper,
+        collecting: true,
+      },
+    })
+    const collectButton = wrapper.findAll('button').find(button => button.text() === '正在收藏…')
+    expect(collectButton?.attributes('disabled')).toBeDefined()
+    expect(collectButton?.attributes('aria-busy')).toBe('true')
+    await collectButton?.trigger('click')
+    expect(wrapper.emitted('collect')).toBeUndefined()
   })
 })

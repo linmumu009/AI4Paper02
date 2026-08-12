@@ -35,6 +35,8 @@ import { useToast } from '../composables/useToast'
 import { useResearchWorkspace } from '../composables/useResearchWorkspace'
 import { useWorkspaceRouteState } from '../composables/useWorkspaceRouteState'
 import { usePaperDecisionActions } from '../composables/usePaperDecisionActions'
+import { useEntitlements } from '../composables/useEntitlements'
+import { getApiErrorMessage, getApiErrorStatus } from '../utils/apiError'
 import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShell.vue'
 import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
 import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
@@ -47,8 +49,9 @@ const router = useRouter()
 const route = useRoute()
 const globalChat = useGlobalChat()
 const engagement = useEngagement()
+const ent = useEntitlements()
 const { attachAnnotationAdapter, detachAnnotationAdapter } = useAnnotationAdapter()
-const { showError } = useToast()
+const { showError, showToast } = useToast()
 
 // Data
 const dates = ref<string[]>([])
@@ -757,8 +760,59 @@ function next(direction: 'left' | 'right') {
   }, 300)
 }
 
+const collectedPaperIds = ref<Set<string>>(new Set())
+const batchCollecting = ref(false)
+
+watch(kbTree, (tree) => {
+  const ids = new Set(tree.papers.map(paper => paper.paper_id))
+  function collectFolderPaperIds(folders: typeof tree.folders) {
+    for (const folder of folders) {
+      folder.papers?.forEach(paper => ids.add(paper.paper_id))
+      if (folder.children?.length) collectFolderPaperIds(folder.children)
+    }
+  }
+  collectFolderPaperIds(tree.folders)
+  collectedPaperIds.value = ids
+}, { immediate: true })
+
+function kbStorageLimitMessage(): string {
+  const storage = ent.kbPaperStorage.value
+  if (storage.limit === null) return '暂时无法收藏到知识库，请稍后重试。'
+  return `知识库已达当前套餐上限（已保存 ${storage.used} 篇，当前上限 ${storage.limit} 篇）。历史收藏仍会保留，请整理知识库或升级套餐后再收藏。`
+}
+
+async function savePaperToKnowledgeBase(paper: PaperSummary) {
+  const storage = ent.kbPaperStorage.value
+  if (ent.loaded.value && storage.limit !== null && (storage.remaining ?? 0) <= 0) {
+    throw new Error(kbStorageLimitMessage())
+  }
+  await addKbPaper(paper.paper_id, paper, null)
+  await Promise.all([
+    loadKbTree(),
+    ent.refreshEntitlements(true),
+  ])
+}
+
+function handleCollectError(error: unknown) {
+  const status = getApiErrorStatus(error)
+  if (status === 401) {
+    showError('登录状态已失效，请重新登录后再收藏。')
+    return
+  }
+  if (status === 403 && ent.loaded.value) {
+    const storage = ent.kbPaperStorage.value
+    if (storage.limit !== null && (storage.remaining ?? 0) <= 0) {
+      showError(kbStorageLimitMessage())
+      return
+    }
+  }
+  const message = getApiErrorMessage(error, '收藏失败，请稍后重试。')
+  showError(message === 'Network Error' ? '网络连接异常，论文尚未收藏，请检查网络后重试。' : message)
+}
+
 const {
   bookmarkedPaperIds,
+  collectingPaperIds,
   skip,
   collect: like,
   collectTarget,
@@ -773,17 +827,19 @@ const {
   },
   // Logged-in dismissals remain a silent background action.
   dismissPaper: paper => dismissPaper(paper.paper_id),
-  collectPaper: paper => addKbPaper(paper.paper_id, paper, null).then(() => loadKbTree()),
+  collectPaper: savePaperToKnowledgeBase,
   onDismiss: (paper) => {
     trackKbAction('dismiss', paper.paper_id)
   },
   onCollect: (paper) => {
+    collectedPaperIds.value = new Set([...collectedPaperIds.value, paper.paper_id])
     trackKbAction('save', paper.paper_id)
     void engagement.record('collect', 'daily-digest-like', paper.paper_id)
+    if (!batchCollecting.value) showToast('已收藏到知识库，AI 正在自动分类。', 'success')
   },
+  onCollectError: handleCollectError,
 })
 
-const collectedPaperIds = ref<Set<string>>(new Set())
 const listInspectorOpen = ref(false)
 const selectedPaperCount = computed(() => selectedPaperIds.value.size)
 const currentPagePaperIds = computed(() => pagedPapers.value.map(paper => paper.paper_id))
@@ -802,18 +858,31 @@ function toggleCurrentPageSelection() {
   }
 }
 
-function collectListPaper(paper: PaperSummary) {
-  if (!collectTarget(paper, false)) return
-  collectedPaperIds.value = new Set([...collectedPaperIds.value, paper.paper_id])
+async function collectListPaper(paper: PaperSummary): Promise<boolean> {
+  return collectTarget(paper, false)
 }
 
 function bookmarkListPaper(paper: PaperSummary) {
   toggleBookmarkTarget(paper, false)
 }
 
-function collectSelectedPapers() {
+async function collectSelectedPapers() {
+  if (batchCollecting.value) return
   const selected = displayPapers.value.filter(paper => selectedPaperIds.value.has(paper.paper_id))
-  selected.forEach(collectListPaper)
+  batchCollecting.value = true
+  let collectedCount = 0
+  try {
+    for (const paper of selected) {
+      if (collectedPaperIds.value.has(paper.paper_id)) continue
+      if (!await collectListPaper(paper)) break
+      collectedCount++
+    }
+  } finally {
+    batchCollecting.value = false
+  }
+  if (collectedCount > 0) {
+    showToast(`已收藏 ${collectedCount} 篇论文，AI 正在自动分类。`, 'success')
+  }
 }
 
 function compareSelectedPapers() {
@@ -3375,7 +3444,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
                 </label>
 
                 <div v-if="selectedPaperCount > 0" class="digest-list-commandbar__bulk-actions">
-                  <button type="button" @click="collectSelectedPapers">批量收藏</button>
+                  <button type="button" :disabled="batchCollecting" @click="collectSelectedPapers">{{ batchCollecting ? '收藏中…' : '批量收藏' }}</button>
                   <button type="button" :disabled="selectedPaperCount < 2" @click="compareSelectedPapers">加入对比</button>
                   <button type="button" @click="clearPaperSelection">清除选择</button>
                 </div>
@@ -3406,6 +3475,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
                     :active="listPage * LIST_PAGE_SIZE + idx === currentIndex"
                     :selected="selectedPaperIds.has(paper.paper_id)"
                     :collected="collectedPaperIds.has(paper.paper_id)"
+                    :collecting="collectingPaperIds.has(paper.paper_id)"
                     :bookmarked="bookmarkedPaperIds.has(paper.paper_id)"
                     :publication-date="effectiveDate || selectedDate"
                     @select="openListDetail(paper, listPage * LIST_PAGE_SIZE + idx)"
@@ -3454,6 +3524,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
                 :paper="currentPaper"
                 :publication-date="effectiveDate || selectedDate"
                 :collected="currentPaper ? collectedPaperIds.has(currentPaper.paper_id) : false"
+                :collecting="currentPaper ? collectingPaperIds.has(currentPaper.paper_id) : false"
                 :bookmarked="currentPaper ? bookmarkedPaperIds.has(currentPaper.paper_id) : false"
                 @open-detail="openDetail"
                 @open-pdf="openPdf"
@@ -3474,6 +3545,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
             :position="currentIndex + 1"
             :total="displayPapers.length"
             :collected="collectedPaperIds.has(currentPaper.paper_id)"
+            :collecting="collectingPaperIds.has(currentPaper.paper_id)"
             :bookmarked="bookmarkedPaperIds.has(currentPaper.paper_id)"
             :can-go-previous="currentIndex > 0"
             :can-go-next="currentIndex < displayPapers.length - 1"
@@ -3544,6 +3616,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 
             <!-- Action buttons — directly below card, no control row -->
             <ActionButtons
+              :like-loading="currentPaper ? collectingPaperIds.has(currentPaper.paper_id) : false"
               @undo="undo"
               @skip="skip"
               @like="like"

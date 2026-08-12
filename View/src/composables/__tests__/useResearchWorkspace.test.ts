@@ -174,7 +174,7 @@ describe('useWorkspaceRouteState', () => {
 })
 
 describe('usePaperDecisionActions', () => {
-  it('redirects anonymous collection attempts without advancing', () => {
+  it('redirects anonymous collection attempts without advancing', async () => {
     const advance = vi.fn()
     const redirectToLogin = vi.fn()
     const actions = usePaperDecisionActions({
@@ -187,7 +187,7 @@ describe('usePaperDecisionActions', () => {
       storage: null,
     })
 
-    expect(actions.collect()).toBe(false)
+    await expect(actions.collect()).resolves.toBe(false)
     expect(redirectToLogin).toHaveBeenCalledOnce()
     expect(advance).not.toHaveBeenCalled()
   })
@@ -216,13 +216,13 @@ describe('usePaperDecisionActions', () => {
       storage,
     })
 
-    expect(actions.collect()).toBe(true)
+    await expect(actions.collect()).resolves.toBe(true)
     expect(advance).toHaveBeenCalledWith('right')
     expect(collectPaper).toHaveBeenCalledWith(samplePapers[0])
     expect(onCollect).toHaveBeenCalledWith(samplePapers[0])
 
     advance.mockClear()
-    expect(actions.collectTarget(samplePapers[1], false)).toBe(true)
+    await expect(actions.collectTarget(samplePapers[1], false)).resolves.toBe(true)
     expect(advance).not.toHaveBeenCalled()
     expect(collectPaper).toHaveBeenCalledWith(samplePapers[1])
 
@@ -240,5 +240,38 @@ describe('usePaperDecisionActions', () => {
     advance.mockClear()
     expect(actions.toggleBookmarkTarget(samplePapers[1], false)).toBe(true)
     expect(advance).not.toHaveBeenCalled()
+  })
+
+  it('keeps the current paper visible and reports collection failures', async () => {
+    const advance = vi.fn()
+    const error = { response: { status: 403, data: { detail: '知识库论文已达上限' } } }
+    const onCollect = vi.fn()
+    const onCollectError = vi.fn()
+    let resolveCollection: (() => void) | undefined
+    const collectPaper = vi.fn(() => new Promise<void>((_resolve, reject) => {
+      resolveCollection = () => reject(error)
+    }))
+    const actions = usePaperDecisionActions({
+      currentPaper: computed(() => samplePapers[0]),
+      isAuthenticated: ref(true),
+      advance,
+      redirectToLogin: vi.fn(),
+      dismissPaper: vi.fn(),
+      collectPaper,
+      onCollect,
+      onCollectError,
+      storage: null,
+    })
+
+    const pending = actions.collect()
+    expect(actions.collectingPaperIds.value.has('p1')).toBe(true)
+    await expect(actions.collect()).resolves.toBe(false)
+
+    resolveCollection?.()
+    await expect(pending).resolves.toBe(false)
+    expect(advance).not.toHaveBeenCalled()
+    expect(onCollect).not.toHaveBeenCalled()
+    expect(onCollectError).toHaveBeenCalledWith(error, samplePapers[0])
+    expect(actions.collectingPaperIds.value.has('p1')).toBe(false)
   })
 })

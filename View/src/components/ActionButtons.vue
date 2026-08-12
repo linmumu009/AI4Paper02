@@ -1,4 +1,10 @@
 <script setup lang="ts">
+withDefaults(defineProps<{
+  likeLoading?: boolean
+}>(), {
+  likeLoading: false,
+})
+
 defineEmits<{
   undo: []
   skip: []
@@ -52,14 +58,19 @@ defineEmits<{
     <!-- Like / Save to KB -->
     <div class="flex flex-col items-center gap-1">
       <button
-        class="w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-tinder-green/40 flex items-center justify-center text-tinder-green hover:bg-tinder-green/10 hover:border-tinder-green hover:scale-110 transition-all duration-200 cursor-pointer bg-transparent"
-        title="收藏到知识库（AI 自动分类）(→/K)"
-        @click="$emit('like')"
+        class="w-12 h-12 sm:w-14 sm:h-14 rounded-full border-2 border-tinder-green/40 flex items-center justify-center text-tinder-green hover:bg-tinder-green/10 hover:border-tinder-green hover:scale-110 transition-all duration-200 cursor-pointer bg-transparent disabled:cursor-wait disabled:opacity-60 disabled:hover:scale-100"
+        :title="likeLoading ? '正在收藏到知识库…' : '收藏到知识库（AI 自动分类）(→/K)'"
+        :disabled="likeLoading"
+        :aria-busy="likeLoading"
+        @click="!likeLoading && $emit('like')"
       >
-        <svg width="22" height="22" class="sm:hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-        <svg width="26" height="26" class="hidden sm:block" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        <svg v-if="likeLoading" width="24" height="24" class="animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" opacity="0.25"/><path d="M21 12a9 9 0 0 0-9-9" stroke-linecap="round"/></svg>
+        <template v-else>
+          <svg width="22" height="22" class="sm:hidden" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <svg width="26" height="26" class="hidden sm:block" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        </template>
       </button>
-      <span class="text-[10px] leading-none text-tinder-green/70 select-none">收藏</span>
+      <span class="text-[10px] leading-none text-tinder-green/70 select-none">{{ likeLoading ? '收藏中' : '收藏' }}</span>
     </div>
 
     <!-- Open PDF -->

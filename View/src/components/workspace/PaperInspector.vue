@@ -9,6 +9,7 @@ const props = defineProps<{
   paper: PaperSummary | null
   publicationDate?: string
   collected?: boolean
+  collecting?: boolean
   bookmarked?: boolean
   collectionActionLabel?: string
   collectionActionTone?: 'primary' | 'danger' | 'neutral'
@@ -85,9 +86,11 @@ const evidenceItems = computed(() => {
           type="button"
           class="paper-inspector__primary"
           :class="{ 'paper-inspector__danger-action': collectionActionTone === 'danger', 'paper-inspector__neutral-action': collectionActionTone === 'neutral' }"
+          :disabled="collecting"
+          :aria-busy="collecting"
           @click="emit('collect')"
         >
-          {{ collectionActionLabel || (collected ? '已收藏到知识库' : '收藏到知识库') }}
+          {{ collecting ? '正在收藏…' : collectionActionLabel || (collected ? '已收藏到知识库' : '收藏到知识库') }}
         </button>
         <button type="button" @click="emit('startResearch')">开始深度研究</button>
         <button type="button" @click="emit('openPdf')">PDF</button>

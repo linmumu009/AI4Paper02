@@ -8,6 +8,7 @@ const props = defineProps<{
   active: boolean
   selected: boolean
   collected: boolean
+  collecting?: boolean
   bookmarked: boolean
   publicationDate?: string
 }>()
@@ -118,10 +119,12 @@ function handleKeydown(event: KeyboardEvent) {
       <button
         type="button"
         :class="{ 'workspace-paper-row__action--active': collected }"
-        :aria-label="collected ? `已收藏：${displayTitle}` : `收藏到知识库：${displayTitle}`"
+        :disabled="collecting"
+        :aria-busy="collecting"
+        :aria-label="collecting ? `正在收藏：${displayTitle}` : collected ? `已收藏：${displayTitle}` : `收藏到知识库：${displayTitle}`"
         @click="emit('collect')"
       >
-        {{ collected ? '已收藏' : '收藏' }}
+        {{ collecting ? '收藏中…' : collected ? '已收藏' : '收藏' }}
       </button>
       <button
         type="button"
