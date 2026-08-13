@@ -1193,24 +1193,34 @@ summary_limit_headline_limit = 18
 """
 
 
-def _auto_load_from_json() -> None:
+def _auto_load_from_json(config_path=None) -> None:
     """模块首次导入时自动从 database/config.json 加载覆盖值。
 
     这样无论是 API 进程还是任何 Pipeline 子进程脚本，
     都能读到管理员通过系统配置页面保存的全局配置，
     而无需在每个 Controller 脚本中手动调用 load_config()。
+
+    ``config_service`` 会对敏感字段加密后再写入 JSON。独立 Pipeline
+    子进程不会执行 API 的 startup hook，因此这里也必须完成解密，不能
+    把 ``enc:v1:...`` 存储串直接当作 API Key 使用。
     """
     import json as _json
     import sys as _sys
+    from services.secret_storage_service import (
+        unprotect_secret_mapping as _unprotect_secret_mapping,
+    )
 
-    _json_path = os.path.join(
+    _json_path = config_path or os.path.join(
         os.path.dirname(__file__), "..", "database", "config.json"
     )
     if not os.path.isfile(_json_path):
         return
     try:
         with open(_json_path, "r", encoding="utf-8") as _f:
-            _overrides = _json.load(_f)
+            _stored_overrides = _json.load(_f)
+        if not isinstance(_stored_overrides, dict):
+            return
+        _overrides = _unprotect_secret_mapping(_stored_overrides)
         _this = _sys.modules[__name__]
         for _k, _v in _overrides.items():
             if hasattr(_this, _k):

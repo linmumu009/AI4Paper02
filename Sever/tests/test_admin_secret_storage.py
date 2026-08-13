@@ -111,6 +111,36 @@ class AdminSecretStorageTests(unittest.TestCase):
         self.assertEqual(qwen_items[0]["value"], secrets.SECRET_MASK)
         self.assertEqual(groups["defaults"]["qwen_api_key"], secrets.SECRET_MASK)
 
+    def test_config_module_auto_load_decrypts_secret_for_pipeline_processes(self) -> None:
+        config_service._save_config_json(
+            {
+                "qwen_api_key": "sk-pipeline-secret",
+                "theme_select_model": "deepseek-v4-flash",
+            }
+        )
+        stored = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.assertTrue(secrets.is_encrypted_secret(stored["qwen_api_key"]))
+
+        config_module = config_service.config_module
+        original_key = config_module.qwen_api_key
+        original_model = config_module.theme_select_model
+        try:
+            config_module.qwen_api_key = ""
+            config_module.theme_select_model = "fallback-model"
+            config_module._auto_load_from_json(str(self.config_path))
+
+            self.assertEqual(config_module.qwen_api_key, "sk-pipeline-secret")
+            self.assertFalse(
+                secrets.is_encrypted_secret(config_module.qwen_api_key)
+            )
+            self.assertEqual(
+                config_module.theme_select_model,
+                "deepseek-v4-flash",
+            )
+        finally:
+            config_module.qwen_api_key = original_key
+            config_module.theme_select_model = original_model
+
     def test_card_refinement_prompt_is_exposed_in_admin_prompt_group(self) -> None:
         groups = config_service.get_config_with_groups()["groups"]
         prompt_group = next(group for group in groups if group["name"] == "提示词配置")
