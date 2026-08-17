@@ -2454,10 +2454,21 @@ export interface AutoClassifyFolder {
   description: string
   folder_id?: number | null
   parent_id?: number | null
-  /** Temporary key for unsynced folders — used by sync_folders for parent-child resolution */
+  origin?: 'user' | 'ai' | 'system'
+  suggestion_reason?: string
+  paper_count?: number
+  /** Stable client key used to preserve unsynced parent-child relationships */
   _key?: string
-  /** References parent's _key when parent has no folder_id yet */
+  /** References the parent's client key when it has no folder_id yet */
   _parent_key?: string | null
+}
+
+export interface AutoClassifyFolderSuggestion extends AutoClassifyFolder {
+  origin: 'ai'
+  parent_path: string
+  suggestion_reason: string
+  paper_ids: string[]
+  paper_count: number
 }
 
 /** 获取待分类论文数量 */
@@ -2469,6 +2480,23 @@ export async function fetchAutoClassifyPendingCount(scope = 'kb'): Promise<{ pen
 /** 获取「未分类」文件夹中的论文数量，用于提示用户扩充目录 */
 export async function fetchAutoClassifyUnclassifiedCount(scope = 'kb'): Promise<{ unclassified: number }> {
   const { data } = await http.get<{ unclassified: number }>('/kb/auto-classify/unclassified-count', { params: { scope } })
+  return data
+}
+
+/** 根据收藏论文和现有目录生成预览建议；此调用不会创建目录或移动论文 */
+export async function suggestAutoClassifyFolders(
+  scope = 'kb',
+  maxSuggestions = 8,
+): Promise<{
+  ok: boolean
+  suggestions: AutoClassifyFolderSuggestion[]
+  analyzed_papers: number
+  existing_folders: number
+}> {
+  const { data } = await http.post(
+    '/kb/auto-classify/suggest-folders',
+    { scope, max_suggestions: maxSuggestions },
+  )
   return data
 }
 

@@ -384,3 +384,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_paper_resour
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pdf_cleanup_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\knowledgeBase.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\PaperDetailBody.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_auto_classify_folder_suggestions.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\AutoClassifyPanel.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\autoClassifyFolders.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\autoClassifyFolders.test.ts

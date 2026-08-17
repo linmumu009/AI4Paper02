@@ -5,23 +5,26 @@ import {
   fetchUserPromptPresets,
   syncAutoClassifyFolders, reclassifyAllKbPapers, fetchAutoClassifyPendingCount,
   fetchAutoClassifyUnclassifiedCount,
+  suggestAutoClassifyFolders,
   fetchKbTree,
 } from '../api'
 import type { AutoClassifyFolder } from '../api'
-import type { UserLlmPreset, UserPromptPreset, KbFolder } from '../types/paper'
+import type { UserLlmPreset, UserPromptPreset } from '../types/paper'
+import {
+  appendFolderSuggestions,
+  buildAutoClassifyTree,
+  flattenAutoClassifyTree,
+  mergeKnowledgeBaseFolderTree,
+} from '../utils/autoClassifyFolders'
+import type { AutoClassifyFolderNode } from '../utils/autoClassifyFolders'
+import { getApiErrorMessage } from '../utils/apiError'
 import PresetSelector from './PresetSelector.vue'
 
 // ---------------------------------------------------------------------------
 // Tree node type (in-memory editing state)
 // ---------------------------------------------------------------------------
 
-interface FolderNode {
-  _key: string
-  name: string
-  description: string
-  folder_id: number | null
-  children: FolderNode[]
-}
+type FolderNode = AutoClassifyFolderNode
 
 interface DisplayItem {
   node: FolderNode
@@ -34,71 +37,6 @@ let _keyCounter = Date.now()
 function newKey(): string { return String(++_keyCounter) }
 
 // ---------------------------------------------------------------------------
-// Flat <-> Tree conversion
-// ---------------------------------------------------------------------------
-
-function buildTree(flat: AutoClassifyFolder[]): FolderNode[] {
-  if (!flat.length) return []
-  const byId = new Map<number, FolderNode>()
-  const nodes: FolderNode[] = flat.map(f => {
-    const n: FolderNode = {
-      _key: newKey(),
-      name: f.name || '',
-      description: f.description || '',
-      folder_id: f.folder_id ?? null,
-      children: [],
-    }
-    if (n.folder_id) byId.set(n.folder_id, n)
-    return n
-  })
-  const roots: FolderNode[] = []
-  flat.forEach((f, i) => {
-    if (f.parent_id != null && byId.has(f.parent_id)) {
-      byId.get(f.parent_id)!.children.push(nodes[i])
-    } else {
-      roots.push(nodes[i])
-    }
-  })
-  return roots
-}
-
-/**
- * Flatten tree to a flat list (DFS, parent before children).
- * Passes _key / _parent_key so the backend sync can resolve unsynced parent-child links.
- */
-function flattenTree(
-  nodes: FolderNode[],
-  parentFolderId: number | null = null,
-  parentKey: string | null = null,
-): AutoClassifyFolder[] {
-  const result: AutoClassifyFolder[] = []
-  for (const node of nodes) {
-    result.push({
-      name: node.name,
-      description: node.description,
-      folder_id: node.folder_id ?? null,
-      parent_id: parentFolderId,
-      _key: node._key,
-      _parent_key: parentKey ?? undefined,
-    })
-    if (node.children.length) {
-      result.push(...flattenTree(node.children, node.folder_id, node._key))
-    }
-  }
-  return result
-}
-
-/** Like flattenTree but strips temp fields (for persisting to user_settings). */
-function flattenTreeForSave(nodes: FolderNode[], parentFolderId: number | null = null): AutoClassifyFolder[] {
-  const result: AutoClassifyFolder[] = []
-  for (const node of nodes) {
-    result.push({ name: node.name, description: node.description, folder_id: node.folder_id ?? null, parent_id: parentFolderId })
-    if (node.children.length) result.push(...flattenTreeForSave(node.children, node.folder_id))
-  }
-  return result
-}
-
-// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -107,8 +45,10 @@ const saving = ref(false)
 const saveSuccess = ref(false)
 const saveError = ref('')
 const syncingFolders = ref(false)
+const suggestingFolders = ref(false)
 const reclassifying = ref(false)
 const reclassifyMsg = ref('')
+const suggestionMsg = ref('')
 const pendingCount = ref(0)
 const unclassifiedCount = ref(0)
 
@@ -155,23 +95,12 @@ const llmPresets = ref<UserLlmPreset[]>([])
 const promptPresets = ref<UserPromptPreset[]>([])
 const showAdvancedPrompt = ref(false)
 
-/** IDs of all folders that currently exist in the real KB (from the tree). */
-const kbFolderIds = ref<Set<number>>(new Set())
-
-/** Diff warnings: stale folder_ids in settings vs. real KB folders. */
+/** Diff warnings for definitions that have not been accepted yet. */
 const folderDiffWarnings = computed<string[]>(() => {
   const warnings: string[] = []
   const unsynced = displayList.value.filter(item => !item.node.folder_id).length
   if (unsynced > 0) {
     warnings.push(`${unsynced} 个目录尚未同步到知识库（点击「同步目录到知识库」按钮创建它们）`)
-  }
-  if (kbFolderIds.value.size > 0) {
-    const stale = displayList.value.filter(
-      item => item.node.folder_id != null && !kbFolderIds.value.has(item.node.folder_id!)
-    ).length
-    if (stale > 0) {
-      warnings.push(`${stale} 个已同步的文件夹已在知识库中被删除，建议重新点击「同步目录到知识库」`)
-    }
   }
   return warnings
 })
@@ -210,17 +139,11 @@ async function loadAll() {
     form.prompt_preset_id = s.prompt_preset_id || ''
     form.confidence_threshold = typeof s.confidence_threshold === 'number' ? s.confidence_threshold : 0.6
     const flat: AutoClassifyFolder[] = Array.isArray(s.folders) ? s.folders : []
-    folderTree.value = buildTree(flat)
+    folderTree.value = mergeKnowledgeBaseFolderTree(kbTreeRes.folders, flat, newKey)
     llmPresets.value = presetsRes.presets || []
     promptPresets.value = promptPresetsRes.presets || []
     pendingCount.value = pendingRes.pending
     unclassifiedCount.value = unclassifiedRes.unclassified
-    const ids = new Set<number>()
-    function collectIds(folders: KbFolder[]) {
-      for (const f of folders) { ids.add(f.id); collectIds(f.children) }
-    }
-    collectIds(kbTreeRes.folders)
-    kbFolderIds.value = ids
   } catch (e: any) {
     saveError.value = e?.message || '加载设置失败'
   } finally {
@@ -246,7 +169,7 @@ function _scheduleAutoSave() {
         llm_preset_id: form.llm_preset_id || '',
         prompt_preset_id: form.prompt_preset_id || '',
         confidence_threshold: form.confidence_threshold,
-        folders: flattenTreeForSave(folderTree.value),
+        folders: flattenAutoClassifyTree(folderTree.value),
       })
       saveSuccess.value = true
       setTimeout(() => { saveSuccess.value = false }, 2000)
@@ -273,7 +196,7 @@ async function handleSave() {
       llm_preset_id: form.llm_preset_id || '',
       prompt_preset_id: form.prompt_preset_id || '',
       confidence_threshold: form.confidence_threshold,
-      folders: flattenTreeForSave(folderTree.value),
+      folders: flattenAutoClassifyTree(folderTree.value),
     })
     saveSuccess.value = true
     setTimeout(() => { saveSuccess.value = false }, 2500)
@@ -289,13 +212,13 @@ async function handleSave() {
 // ---------------------------------------------------------------------------
 
 function addRoot() {
-  const node: FolderNode = { _key: newKey(), name: '', description: '', folder_id: null, children: [] }
+  const node: FolderNode = { _key: newKey(), name: '', description: '', folder_id: null, origin: 'user', children: [] }
   folderTree.value.push(node)
   nextTick(() => startEdit(node._key, 'name'))
 }
 
 function addChild(node: FolderNode) {
-  const child: FolderNode = { _key: newKey(), name: '', description: '', folder_id: null, children: [] }
+  const child: FolderNode = { _key: newKey(), name: '', description: '', folder_id: null, origin: 'user', children: [] }
   node.children.push(child)
   nextTick(() => startEdit(child._key, 'name'))
 }
@@ -304,6 +227,7 @@ function removeNode(node: FolderNode, siblings: FolderNode[]) {
   const idx = siblings.indexOf(node)
   if (idx !== -1) siblings.splice(idx, 1)
   if (editingKey.value === node._key) stopEdit()
+  else _scheduleAutoSave()
 }
 
 function moveUp(node: FolderNode, siblings: FolderNode[]) {
@@ -311,6 +235,7 @@ function moveUp(node: FolderNode, siblings: FolderNode[]) {
   if (idx <= 0) return
   siblings.splice(idx, 1)
   siblings.splice(idx - 1, 0, node)
+  _scheduleAutoSave()
 }
 
 function moveDown(node: FolderNode, siblings: FolderNode[]) {
@@ -318,43 +243,73 @@ function moveDown(node: FolderNode, siblings: FolderNode[]) {
   if (idx < 0 || idx >= siblings.length - 1) return
   siblings.splice(idx, 1)
   siblings.splice(idx + 1, 0, node)
+  _scheduleAutoSave()
 }
 
 // ---------------------------------------------------------------------------
 // Sync folders
 // ---------------------------------------------------------------------------
 
-async function handleSyncFolders() {
+async function handleSyncFolders(): Promise<boolean> {
   const hasAny = folderTree.value.length > 0
-  if (!hasAny) return
+  if (!hasAny) return false
   syncingFolders.value = true
   saveError.value = ''
   try {
-    const flat = flattenTree(folderTree.value)
+    const flat = flattenAutoClassifyTree(folderTree.value)
     const res = await syncAutoClassifyFolders(flat, 'kb')
-    folderTree.value = buildTree(res.folders)
+    folderTree.value = buildAutoClassifyTree(res.folders, newKey)
     await saveUserSettings('auto_classify', {
       enabled: form.enabled,
       llm_preset_id: form.llm_preset_id || '',
+      prompt_preset_id: form.prompt_preset_id || '',
       confidence_threshold: form.confidence_threshold,
-      folders: flattenTreeForSave(folderTree.value),
+      folders: flattenAutoClassifyTree(folderTree.value),
     })
-    try {
-      const treeRes = await fetchKbTree('kb')
-      const ids = new Set<number>()
-      function collectIds(folders: KbFolder[]) {
-        for (const f of folders) { ids.add(f.id); collectIds(f.children) }
-      }
-      collectIds(treeRes.folders)
-      kbFolderIds.value = ids
-    } catch { /* ignore */ }
     saveSuccess.value = true
     setTimeout(() => { saveSuccess.value = false }, 2500)
+    return true
   } catch (e: any) {
     saveError.value = e?.message || '同步目录失败'
+    return false
   } finally {
     syncingFolders.value = false
   }
+}
+
+// ---------------------------------------------------------------------------
+// AI folder suggestions (preview first, no folder mutation)
+// ---------------------------------------------------------------------------
+
+async function handleSuggestFolders() {
+  suggestingFolders.value = true
+  suggestionMsg.value = ''
+  saveError.value = ''
+  try {
+    const res = await suggestAutoClassifyFolders('kb')
+    const added = appendFolderSuggestions(folderTree.value, res.suggestions, newKey)
+    suggestionMsg.value = added > 0
+      ? `AI 分析了 ${res.analyzed_papers} 篇论文，新增 ${added} 条待审核建议；确认采纳前不会创建目录。`
+      : res.suggestions.length > 0
+        ? `AI 给出的建议已在待审核列表中，本次没有重复添加。`
+        : `AI 分析了 ${res.analyzed_papers} 篇论文，当前目录暂时无需拓展。`
+  } catch (e: any) {
+    saveError.value = getApiErrorMessage(e, 'AI 目录建议生成失败')
+  } finally {
+    suggestingFolders.value = false
+  }
+}
+
+async function handleApplySuggestions() {
+  if (aiSuggestionCount.value === 0) return
+  const confirmed = window.confirm(
+    `将创建 ${unsyncedFolderCount.value} 个待同步目录（其中 ${aiSuggestionCount.value} 个为 AI 建议），并重新分类知识库中的论文。是否继续？`,
+  )
+  if (!confirmed) return
+  const synced = await handleSyncFolders()
+  if (!synced) return
+  suggestionMsg.value = 'AI 建议目录已采纳，正在重新分类论文。'
+  await handleReclassifyAll()
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +391,12 @@ function toggleDesc(key: string) {
 // ---------------------------------------------------------------------------
 
 const folderCount = computed(() => displayList.value.length)
+const aiSuggestionCount = computed(() => displayList.value.filter(item => (
+  item.node.origin === 'ai' && item.node.folder_id == null
+)).length)
+const unsyncedFolderCount = computed(() => displayList.value.filter(item => (
+  item.node.folder_id == null && item.node.name.trim().length > 0
+)).length)
 
 const selectedLlmPreset = computed(() =>
   llmPresets.value.find(p => String(p.id) === String(form.llm_preset_id)) ?? null
@@ -716,10 +677,10 @@ const selectedLlmPreset = computed(() =>
       ══════════════════════════════════════════════════════════════ -->
       <div
         class="bg-bg-card border border-border rounded-xl overflow-hidden transition-opacity duration-200"
-        :class="!form.enabled ? 'opacity-40 pointer-events-none' : ''"
+        :class="!form.enabled ? 'opacity-80' : ''"
       >
         <!-- Tree header -->
-        <div class="px-5 py-4 border-b border-border/50 flex items-center justify-between gap-4">
+        <div class="px-5 py-4 border-b border-border/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div class="min-w-0">
             <div class="flex items-center gap-2">
               <h3 class="text-sm font-semibold text-text-primary">分类目录</h3>
@@ -728,19 +689,34 @@ const selectedLlmPreset = computed(() =>
               </span>
             </div>
             <p class="text-xs text-text-muted mt-0.5">
-              为每个目录填写名称和描述，帮助 AI 理解归类依据；编辑后点击「同步」创建实际文件夹
+              现有目录会完整保留；AI 只添加待审核建议，确认采纳后才会创建并重新分类
             </p>
           </div>
-          <button
-            type="button"
-            class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-tinder-green/10 border border-tinder-green/25 text-tinder-green text-xs font-medium hover:bg-tinder-green/20 transition-colors"
-            @click="addRoot"
-          >
-            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-            </svg>
-            添加目录
-          </button>
+          <div class="w-full sm:w-auto shrink-0 flex flex-wrap sm:justify-end gap-2">
+            <button
+              type="button"
+              :disabled="suggestingFolders"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-400/25 text-violet-400 text-xs font-medium hover:bg-violet-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title="分析收藏论文并生成待审核目录建议"
+              @click="handleSuggestFolders"
+            >
+              <svg class="w-3.5 h-3.5" :class="suggestingFolders ? 'animate-spin' : ''" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path v-if="suggestingFolders" d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                <template v-else><path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3z"/><path d="M19 14l.7 2.3L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.7L19 14z"/></template>
+              </svg>
+              {{ suggestingFolders ? '分析中…' : 'AI 拓展目录' }}
+            </button>
+            <button
+              type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-tinder-green/10 border border-tinder-green/25 text-tinder-green text-xs font-medium hover:bg-tinder-green/20 transition-colors"
+              @click="addRoot"
+            >
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              手动添加
+            </button>
+          </div>
         </div>
 
         <!-- Tree body -->
@@ -791,7 +767,7 @@ const selectedLlmPreset = computed(() =>
                   <!-- Name: view or edit -->
                   <div class="flex-1 min-w-0">
                     <input
-                      v-if="editingKey === item.node._key && editingField === 'name'"
+                      v-if="!item.node.folder_id && editingKey === item.node._key && editingField === 'name'"
                       v-model="item.node.name"
                       type="text"
                       :placeholder="item.depth === 0 ? '顶级目录名称，例如：大模型' : '子目录名称，例如：推理优化'"
@@ -806,11 +782,29 @@ const selectedLlmPreset = computed(() =>
                       type="button"
                       class="text-sm text-left w-full truncate transition-colors"
                       :class="item.node.name ? (item.depth === 0 ? 'text-text-primary font-medium' : 'text-text-secondary') : 'text-text-muted/50 italic'"
-                      @click="startEdit(item.node._key, 'name')"
+                      :title="item.node.folder_id ? '现有目录名称请在知识库侧边栏中修改' : '点击修改目录名称'"
+                      @click="!item.node.folder_id && startEdit(item.node._key, 'name')"
                     >
                       {{ item.node.name || (item.depth === 0 ? '点击填写目录名称…' : '点击填写子目录名称…') }}
                     </button>
                   </div>
+
+                  <!-- Origin badge: always visible so users can distinguish ownership at a glance -->
+                  <span
+                    v-if="item.node.origin === 'ai'"
+                    class="shrink-0 text-[10px] font-medium text-violet-400 bg-violet-500/10 border border-violet-400/20 px-1.5 py-0.5 rounded whitespace-nowrap"
+                    :title="item.node.suggestion_reason || '由 AI 根据收藏论文建议，可编辑或删除'"
+                  >{{ item.node.folder_id ? 'AI 目录' : 'AI 建议' }}<template v-if="item.node.paper_count"> · {{ item.node.paper_count }} 篇</template></span>
+                  <span
+                    v-else-if="item.node.origin === 'system'"
+                    class="shrink-0 text-[10px] font-medium text-amber-400 bg-amber-500/10 border border-amber-400/20 px-1.5 py-0.5 rounded whitespace-nowrap"
+                    title="系统保留目录"
+                  >系统</span>
+                  <span
+                    v-else
+                    class="shrink-0 text-[10px] font-medium text-text-muted bg-bg-elevated border border-border/60 px-1.5 py-0.5 rounded whitespace-nowrap"
+                    title="由你创建和维护的目录"
+                  >我的目录</span>
 
                   <!-- Description toggle -->
                   <button
@@ -855,6 +849,7 @@ const selectedLlmPreset = computed(() =>
                     </button>
                     <!-- Move up -->
                     <button
+                      v-if="!item.node.folder_id"
                       type="button"
                       :disabled="item.siblings.indexOf(item.node) === 0"
                       class="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
@@ -865,6 +860,7 @@ const selectedLlmPreset = computed(() =>
                     </button>
                     <!-- Move down -->
                     <button
+                      v-if="!item.node.folder_id"
                       type="button"
                       :disabled="item.siblings.indexOf(item.node) >= item.siblings.length - 1"
                       class="w-5 h-5 flex items-center justify-center rounded text-text-muted hover:text-text-primary disabled:opacity-20 disabled:cursor-not-allowed transition-colors"
@@ -875,6 +871,7 @@ const selectedLlmPreset = computed(() =>
                     </button>
                     <!-- Delete -->
                     <button
+                      v-if="!item.node.folder_id"
                       type="button"
                       class="w-6 h-6 flex items-center justify-center rounded text-text-muted hover:text-red-400 hover:bg-red-400/10 transition-colors"
                       :title="item.node.children.length ? `删除此目录及其 ${item.node.children.length} 个子目录` : '删除'"
@@ -938,6 +935,12 @@ const selectedLlmPreset = computed(() =>
           <!-- Status messages (left) -->
           <div class="flex items-center gap-2 text-xs">
             <Transition enter-from-class="opacity-0" leave-to-class="opacity-0" enter-active-class="transition-opacity duration-300" leave-active-class="transition-opacity duration-300">
+              <span v-if="suggestionMsg" class="text-violet-400 flex items-start gap-1 max-w-sm leading-relaxed">
+                <svg class="w-3.5 h-3.5 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.2 3.8L17 8l-3.8 1.2L12 13l-1.2-3.8L7 8l3.8-1.2L12 3z"/></svg>
+                {{ suggestionMsg }}
+              </span>
+            </Transition>
+            <Transition enter-from-class="opacity-0" leave-to-class="opacity-0" enter-active-class="transition-opacity duration-300" leave-active-class="transition-opacity duration-300">
               <span v-if="reclassifyMsg" class="text-tinder-green flex items-center gap-1">
                 <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 {{ reclassifyMsg }}
@@ -947,6 +950,18 @@ const selectedLlmPreset = computed(() =>
 
           <!-- Action buttons (right) -->
           <div class="flex flex-wrap items-center gap-2 ml-auto">
+            <!-- Apply AI preview and classify in one explicit action -->
+            <button
+              v-if="aiSuggestionCount > 0"
+              type="button"
+              :disabled="syncingFolders || reclassifying || !form.enabled"
+              :title="form.enabled ? '创建建议目录并重新分类' : '请先启用自动分类'"
+              class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-violet-500/15 border border-violet-400/30 text-violet-300 text-xs font-medium hover:bg-violet-500/25 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              @click="handleApplySuggestions"
+            >
+              采纳 {{ aiSuggestionCount }} 条并重新分类
+            </button>
+
             <!-- Sync button -->
             <button
               type="button"

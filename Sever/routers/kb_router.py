@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, paper_resource_service, preference_service, translate_service, auto_classify_service
+from services import auth_service, auto_classify_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, paper_resource_service, preference_service, translate_service, user_settings_service
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from services.safe_logging_service import safe_stored_error
 from services.quota_stream_service import guard_quota_stream
@@ -178,7 +178,21 @@ def _enrich_kb_note(note: dict, user_id: int) -> dict:
 
 
 def _enrich_kb_tree(tree: dict, user_id: int) -> dict:
+    try:
+        auto_classify_settings = user_settings_service.get_settings(
+            user_id, "auto_classify"
+        )
+        origin_by_id = auto_classify_service.folder_origin_map(
+            auto_classify_settings.get("folders") or []
+        )
+    except Exception:
+        origin_by_id = {}
+
     def _walk(folder: dict) -> None:
+        folder["origin"] = auto_classify_service.normalize_folder_origin(
+            origin_by_id.get(folder.get("id")),
+            name=str(folder.get("name") or ""),
+        )
         for paper in folder.get("papers") or []:
             _enrich_kb_paper(paper, user_id)
         for child in folder.get("children") or []:
@@ -840,8 +854,17 @@ def api_kb_paper_delete_derivative(
 # ---------------------------------------------------------------------------
 
 class AutoClassifySyncFoldersBody(BaseModel):
-    folders: list = []
-    scope: str = "kb"
+    # ``None`` keeps backward compatibility with the mobile client's
+    # "copy current KB tree into settings" action. An explicit [] still means
+    # the caller intentionally supplied an empty definition.
+    folders: Optional[list] = Field(default=None, max_length=300)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
+    dry_run: bool = False
+
+
+class AutoClassifySuggestFoldersBody(BaseModel):
+    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
+    max_suggestions: int = Field(default=8, ge=1, le=8)
 
 
 class AutoClassifyReclassifyBody(BaseModel):
@@ -876,11 +899,57 @@ def api_auto_classify_sync_folders(
     _user=Depends(auth_service.require_user),
 ):
     """
-    Create missing KB folders from the user's auto-classify folder definition
-    and return the updated list with folder_id populated.
+    Create missing KB folders from a supplied definition. Older clients that
+    omit ``folders`` receive a snapshot of the current KB hierarchy instead.
+    Return the updated list with folder_id populated.
     """
-    updated = auto_classify_service.sync_folders(_user["id"], body.folders, scope=body.scope)
-    return {"ok": True, "folders": updated}
+    settings = user_settings_service.get_settings(_user["id"], "auto_classify")
+    if body.folders is None:
+        current_tree = kb_service.get_tree(_user["id"], scope=body.scope)
+        folders = auto_classify_service.build_effective_folder_definitions(
+            current_tree,
+            settings.get("folders") or [],
+        )
+    else:
+        folders = body.folders
+
+    if body.dry_run:
+        return {
+            "ok": True,
+            "folders": folders,
+            "enqueued": len(folders),
+            "dry_run_report": {
+                "would_sync": len(folders),
+                "source": "knowledge_base" if body.folders is None else "request",
+            },
+        }
+
+    updated = auto_classify_service.sync_folders(
+        _user["id"], folders, scope=body.scope
+    )
+    user_settings_service.save_settings(
+        _user["id"],
+        "auto_classify",
+        {**settings, "folders": updated},
+    )
+    _invalidate_tree_cache(_user["id"], body.scope)
+    return {"ok": True, "folders": updated, "enqueued": len(updated)}
+
+
+@router.post("/auto-classify/suggest-folders", summary="根据收藏论文生成可审核的目录建议")
+def api_auto_classify_suggest_folders(
+    body: AutoClassifySuggestFoldersBody,
+    _user=Depends(auth_service.require_user),
+):
+    try:
+        result = auto_classify_service.suggest_folders(
+            _user["id"],
+            scope=body.scope,
+            max_suggestions=body.max_suggestions,
+        )
+    except auto_classify_service.FolderSuggestionError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {"ok": True, **result}
 
 
 @router.post("/auto-classify/reclassify-all", summary="重新分类所有知识库论文")

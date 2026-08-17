@@ -423,11 +423,20 @@ def api_get_user_settings(feature: str, _user=Depends(auth_service.require_user)
 
 @router.put("/user/settings/{feature}", summary="Save user settings for a feature")
 def api_save_user_settings(feature: str, body: UserSettingsBody, _user=Depends(auth_service.require_user)):
-    if "llm_base_url" in body.settings:
-        body.settings["llm_base_url"] = _validate_user_llm_url(
-            str(body.settings.get("llm_base_url") or "")
+    settings_to_save = dict(body.settings)
+    if "llm_base_url" in settings_to_save:
+        settings_to_save["llm_base_url"] = _validate_user_llm_url(
+            str(settings_to_save.get("llm_base_url") or "")
         )
-    merged = user_settings_service.save_settings(_user["id"], feature, body.settings)
+    if feature == "auto_classify" and "folders" not in settings_to_save:
+        # Some clients edit only model/toggle fields. Preserve the reviewed
+        # folder definitions and their AI/user origin metadata in that case.
+        existing = user_settings_service.get_raw_settings(_user["id"], feature)
+        if isinstance(existing.get("folders"), list):
+            settings_to_save["folders"] = existing["folders"]
+    merged = user_settings_service.save_settings(
+        _user["id"], feature, settings_to_save
+    )
     defaults = user_settings_service.get_defaults(feature)
     return {
         "ok": True,

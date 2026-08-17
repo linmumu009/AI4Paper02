@@ -111,6 +111,8 @@ export interface KbFolder {
   id: number
   name: string
   parent_id: number | null
+  /** Source of the folder definition as annotated by the server. */
+  origin?: 'user' | 'ai' | 'system'
   children: KbFolder[]
   papers: KbPaper[]
   created_at: string

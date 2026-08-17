@@ -167,10 +167,27 @@ function avatarColor(paperId: string): string {
       </template>
       <template v-else>
         <div class="flex-1 min-w-0 flex flex-col justify-center">
-          <span
-            class="text-sm font-medium truncate"
-            :class="activeFolderId === folder.id ? 'text-tinder-pink' : 'text-text-primary'"
-          >{{ folder.name }}</span>
+          <div class="flex items-center gap-1.5 min-w-0">
+            <span
+              class="text-sm font-medium truncate"
+              :class="activeFolderId === folder.id ? 'text-tinder-pink' : 'text-text-primary'"
+            >{{ folder.name }}</span>
+            <span
+              v-if="folder.origin === 'ai'"
+              class="shrink-0 text-[9px] leading-4 font-semibold px-1.5 rounded bg-violet-500/12 text-violet-400 border border-violet-400/20"
+              title="AI 根据你的收藏论文建议并由你采纳的目录"
+            >AI</span>
+            <span
+              v-else-if="folder.origin === 'system'"
+              class="shrink-0 text-[9px] leading-4 font-semibold px-1.5 rounded bg-amber-500/10 text-amber-400 border border-amber-400/20"
+              title="系统保留目录"
+            >系统</span>
+            <span
+              v-else
+              class="shrink-0 text-[9px] leading-4 font-medium px-1.5 rounded bg-bg-elevated text-text-muted border border-border/60"
+              title="你创建的目录"
+            >我的</span>
+          </div>
           <span v-if="folder.papers?.length" class="text-[11px] text-text-muted truncate mt-0.5">
             {{ folder.papers.filter(p => !p.read_status || p.read_status === 'unread').length > 0
               ? `${folder.papers.filter(p => !p.read_status || p.read_status === 'unread').length} 未读 / ${folder.papers.length}`
