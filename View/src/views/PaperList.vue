@@ -23,12 +23,14 @@ import { useKbSidebarState } from '../composables/useKbSidebarState'
 import { useEngagement } from '../composables/useEngagement'
 import { useEntitlements } from '../composables/useEntitlements'
 import { trackKbAction } from '../composables/useAnalytics'
+import { useToast } from '../composables/useToast'
 
 const router = useRouter()
 const route = useRoute()
 const globalChat = useGlobalChat()
 const engagement = useEngagement()
 const ent = useEntitlements()
+const { showToast, showError } = useToast()
 const ideaGenQuotaBlocked = computed(() => !ent.canUse('idea_gen'))
 const { attachAnnotationAdapter, detachAnnotationAdapter } = useAnnotationAdapter()
 
@@ -381,17 +383,17 @@ function ideaSkip() {
   }
 }
 
-function ideaLike() {
+const ideaSaving = ref(false)
+
+async function ideaLike() {
   const candidate = currentCandidate.value
-  if (!candidate) return
+  if (!candidate || ideaSaving.value) return
   if (!isAuthenticated.value) {
     router.push({ path: '/login', query: { redirect: route.fullPath } })
     return
   }
+  ideaSaving.value = true
   ideaNext('right')
-  // 1. 记录 collect 反馈（用于排除已看过的候选，后台静默）
-  createIdeaFeedback({ candidate_id: candidate.id, action: 'collect' }).catch(() => {})
-  // 2. 把灵感候选本身作为条目加入灵感知识库（与论文 like 逻辑完全一致）
   const paperData = {
     paper_id: `idea_${candidate.id}`,
     short_title: candidate.title,
@@ -406,28 +408,40 @@ function ideaLike() {
     '🔎分析总结': [] as string[],
     '💡个人观点': candidate.risks || '',
   }
-  trackKbAction('save', `idea_${candidate.id}`)
-  addKbPaper(`idea_${candidate.id}`, paperData as any, null, 'inspiration')
-    .then(async () => {
-      await loadKbTree()
-      // 3. 将关联的来源论文作为链接子项添加到此灵感条目下（后台静默）
-      if (candidate.input_atom_ids?.length) {
-        try {
-          const atomResults = await Promise.all(
-            candidate.input_atom_ids.slice(0, 10).map((aid) =>
-              fetchIdeaAtom(aid).then((r) => r.atom.paper_id).catch(() => null),
-            ),
-          )
-          const uniquePaperIds = [...new Set(atomResults.filter(Boolean) as string[])]
-          for (const pid of uniquePaperIds) {
-            await addNoteLink(`idea_${candidate.id}`, pid, `/papers/${pid}`, 'inspiration').catch(() => {})
-          }
-          await loadKbTree()
-        } catch {}
-      }
-    })
-    .catch(() => {})
-  void engagement.record('collect', 'inspiration-idea-like', String(candidate.id))
+  try {
+    await addKbPaper(`idea_${candidate.id}`, paperData as any, null, 'inspiration')
+    trackKbAction('save', `idea_${candidate.id}`)
+    void createIdeaFeedback({ candidate_id: candidate.id, action: 'collect' }).catch(() => {})
+    void engagement.record('collect', 'inspiration-idea-like', String(candidate.id))
+
+    let failedLinks = 0
+    if (candidate.input_atom_ids?.length) {
+      const atomResults = await Promise.all(
+        candidate.input_atom_ids.slice(0, 10).map((aid) =>
+          fetchIdeaAtom(aid).then((r) => r.atom.paper_id).catch(() => null),
+        ),
+      )
+      const uniquePaperIds = [...new Set(atomResults.filter(Boolean) as string[])]
+      const linkResults = await Promise.allSettled(
+        uniquePaperIds.map((pid) =>
+          addNoteLink(`idea_${candidate.id}`, pid, `/papers/${pid}`, 'inspiration'),
+        ),
+      )
+      failedLinks = linkResults.filter(result => result.status === 'rejected').length
+    }
+    await loadKbTree()
+    showToast(
+      failedLinks > 0
+        ? `灵感已收藏；${failedLinks} 个来源链接暂未保存，可稍后重试`
+        : '灵感已收藏到灵感库',
+      failedLinks > 0 ? 'warning' : 'success',
+    )
+  } catch (error: any) {
+    ideaUndo()
+    showError(error?.response?.data?.detail || error?.message || '收藏失败，请稍后重试')
+  } finally {
+    ideaSaving.value = false
+  }
 }
 
 function ideaUndo() {

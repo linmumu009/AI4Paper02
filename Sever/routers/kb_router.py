@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, preference_service, translate_service, auto_classify_service
+from services import auth_service, compare_service, engagement_service, entitlement_service, kb_pipeline_service, kb_service, paper_resource_service, preference_service, translate_service, auto_classify_service
 from services.upload_guard import UploadTooLarge, read_upload_with_limit
 from services.safe_logging_service import safe_stored_error
 from services.quota_stream_service import guard_quota_stream
@@ -336,6 +336,26 @@ def api_kb_add_paper(body: AddPaperBody, _user=Depends(auth_service.require_user
     except Exception as _exc:
         import logging as _logging
         _logging.getLogger(__name__).warning("auto_attach_pdf failed for %s: %s", body.paper_id, _exc)
+    # A recommendation's shared PDF/MinerU cache may already have expired by
+    # the time the user saves it. Start the durable KB pipeline anyway; it can
+    # re-download a valid arXiv PDF before re-running MinerU.
+    try:
+        if (
+            kb_service.get_kb_pdf_path(_user["id"], body.paper_id) is None
+            and paper_resource_service.is_recoverable_arxiv_id(body.paper_id)
+        ):
+            kb_pipeline_service.start_kb_paper_process(
+                _user["id"], body.paper_id, scope=body.scope
+            )
+    except Exception as _exc:
+        # Saving the metadata is still successful even if the supplementary
+        # recovery task cannot be launched. The detail page exposes retry.
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "expired resource recovery launch failed for %s: %s",
+            body.paper_id,
+            _exc,
+        )
     # Trigger auto-classification when no explicit folder was given
     if body.folder_id is None and body.scope == "kb":
         try:
@@ -784,6 +804,17 @@ def api_kb_paper_files(
         "translate_status": paper.get("translate_status", "none"),
         "translate_progress": paper.get("translate_progress", 0),
     }
+
+
+@router.get("/papers/{paper_id}/resource-status", summary="查询论文资源可用性")
+def api_kb_paper_resource_status(
+    paper_id: str,
+    scope: str = Query("kb", pattern="^(kb|idea_library)$"),
+    _user=Depends(auth_service.require_user),
+):
+    return paper_resource_service.get_resource_status(
+        _user["id"], paper_id, scope=scope
+    )
 
 
 @router.delete(

@@ -10,6 +10,7 @@ import type {
   KbNote,
   KbNotesResponse,
   KbPaper,
+  PaperResourceStatus,
   KbTree,
   PaperSummary,
 } from '../types/paper'
@@ -20,9 +21,18 @@ import type {
 
 export type KbScope = 'kb' | 'inspiration' | 'mypapers' | 'research'
 
+/**
+ * UI routes use the friendly name `inspiration`, while the persisted backend
+ * scope is `idea_library`. Keep that translation at the API boundary so every
+ * caller sends one consistent contract.
+ */
+export function toApiKbScope(scope: KbScope): string {
+  return scope === 'inspiration' ? 'idea_library' : scope
+}
+
 /** 获取知识库完整树 */
 export async function fetchKbTree(scope: KbScope = 'kb'): Promise<KbTree> {
-  const { data } = await http.get<KbTree>('/kb/tree', { params: { scope } })
+  const { data } = await http.get<KbTree>('/kb/tree', { params: { scope: toApiKbScope(scope) } })
   return data
 }
 
@@ -31,14 +41,14 @@ export async function createKbFolder(name: string, parentId?: number | null, sco
   const { data } = await http.post<KbFolder>('/kb/folders', {
     name,
     parent_id: parentId ?? null,
-    scope,
+    scope: toApiKbScope(scope),
   })
   return data
 }
 
 /** 重命名文件夹 */
 export async function renameKbFolder(folderId: number, name: string, scope: KbScope = 'kb'): Promise<KbFolder> {
-  const { data } = await http.patch<KbFolder>(`/kb/folders/${folderId}`, { name, scope })
+  const { data } = await http.patch<KbFolder>(`/kb/folders/${folderId}`, { name, scope: toApiKbScope(scope) })
   return data
 }
 
@@ -46,14 +56,14 @@ export async function renameKbFolder(folderId: number, name: string, scope: KbSc
 export async function moveKbFolder(folderId: number, targetParentId: number | null, scope: KbScope = 'kb'): Promise<KbFolder> {
   const { data } = await http.patch<KbFolder>(`/kb/folders/${folderId}/move`, {
     target_parent_id: targetParentId,
-    scope,
+    scope: toApiKbScope(scope),
   })
   return data
 }
 
 /** 删除文件夹 */
 export async function deleteKbFolder(folderId: number, scope: KbScope = 'kb'): Promise<void> {
-  await http.delete(`/kb/folders/${folderId}`, { params: { scope } })
+  await http.delete(`/kb/folders/${folderId}`, { params: { scope: toApiKbScope(scope) } })
 }
 
 /** 将论文加入知识库 */
@@ -67,14 +77,14 @@ export async function addKbPaper(
     paper_id: paperId,
     paper_data: paperData,
     folder_id: folderId ?? null,
-    scope,
+    scope: toApiKbScope(scope),
   })
   return data
 }
 
 /** 从知识库移除论文 */
 export async function removeKbPaper(paperId: string, scope: KbScope = 'kb'): Promise<void> {
-  await http.delete(`/kb/papers/${paperId}`, { params: { scope } })
+  await http.delete(`/kb/papers/${paperId}`, { params: { scope: toApiKbScope(scope) } })
 }
 
 /** 批量移动论文到目标文件夹 (null = 根目录) */
@@ -86,7 +96,7 @@ export async function moveKbPapers(
   const { data } = await http.patch<{ ok: boolean; moved: number }>('/kb/papers/move', {
     paper_ids: paperIds,
     target_folder_id: targetFolderId,
-    scope,
+    scope: toApiKbScope(scope),
   })
   return data
 }
@@ -97,7 +107,7 @@ export async function moveKbPapers(
 
 /** 获取论文下所有笔记/文件 */
 export async function fetchNotes(paperId: string, scope: KbScope = 'kb'): Promise<KbNotesResponse> {
-  const { data } = await http.get<KbNotesResponse>(`/kb/papers/${paperId}/notes`, { params: { scope } })
+  const { data } = await http.get<KbNotesResponse>(`/kb/papers/${paperId}/notes`, { params: { scope: toApiKbScope(scope) } })
   return data
 }
 
@@ -108,7 +118,7 @@ export async function createNote(
   content: string = '',
   scope: KbScope = 'kb',
 ): Promise<KbNote> {
-  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes`, { title, content, scope })
+  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes`, { title, content, scope: toApiKbScope(scope) })
   return data
 }
 
@@ -137,7 +147,7 @@ export async function uploadNoteFile(paperId: string, file: File, scope: KbScope
   const form = new FormData()
   form.append('file', file)
   const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes/upload`, form, {
-    params: { scope },
+    params: { scope: toApiKbScope(scope) },
     headers: { 'Content-Type': 'multipart/form-data' },
     timeout: 120000,
   })
@@ -151,7 +161,7 @@ export async function addNoteLink(
   url: string,
   scope: KbScope = 'kb',
 ): Promise<KbNote> {
-  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes/link`, { title, url, scope })
+  const { data } = await http.post<KbNote>(`/kb/papers/${paperId}/notes/link`, { title, url, scope: toApiKbScope(scope) })
   return data
 }
 
@@ -169,7 +179,7 @@ export async function fetchCompareStream(
   compareResultIds?: number[],
   rewardId?: number,
 ): Promise<Response> {
-  const body: Record<string, unknown> = { paper_ids: paperIds, scope }
+  const body: Record<string, unknown> = { paper_ids: paperIds, scope: toApiKbScope(scope) }
   if (compareResultIds && compareResultIds.length > 0) {
     body.compare_result_ids = compareResultIds
   }
@@ -231,7 +241,7 @@ export async function clearGeneralChatHistory(): Promise<void> {
 export async function checkPaperInKb(paperId: string, scope: KbScope = 'kb'): Promise<boolean> {
   const { data } = await http.get<{ exists: boolean }>(
     `/kb/papers/${encodeURIComponent(paperId)}/exists`,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data.exists
 }
@@ -256,7 +266,7 @@ export async function renameKbPaper(
   title: string,
   scope: KbScope = 'kb',
 ): Promise<KbPaper> {
-  const { data } = await http.patch<KbPaper>(`/kb/papers/${paperId}/rename`, { title, scope })
+  const { data } = await http.patch<KbPaper>(`/kb/papers/${paperId}/rename`, { title, scope: toApiKbScope(scope) })
   return data
 }
 
@@ -317,7 +327,7 @@ export async function deleteCompareResult(resultId: number): Promise<void> {
 
 /** 获取论文的所有批注 */
 export async function fetchAnnotations(paperId: string, scope: KbScope = 'kb'): Promise<KbAnnotationsResponse> {
-  const { data } = await http.get<KbAnnotationsResponse>(`/kb/papers/${paperId}/annotations`, { params: { scope } })
+  const { data } = await http.get<KbAnnotationsResponse>(`/kb/papers/${paperId}/annotations`, { params: { scope: toApiKbScope(scope) } })
   return data
 }
 
@@ -333,7 +343,19 @@ export async function createAnnotation(
   },
   scope: KbScope = 'kb',
 ): Promise<KbAnnotation> {
-  const { data } = await http.post<KbAnnotation>(`/kb/papers/${paperId}/annotations`, { ...payload, scope })
+  const { data } = await http.post<KbAnnotation>(`/kb/papers/${paperId}/annotations`, { ...payload, scope: toApiKbScope(scope) })
+  return data
+}
+
+/** 获取论文当前可用资源以及是否需要恢复。 */
+export async function fetchPaperResourceStatus(
+  paperId: string,
+  scope: KbScope = 'kb',
+): Promise<PaperResourceStatus> {
+  const { data } = await http.get<PaperResourceStatus>(
+    `/kb/papers/${encodeURIComponent(paperId)}/resource-status`,
+    { params: { scope: toApiKbScope(scope) } },
+  )
   return data
 }
 

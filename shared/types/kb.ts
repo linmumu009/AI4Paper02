@@ -58,6 +58,18 @@ export interface KbPaperFilesResponse {
   translate_progress: number
 }
 
+export interface PaperResourceStatus {
+  paper_id: string
+  scope: string
+  state: 'ready' | 'partial' | 'expired' | 'recovering'
+  local_pdf_available: boolean
+  mineru_available: boolean
+  saved_to_kb: boolean
+  recoverable: boolean
+  action: 'none' | 'save_and_reprocess' | 'reprocess'
+  message: string
+}
+
 export interface KbNote {
   id: number
   paper_id: string

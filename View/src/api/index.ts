@@ -12,7 +12,7 @@
 
 import { configureTransport, apiClient, http } from '@shared/api/client'
 import { TauriTransport } from '@shared/api/transport/tauri'
-import type { KbScope } from './knowledgeBase'
+import { toApiKbScope, type KbScope } from './knowledgeBase'
 import type {
   DatesResponse,
   PapersResponse,
@@ -2016,6 +2016,7 @@ export function kbPaperStepLabel(step: string): string {
     queued: '等待处理...',
     starting: '初始化...',
     pdf_attach: '查找/复制 PDF...',
+    pdf_recover: '重新获取 PDF...',
     pdf_mineru: 'MinerU 版面解析中...',
     pdf_extract: '提取文本（PyMuPDF）...',
     done: '处理完成',
@@ -2042,7 +2043,7 @@ export async function processKbPaper(
   const { data } = await http.post<{ ok: boolean; message: string }>(
     `/kb/papers/${paperId}/process`,
     null,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2054,7 +2055,7 @@ export async function fetchKbPaperProcessStatus(
 ): Promise<KbPaperProcessStatusResponse> {
   const { data } = await http.get<KbPaperProcessStatusResponse>(
     `/kb/papers/${paperId}/process-status`,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2067,7 +2068,7 @@ export async function translateKbPaper(
   const { data } = await http.post<{ ok: boolean; message: string }>(
     `/kb/papers/${paperId}/translate`,
     null,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2080,7 +2081,7 @@ export async function retranslateKbPaper(
   const { data } = await http.post<{ ok: boolean; message: string }>(
     `/kb/papers/${paperId}/retranslate`,
     null,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2092,7 +2093,7 @@ export async function fetchKbPaperTranslateStatus(
 ): Promise<KbPaperTranslateStatusResponse> {
   const { data } = await http.get<KbPaperTranslateStatusResponse>(
     `/kb/papers/${paperId}/translate-status`,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2104,7 +2105,7 @@ export async function fetchKbPaperFiles(
 ): Promise<KbPaperFilesResponse> {
   const { data } = await http.get<KbPaperFilesResponse>(
     `/kb/papers/${paperId}/files`,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2117,7 +2118,7 @@ export async function deleteKbPaperDerivative(
 ): Promise<{ ok: boolean }> {
   const { data } = await http.delete<{ ok: boolean }>(
     `/kb/papers/${paperId}/derivatives/${derivativeType}`,
-    { params: { scope } },
+    { params: { scope: toApiKbScope(scope) } },
   )
   return data
 }
@@ -2641,11 +2642,20 @@ export async function fetchCalibrationStatus(): Promise<CalibrationStatus> {
 export interface PdfCleanupResult {
   dry_run: boolean
   retention_days: number
+  managed_sources?: string[]
+  sources?: Record<string, {
+    scanned: number
+    deletable: number
+    deleted: number
+    reclaimable_bytes: number
+    freed_bytes: number
+  }>
   scanned: number
   deletable: number
   deleted: number
   skipped_saved: number
   skipped_recent: number
+  reclaimable_bytes?: number
   freed_bytes: number
   freed_mb: number
   errors: string[]
@@ -2660,7 +2670,9 @@ export interface PdfCleanupStatus {
   auto_hour: number
   auto_minute: number
   scheduler_alive: boolean
+  managed_sources?: string[]
   last_run_at: string | null
+  last_success_date?: string | null
   last_result: PdfCleanupResult | null
 }
 

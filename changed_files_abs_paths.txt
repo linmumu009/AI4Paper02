@@ -378,3 +378,9 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\recommend_card_
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_recommend_card_prompt_eval.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_prompt_ab_results.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_prompt_ab_ledger.json
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\paper_resource_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_kb_resource_recovery.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_paper_resource_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pdf_cleanup_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\api\knowledgeBase.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\PaperDetailBody.test.ts

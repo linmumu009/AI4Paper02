@@ -41,6 +41,40 @@ _running_jobs: set[str] = set()
 _running_lock = threading.Lock()
 
 
+def _recover_pdf_from_arxiv(user_id: int, paper_id: str) -> str:
+    """Download an expired recommendation PDF into the user's durable KB.
+
+    This runs only inside the user-requested KB processing job and only for a
+    strictly validated modern arXiv identifier.
+    """
+    from services.paper_resource_service import is_recoverable_arxiv_id
+
+    if not is_recoverable_arxiv_id(paper_id):
+        raise FileNotFoundError("该条目不是可自动恢复的 arXiv 论文，请手动上传 PDF")
+
+    # Import the network downloader only after validating the identifier. This
+    # keeps invalid/user-created IDs away from the download stack entirely.
+    from Controller.http_session import build_session
+    from Controller.pdf_download import download_one_pdf
+
+    paper_dir = os.path.join(
+        _SEVER_DIR, "data", "kb_files", str(user_id), paper_id
+    )
+    os.makedirs(paper_dir, exist_ok=True)
+    destination = os.path.join(paper_dir, f"{paper_id}.pdf")
+    result = download_one_pdf(
+        build_session(),
+        paper_id,
+        destination,
+        logger,
+        retries=3,
+        timeout=60,
+    )
+    if not result.ok:
+        raise FileNotFoundError("本地缓存已过期，自动重新获取 PDF 失败，请稍后重试或手动上传")
+    return destination
+
+
 def is_processing(paper_id: str) -> bool:
     with _running_lock:
         return paper_id in _running_jobs
@@ -91,9 +125,8 @@ def process_kb_paper(user_id: int, paper_id: str, scope: str = "kb") -> None:
             pdf_path = kbs.get_kb_pdf_path(user_id, paper_id)
 
         if pdf_path is None:
-            raise FileNotFoundError(
-                f"未找到 PDF 文件。请先上传或确认该论文的 PDF 已存在于 file_collect 目录中。"
-            )
+            _set("processing", step="pdf_recover")
+            pdf_path = _recover_pdf_from_arxiv(user_id, paper_id)
 
         # 2. Determine output directory
         paper_dir = os.path.dirname(pdf_path)

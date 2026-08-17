@@ -1,16 +1,14 @@
-"""
-PDF 缓存清理服务。
+"""Shared recommendation-resource cleanup service.
 
-清理对象：推荐卡片使用的共享 PDF 缓存
-  - data/raw_pdf/<date>/<paper_id>.pdf
-  - data/file_collect/<date>/<paper_id>/<paper_id>.pdf（兼容历史布局）
+Managed caches:
+  - ``data/raw_pdf/<date>/<paper_id>.pdf``
+  - ``data/file_collect/<date>/<paper_id>/``
+  - ``data/full_mineru_cache/<date>/<paper_id>/``
+  - ``data/selectedpaper_to_mineru/<date>/<paper_id>/``
 
-保护条件：只要 paper_id 出现在任意用户的 kb_papers 中，就视为"有人收藏"，
-跳过清理。不触碰 kb_files/ 下的用户知识库副本，也不触碰 user_papers/ 下的用户上传文件。
-
-清理触发：
-  - 手动：通过管理 API 触发（支持 dry_run 预览）
-  - 自动：后台线程每日定时检查，当 auto_enabled=True 时执行
+The service never touches ``kb_files`` or ``user_papers``. A paper present in
+any user's knowledge base is protected across every managed cache. If the
+protection query fails, cleanup aborts instead of assuming nothing is saved.
 """
 
 from __future__ import annotations
@@ -18,12 +16,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sqlite3
 import threading
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 from services.safe_logging_service import redact_sensitive_text
 
@@ -34,16 +32,23 @@ _DATA_ROOT = Path(_BASE_DIR) / "data"
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
 _STATE_PATH = os.path.join(_BASE_DIR, "database", "pdf_cleanup_state.json")
 
+_MANAGED_DIRECTORY_SOURCES = (
+    "file_collect",
+    "full_mineru_cache",
+    "selectedpaper_to_mineru",
+)
+_MANAGED_SOURCES = ("raw_pdf", *_MANAGED_DIRECTORY_SOURCES)
 
-# ---------------------------------------------------------------------------
-# State persistence
-# ---------------------------------------------------------------------------
+
+class CleanupSafetyError(RuntimeError):
+    """Raised when cleanup cannot prove that a deletion is safe."""
+
 
 def _load_state() -> dict:
     if os.path.isfile(_STATE_PATH):
         try:
-            with open(_STATE_PATH, encoding="utf-8") as f:
-                return json.load(f)
+            with open(_STATE_PATH, encoding="utf-8") as file:
+                return json.load(file)
         except Exception:
             pass
     return {}
@@ -51,30 +56,29 @@ def _load_state() -> dict:
 
 def _save_state(state: dict) -> None:
     os.makedirs(os.path.dirname(_STATE_PATH), exist_ok=True)
-    with open(_STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    with open(_STATE_PATH, "w", encoding="utf-8") as file:
+        json.dump(state, file, ensure_ascii=False, indent=2)
 
-
-# ---------------------------------------------------------------------------
-# Core logic
-# ---------------------------------------------------------------------------
 
 def _get_saved_paper_ids() -> set[str]:
-    """返回所有用户已收藏到知识库的 paper_id 集合（任意 scope）。"""
+    """Return all saved paper IDs or abort when the protection query fails."""
     try:
         conn = sqlite3.connect(_DB_PATH)
         try:
             rows = conn.execute("SELECT DISTINCT paper_id FROM kb_papers").fetchall()
-            return {r[0] for r in rows}
+            return {str(row[0]) for row in rows if row and row[0]}
         finally:
             conn.close()
     except Exception as exc:
-        logger.warning("pdf_cleanup_service: 查询 kb_papers 失败: %r", exc)
-        return set()
+        logger.error(
+            "pdf_cleanup_service: 无法确认知识库保护清单，已取消清理: %r",
+            exc,
+        )
+        raise CleanupSafetyError("无法确认已收藏论文，已安全取消本次清理") from exc
 
 
 def _date_from_dir_name(name: str) -> datetime | None:
-    """解析 YYYY-MM-DD 格式的目录名，返回 date 或 None。"""
+    """Parse a YYYY-MM-DD cache directory name."""
     if len(name) == 10 and name[4] == "-" and name[7] == "-":
         try:
             return datetime.strptime(name, "%Y-%m-%d")
@@ -83,31 +87,74 @@ def _date_from_dir_name(name: str) -> datetime | None:
     return None
 
 
+def _iter_targets() -> Iterator[tuple[str, datetime, str, Path]]:
+    """Yield ``(source, date, paper_id, path)`` for managed cache entries."""
+    raw_pdf_root = _DATA_ROOT / "raw_pdf"
+    if raw_pdf_root.is_dir():
+        for date_entry in raw_pdf_root.iterdir():
+            if not date_entry.is_dir() or date_entry.is_symlink():
+                continue
+            cache_date = _date_from_dir_name(date_entry.name)
+            if cache_date is None:
+                continue
+            for pdf_file in date_entry.iterdir():
+                if (
+                    pdf_file.is_file()
+                    and not pdf_file.is_symlink()
+                    and pdf_file.suffix.lower() == ".pdf"
+                ):
+                    yield "raw_pdf", cache_date, pdf_file.stem, pdf_file
+
+    for source in _MANAGED_DIRECTORY_SOURCES:
+        root = _DATA_ROOT / source
+        if not root.is_dir():
+            continue
+        for date_entry in root.iterdir():
+            if not date_entry.is_dir() or date_entry.is_symlink():
+                continue
+            cache_date = _date_from_dir_name(date_entry.name)
+            if cache_date is None:
+                continue
+            for paper_dir in date_entry.iterdir():
+                if paper_dir.is_dir() and not paper_dir.is_symlink():
+                    yield source, cache_date, paper_dir.name, paper_dir
+
+
+def _path_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    total = 0
+    for child in path.rglob("*"):
+        if child.is_file() and not child.is_symlink():
+            total += child.stat().st_size
+    return total
+
+
+def _delete_target(path: Path) -> None:
+    """Delete one validated cache target without following symlinks."""
+    data_root = _DATA_ROOT.resolve()
+    resolved = path.resolve()
+    if resolved == data_root or data_root not in resolved.parents:
+        raise CleanupSafetyError("清理目标超出允许的数据缓存目录")
+    if path.is_symlink():
+        raise CleanupSafetyError("拒绝清理符号链接目标")
+    if path.is_dir():
+        shutil.rmtree(path)
+    else:
+        path.unlink()
+
+
 def run_cleanup(
     retention_days: int | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    """执行 PDF 缓存清理。
-
-    Parameters
-    ----------
-    retention_days:
-        N天。若为 None 则读取配置中的 PDF_CLEANUP_RETENTION_DAYS（默认 14）。
-    dry_run:
-        True = 只统计不删除。
-
-    Returns
-    -------
-    dict 包含：
-        scanned / deletable / deleted / skipped_saved / skipped_recent /
-        freed_bytes / errors / dry_run / started_at / finished_at
-    """
+    """Preview or remove expired, unsaved shared recommendation resources."""
     started_at = datetime.now(timezone.utc).isoformat()
 
     if retention_days is None:
         try:
-            import config.config as _cfg
-            retention_days = getattr(_cfg, "PDF_CLEANUP_RETENTION_DAYS", 14)
+            import config.config as config
+            retention_days = getattr(config, "PDF_CLEANUP_RETENTION_DAYS", 14)
         except Exception:
             retention_days = 14
     retention_days = max(1, int(retention_days))
@@ -120,91 +167,72 @@ def run_cleanup(
     deleted = 0
     skipped_saved = 0
     skipped_recent = 0
+    reclaimable_bytes = 0
     freed_bytes = 0
     errors: list[str] = []
+    source_stats: dict[str, dict[str, int]] = {
+        source: {
+            "scanned": 0,
+            "deletable": 0,
+            "deleted": 0,
+            "reclaimable_bytes": 0,
+            "freed_bytes": 0,
+        }
+        for source in _MANAGED_SOURCES
+    }
 
-    def _try_delete(pdf_path: Path) -> int:
-        """删除文件，返回释放字节数。"""
+    for source, cache_date, paper_id, target in _iter_targets():
+        scanned += 1
+        source_stats[source]["scanned"] += 1
+        if paper_id in saved_ids:
+            skipped_saved += 1
+            continue
+        if cache_date >= cutoff:
+            skipped_recent += 1
+            continue
+
         try:
-            size = pdf_path.stat().st_size
-            if not dry_run:
-                pdf_path.unlink()
-            return size
+            size = _path_size(target)
         except Exception as exc:
-            errors.append(redact_sensitive_text(f"{pdf_path}: {exc}"))
-            return 0
+            errors.append(redact_sensitive_text(f"{target}: {exc}"))
+            continue
 
-    # ── 1. raw_pdf/<date>/<paper_id>.pdf ──────────────────────────────────
-    raw_pdf_root = _DATA_ROOT / "raw_pdf"
-    if raw_pdf_root.is_dir():
-        for date_entry in raw_pdf_root.iterdir():
-            if not date_entry.is_dir():
-                continue
-            dt = _date_from_dir_name(date_entry.name)
-            if dt is None:
-                continue
-            for pdf_file in date_entry.iterdir():
-                if not pdf_file.is_file():
-                    continue
-                if not pdf_file.suffix.lower() == ".pdf":
-                    continue
-                if pdf_file.name == "_manifest.json":
-                    continue
-                scanned += 1
-                paper_id = pdf_file.stem
-                if paper_id in saved_ids:
-                    skipped_saved += 1
-                    continue
-                if dt >= cutoff:
-                    skipped_recent += 1
-                    continue
-                deletable += 1
-                freed = _try_delete(pdf_file)
-                if freed >= 0 and not dry_run:
-                    deleted += 1
-                freed_bytes += freed
+        deletable += 1
+        reclaimable_bytes += size
+        source_stats[source]["deletable"] += 1
+        source_stats[source]["reclaimable_bytes"] += size
 
-    # ── 2. file_collect/<date>/<paper_id>/<paper_id>.pdf（历史布局）──────
-    file_collect_root = _DATA_ROOT / "file_collect"
-    if file_collect_root.is_dir():
-        for date_entry in file_collect_root.iterdir():
-            if not date_entry.is_dir():
-                continue
-            dt = _date_from_dir_name(date_entry.name)
-            if dt is None:
-                continue
-            for paper_dir in date_entry.iterdir():
-                if not paper_dir.is_dir():
-                    continue
-                paper_id = paper_dir.name
-                pdf_file = paper_dir / f"{paper_id}.pdf"
-                if not pdf_file.is_file():
-                    continue
-                scanned += 1
-                if paper_id in saved_ids:
-                    skipped_saved += 1
-                    continue
-                if dt >= cutoff:
-                    skipped_recent += 1
-                    continue
-                deletable += 1
-                freed = _try_delete(pdf_file)
-                if freed >= 0 and not dry_run:
-                    deleted += 1
-                freed_bytes += freed
+        if dry_run:
+            continue
 
+        try:
+            _delete_target(target)
+        except Exception as exc:
+            errors.append(redact_sensitive_text(f"{target}: {exc}"))
+            continue
+
+        deleted += 1
+        freed_bytes += size
+        source_stats[source]["deleted"] += 1
+        source_stats[source]["freed_bytes"] += size
+
+    # In preview mode, report the estimated space that would be released. The
+    # UI labels this as an estimate rather than claiming deletion occurred.
+    reported_bytes = reclaimable_bytes if dry_run else freed_bytes
     finished_at = datetime.now(timezone.utc).isoformat()
-
     result: dict[str, Any] = {
         "dry_run": dry_run,
         "retention_days": retention_days,
+        "managed_sources": list(_MANAGED_SOURCES),
+        "sources": source_stats,
         "scanned": scanned,
         "deletable": deletable,
-        "deleted": deleted if not dry_run else 0,
+        "deleted": deleted,
         "skipped_saved": skipped_saved,
         "skipped_recent": skipped_recent,
-        "freed_bytes": freed_bytes if not dry_run else 0,
-        "freed_mb": round(freed_bytes / 1024 / 1024, 2) if not dry_run else 0.0,
+        "reclaimable_bytes": reclaimable_bytes,
+        "freed_bytes": reported_bytes,
+        "freed_mb": round(reported_bytes / 1024 / 1024, 2),
         "errors": errors[:50],
         "started_at": started_at,
         "finished_at": finished_at,
@@ -213,55 +241,60 @@ def run_cleanup(
     if not dry_run:
         state = _load_state()
         state["last_run_at"] = finished_at
+        # A partial deletion is not a successful scheduled run. Leaving the
+        # date incomplete lets the scheduler retry failed targets later today.
+        if not errors:
+            state["last_success_date"] = datetime.now().date().isoformat()
         state["last_result"] = result
         _save_state(state)
         logger.info(
-            "pdf_cleanup_service: 完成清理 scanned=%d deleted=%d freed=%.2f MB errors=%d",
-            scanned, deleted, result["freed_mb"], len(errors),
+            "pdf_cleanup_service: 完成资源清理 scanned=%d deleted=%d freed=%.2f MB errors=%d",
+            scanned,
+            deleted,
+            result["freed_mb"],
+            len(errors),
         )
     else:
         logger.info(
-            "pdf_cleanup_service: dry-run scanned=%d deletable=%d skipped_saved=%d",
-            scanned, deletable, skipped_saved,
+            "pdf_cleanup_service: 预览资源清理 scanned=%d deletable=%d reclaimable=%.2f MB",
+            scanned,
+            deletable,
+            result["freed_mb"],
         )
 
     return result
 
-
-# ---------------------------------------------------------------------------
-# Auto-scheduler
-# ---------------------------------------------------------------------------
 
 _auto_thread: threading.Thread | None = None
 _auto_stop = threading.Event()
 
 
 def _auto_loop() -> None:
-    """后台线程：每分钟检查一次，到达配置时间时执行清理（每天最多一次）。"""
-    last_run_date = ""
+    """Run at or after the configured time, retrying failures the same day."""
     while not _auto_stop.is_set():
         try:
-            import config.config as _cfg
-            if not getattr(_cfg, "PDF_CLEANUP_AUTO_ENABLED", False):
+            import config.config as config
+            if not getattr(config, "PDF_CLEANUP_AUTO_ENABLED", False):
                 _auto_stop.wait(60)
                 continue
 
             now = datetime.now()
             today = now.date().isoformat()
-            cfg_hour = getattr(_cfg, "PDF_CLEANUP_HOUR", 3)
-            cfg_minute = getattr(_cfg, "PDF_CLEANUP_MINUTE", 0)
+            scheduled = now.replace(
+                hour=int(getattr(config, "PDF_CLEANUP_HOUR", 3)),
+                minute=int(getattr(config, "PDF_CLEANUP_MINUTE", 0)),
+                second=0,
+                microsecond=0,
+            )
+            last_success_date = str(_load_state().get("last_success_date") or "")
 
-            if (
-                now.hour == cfg_hour
-                and now.minute == cfg_minute
-                and last_run_date != today
-            ):
-                last_run_date = today
-                logger.info("pdf_cleanup_service: 自动清理开始 date=%s", today)
+            if now >= scheduled and last_success_date != today:
+                logger.info("pdf_cleanup_service: 自动资源清理开始 date=%s", today)
                 try:
                     run_cleanup(dry_run=False)
                 except Exception as exc:
-                    logger.error("pdf_cleanup_service: 自动清理失败: %r", exc)
+                    # The day remains incomplete, so the next tick retries.
+                    logger.error("pdf_cleanup_service: 自动资源清理失败: %r", exc)
         except Exception as exc:
             logger.error("pdf_cleanup_service: _auto_loop 异常: %r", exc)
 
@@ -274,10 +307,12 @@ def start_auto_scheduler() -> None:
         return
     _auto_stop.clear()
     _auto_thread = threading.Thread(
-        target=_auto_loop, daemon=True, name="pdf_cleanup_scheduler"
+        target=_auto_loop,
+        daemon=True,
+        name="pdf_cleanup_scheduler",
     )
     _auto_thread.start()
-    logger.info("pdf_cleanup_service: 自动清理调度线程已启动")
+    logger.info("pdf_cleanup_service: 自动资源清理调度线程已启动")
 
 
 def stop_auto_scheduler() -> None:
@@ -285,16 +320,18 @@ def stop_auto_scheduler() -> None:
 
 
 def get_status() -> dict[str, Any]:
-    """返回清理服务当前状态。"""
-    import config.config as _cfg
+    """Return cleanup configuration, scheduler health and the last result."""
+    import config.config as config
     state = _load_state()
     scheduler_alive = _auto_thread is not None and _auto_thread.is_alive()
     return {
-        "auto_enabled": getattr(_cfg, "PDF_CLEANUP_AUTO_ENABLED", False),
-        "retention_days": getattr(_cfg, "PDF_CLEANUP_RETENTION_DAYS", 14),
-        "auto_hour": getattr(_cfg, "PDF_CLEANUP_HOUR", 3),
-        "auto_minute": getattr(_cfg, "PDF_CLEANUP_MINUTE", 0),
+        "auto_enabled": getattr(config, "PDF_CLEANUP_AUTO_ENABLED", False),
+        "retention_days": getattr(config, "PDF_CLEANUP_RETENTION_DAYS", 14),
+        "auto_hour": getattr(config, "PDF_CLEANUP_HOUR", 3),
+        "auto_minute": getattr(config, "PDF_CLEANUP_MINUTE", 0),
         "scheduler_alive": scheduler_alive,
+        "managed_sources": list(_MANAGED_SOURCES),
         "last_run_at": state.get("last_run_at"),
+        "last_success_date": state.get("last_success_date"),
         "last_result": state.get("last_result"),
     }

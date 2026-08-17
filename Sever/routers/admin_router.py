@@ -817,7 +817,7 @@ def api_admin_get_openrouter_free_models(
 # ---------------------------------------------------------------------------
 
 class PdfCleanupConfigBody(BaseModel):
-    retention_days: int = Field(14, ge=1, le=3650, description="PDF 缓存保留天数")
+    retention_days: int = Field(14, ge=1, le=3650, description="推荐资源缓存保留天数")
     auto_enabled: bool = Field(False, description="是否启用自动定时清理")
     auto_hour: int = Field(3, ge=0, le=23, description="自动清理触发时间（小时）")
     auto_minute: int = Field(0, ge=0, le=59, description="自动清理触发时间（分钟）")
@@ -828,7 +828,7 @@ class PdfCleanupRunBody(BaseModel):
     retention_days: Optional[int] = Field(None, ge=1, le=3650, description="本次使用的保留天数（不填则用当前配置值）")
 
 
-@router.get("/pdf-cleanup/status", summary="获取 PDF 清理状态")
+@router.get("/pdf-cleanup/status", summary="获取推荐资源清理状态")
 def api_admin_pdf_cleanup_status(
     _admin=Depends(auth_service.require_admin_user),
 ):
@@ -840,12 +840,12 @@ def api_admin_pdf_cleanup_status(
         raise _admin_error_response("获取 PDF 清理状态", e)
 
 
-@router.post("/pdf-cleanup/run", summary="手动触发 PDF 清理")
+@router.post("/pdf-cleanup/run", summary="手动触发推荐资源清理")
 def api_admin_pdf_cleanup_run(
     body: PdfCleanupRunBody,
     _admin=Depends(auth_service.require_admin_user),
 ):
-    """手动触发一次 PDF 清理（支持 dry_run 预览模式）。"""
+    """手动触发一次推荐资源清理（支持 dry_run 预览模式）。"""
     try:
         from services import pdf_cleanup_service
         result = pdf_cleanup_service.run_cleanup(
@@ -854,7 +854,7 @@ def api_admin_pdf_cleanup_run(
         )
         return {"ok": True, **result}
     except Exception as e:
-        raise _admin_error_response("PDF 清理", e)
+        raise _admin_error_response("推荐资源清理", e)
 
 
 @router.post("/pdf-cleanup/config", summary="保存 PDF 清理配置")
@@ -875,7 +875,7 @@ def api_admin_pdf_cleanup_config(
             pdf_cleanup_service.start_auto_scheduler()
         return {
             "ok": True,
-            "message": "PDF 清理配置已保存",
+            "message": "推荐资源清理配置已保存",
             "config": {
                 "retention_days": body.retention_days,
                 "auto_enabled": body.auto_enabled,

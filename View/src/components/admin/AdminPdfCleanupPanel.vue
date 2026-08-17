@@ -41,6 +41,7 @@ function normalizeResult(result: PdfCleanupRunResponse): PdfCleanupRunResponse {
     deleted: result.deleted ?? 0,
     skipped_saved: result.skipped_saved ?? 0,
     skipped_recent: result.skipped_recent ?? 0,
+    reclaimable_bytes: result.reclaimable_bytes ?? result.freed_bytes ?? 0,
     freed_bytes: result.freed_bytes ?? 0,
     freed_mb: result.freed_mb ?? 0,
     errors: Array.isArray(result.errors) ? result.errors : [],
@@ -109,8 +110,15 @@ async function saveConfig() {
 }
 
 async function confirmRun() {
-  if (!window.confirm('确认实际删除超期未收藏的推荐 PDF 缓存？')) return
+  if (!window.confirm('确认删除超期且未被任何用户收藏的推荐 PDF、MinerU 解析和中间资源？知识库副本与用户上传文件不会被删除。')) return
   await run(false)
+}
+
+const sourceLabels: Record<string, string> = {
+  raw_pdf: '原始 PDF',
+  file_collect: '推荐聚合文件',
+  full_mineru_cache: 'MinerU 完整解析',
+  selectedpaper_to_mineru: '入选论文解析',
 }
 
 onMounted(load)
@@ -124,8 +132,8 @@ onBeforeUnmount(() => {
     <div class="max-w-2xl mx-auto space-y-5">
       <header class="flex items-center justify-between">
         <div>
-          <h2 class="text-base font-semibold text-text-primary">🗑️ 推荐 PDF 缓存清理</h2>
-          <p class="text-xs text-text-muted mt-0.5">清理超过 N 天且无用户收藏的推荐 PDF，不影响知识库或用户上传文件</p>
+          <h2 class="text-base font-semibold text-text-primary">🗑️ 推荐资源缓存清理</h2>
+          <p class="text-xs text-text-muted mt-0.5">统一清理超期且未收藏的 PDF、MinerU 解析和推荐中间文件；知识库副本与用户上传文件永久排除</p>
         </div>
         <button
           type="button"
@@ -186,7 +194,7 @@ onBeforeUnmount(() => {
 
       <div class="rounded-xl bg-bg-card border border-border p-5 space-y-3">
         <h3 class="text-sm font-semibold text-text-primary">手动触发</h3>
-        <p class="text-xs text-text-muted">使用当前配置的保留天数，建议先预览再执行删除。</p>
+        <p class="text-xs text-text-muted">使用当前配置的保留天数。预览会显示预计释放空间，不会删除任何文件。</p>
         <div class="flex gap-3">
           <button type="button" :disabled="running" class="px-4 py-1.5 rounded-lg text-sm border border-border text-text-secondary hover:bg-bg-hover disabled:opacity-50" @click="run(true)">
             {{ running ? '处理中...' : '🔍 预览清理（dry-run）' }}
@@ -212,12 +220,25 @@ onBeforeUnmount(() => {
           <span v-else class="text-[11px] text-green-400 border border-green-500/30 rounded px-1.5 py-0.5">实际清理</span>
         </div>
         <div class="grid grid-cols-3 gap-3 text-center">
-          <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-text-primary">{{ lastResult.scanned }}</div><div class="text-[11px] text-text-muted">扫描文件</div></div>
+          <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-text-primary">{{ lastResult.scanned }}</div><div class="text-[11px] text-text-muted">扫描缓存项</div></div>
           <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-amber-400">{{ lastResult.deletable }}</div><div class="text-[11px] text-text-muted">可清理</div></div>
           <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-red-400">{{ lastResult.deleted }}</div><div class="text-[11px] text-text-muted">已删除</div></div>
           <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-blue-400">{{ lastResult.skipped_saved }}</div><div class="text-[11px] text-text-muted">跳过（已收藏）</div></div>
           <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-text-secondary">{{ lastResult.skipped_recent }}</div><div class="text-[11px] text-text-muted">跳过（未到期）</div></div>
-          <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-green-400">{{ formatBytes(lastResult.freed_bytes) }}</div><div class="text-[11px] text-text-muted">释放空间</div></div>
+          <div class="rounded-lg bg-bg-elevated p-3"><div class="text-lg font-bold text-green-400">{{ formatBytes(lastResult.freed_bytes) }}</div><div class="text-[11px] text-text-muted">{{ lastResult.dry_run ? '预计释放' : '释放空间' }}</div></div>
+        </div>
+        <div v-if="lastResult.sources" class="rounded-lg border border-border bg-bg-elevated/60 px-3 py-2.5">
+          <p class="mb-2 text-[11px] font-semibold text-text-secondary">按资源类型</p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div
+              v-for="(item, key) in lastResult.sources"
+              :key="key"
+              class="flex items-center justify-between gap-3 text-[11px]"
+            >
+              <span class="text-text-muted">{{ sourceLabels[key] ?? key }}</span>
+              <span class="font-mono text-text-secondary">可清理 {{ item.deletable }} · {{ formatBytes(item.reclaimable_bytes) }}</span>
+            </div>
+          </div>
         </div>
         <div class="text-[11px] text-text-muted">
           开始 {{ new Date(lastResult.started_at).toLocaleString('zh-CN') }}

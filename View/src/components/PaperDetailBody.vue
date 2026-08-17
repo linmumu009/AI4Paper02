@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SummarySection from './SummarySection.vue'
 import AssetsAccordion from './AssetsAccordion.vue'
 import ResearchMemoryPanel from './ResearchMemoryPanel.vue'
 import AddToProjectDialog from './project/AddToProjectDialog.vue'
-import type { PaperDetailResponse, PaperImage } from '../types/paper'
+import type { PaperDetailResponse, PaperImage, PaperResourceStatus } from '../types/paper'
 import { isAuthenticated } from '../stores/auth'
+import { addKbPaper, fetchPaperResourceStatus, processKbPaper } from '../api'
+import { useToast } from '../composables/useToast'
 
 const props = defineProps<{
   detail: PaperDetailResponse
@@ -22,6 +24,75 @@ const selectedImage = ref<PaperImage | null>(null)
 const paperImages = computed(() => props.detail.images || [])
 const paperId = computed(() => props.detail.summary.paper_id || '')
 const showProjectDialog = ref(false)
+const resourceStatus = ref<PaperResourceStatus | null>(null)
+const resourceStatusLoading = ref(false)
+const resourceRecoveryRunning = ref(false)
+const { showToast, showError } = useToast()
+
+const showResourceNotice = computed(() =>
+  props.effectiveSource !== 'user_upload'
+  && !!resourceStatus.value
+  && resourceStatus.value.state !== 'ready',
+)
+
+async function loadResourceStatus() {
+  resourceStatus.value = null
+  if (!isAuthenticated.value || !paperId.value || paperId.value.startsWith('idea_')) return
+  resourceStatusLoading.value = true
+  try {
+    resourceStatus.value = await fetchPaperResourceStatus(paperId.value)
+  } catch {
+    // Resource status is supplementary; the paper detail remains usable.
+  } finally {
+    resourceStatusLoading.value = false
+  }
+}
+
+async function recoverResources() {
+  const status = resourceStatus.value
+  if (!status || resourceRecoveryRunning.value || !status.recoverable) return
+  resourceRecoveryRunning.value = true
+  try {
+    if (status.saved_to_kb) {
+      await processKbPaper(paperId.value)
+    } else {
+      await addKbPaper(paperId.value, props.detail.summary, null, 'kb')
+      // Saving normally starts recovery on the backend. Explicitly request it
+      // once more so a transient launch failure is retried; an already-running
+      // response is treated as success below.
+      try {
+        await processKbPaper(paperId.value)
+      } catch (processError: any) {
+        const processMessage = processError?.response?.data?.detail || processError?.message || ''
+        if (!String(processMessage).includes('进行中')) throw processError
+      }
+    }
+    resourceStatus.value = {
+      ...status,
+      state: 'recovering',
+      saved_to_kb: true,
+      action: 'reprocess',
+      message: '正在重新获取 PDF 并生成 MinerU 解析，可在知识库中查看进度',
+    }
+    showToast('恢复任务已启动，论文已保存在知识库中', 'success')
+  } catch (error: any) {
+    const message = error?.response?.data?.detail || error?.message || '资源恢复启动失败，请稍后重试'
+    if (String(message).includes('进行中')) {
+      resourceStatus.value = {
+        ...status,
+        state: 'recovering',
+        message: '恢复任务正在进行中，可在知识库中查看进度',
+      }
+      showToast('恢复任务正在进行中', 'info')
+    } else {
+      showError(message)
+    }
+  } finally {
+    resourceRecoveryRunning.value = false
+  }
+}
+
+watch(paperId, loadResourceStatus, { immediate: true })
 </script>
 
 <template>
@@ -109,6 +180,41 @@ const showProjectDialog = ref(false)
         </button>
         <span class="self-center text-xs font-mono text-text-muted">{{ detail.summary.paper_id }}</span>
       </div>
+
+      <div
+        v-if="showResourceNotice"
+        role="status"
+        class="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-3"
+      >
+        <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div class="flex-1 min-w-0">
+            <p class="text-sm font-semibold text-amber-500">本地全文资源需要恢复</p>
+            <p class="mt-1 text-xs leading-relaxed text-text-secondary">
+              {{ resourceStatus?.message }}。摘要仍可正常阅读，原 PDF 也可通过 arXiv 打开。
+            </p>
+          </div>
+          <button
+            v-if="resourceStatus?.recoverable && resourceStatus.state !== 'recovering'"
+            type="button"
+            :disabled="resourceRecoveryRunning"
+            class="shrink-0 rounded-lg border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-xs font-semibold text-amber-500 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="recoverResources"
+          >
+            {{ resourceRecoveryRunning
+              ? '正在启动…'
+              : resourceStatus.saved_to_kb
+                ? '重新获取并解析'
+                : '收藏并恢复全文' }}
+          </button>
+          <span
+            v-else-if="resourceStatus?.state === 'recovering'"
+            class="shrink-0 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs text-blue-400"
+          >
+            恢复中
+          </span>
+        </div>
+      </div>
+      <p v-else-if="resourceStatusLoading" class="mt-3 text-[11px] text-text-muted">正在检查全文资源…</p>
     </div>
 
     <div class="flex gap-1 mb-4 border-b border-border">

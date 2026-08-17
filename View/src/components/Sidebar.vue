@@ -2149,7 +2149,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
         v-if="unclassifiedCount >= 10 && activeTab === 'papers'"
         class="mx-2 mt-2 mb-1 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-sky-500/8 border border-sky-500/20 cursor-pointer hover:bg-sky-500/12 transition-colors"
         title="前往自动分类设置"
-        @click="$router.push('/settings?nav=auto_classify')"
+        @click="$router.push('/advanced-settings?tab=auto_classify')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span class="text-[10px] text-sky-400 leading-tight">

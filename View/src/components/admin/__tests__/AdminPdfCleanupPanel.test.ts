@@ -38,6 +38,7 @@ describe('AdminPdfCleanupPanel', () => {
     expect(fetchPdfCleanupStatus).toHaveBeenCalledOnce()
     expect(wrapper.text()).toContain('调度线程状态')
     expect(wrapper.text()).toContain('运行中')
+    expect(wrapper.text()).toContain('PDF、MinerU 解析')
   })
 
   it('runs a dry-run preview and renders normalized results', async () => {
@@ -50,6 +51,7 @@ describe('AdminPdfCleanupPanel', () => {
       deleted: 0,
       skipped_saved: 1,
       skipped_recent: 2,
+      reclaimable_bytes: 4096,
       freed_bytes: 4096,
       freed_mb: 0,
       errors: [],
@@ -68,5 +70,6 @@ describe('AdminPdfCleanupPanel', () => {
     expect(runPdfCleanup).toHaveBeenCalledWith(true, undefined)
     expect(wrapper.text()).toContain('预览完成')
     expect(wrapper.text()).toContain('4.0 KB')
+    expect(wrapper.text()).toContain('预计释放')
   })
 })
