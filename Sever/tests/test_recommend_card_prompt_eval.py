@@ -163,6 +163,20 @@ class RecommendCardPromptEvalTests(unittest.TestCase):
         self.assertIn("不得把相关性改成因果", prompt)
         self.assertIn("不能先删可核对的专有名词", prompt)
 
+    def test_atomic_evidence_prompt_prioritizes_final_display_contract(self) -> None:
+        prompt = REFINEMENT_CANDIDATES["r8_atomic_evidence_budget"]
+
+        self.assertIn("第一优先级是全部字段一次通过", prompt)
+        self.assertIn("一句话记忆不超过28字", prompt)
+        self.assertIn("每条最多保留一组", prompt)
+
+    def test_anchor_first_prompt_assigns_one_role_per_field(self) -> None:
+        prompt = REFINEMENT_CANDIDATES["r9_anchor_first_microcopy"]
+
+        self.assertIn("各选一个信息锚点", prompt)
+        self.assertIn("一句话记忆≤30", prompt)
+        self.assertIn("不得补充常识", prompt)
+
     def test_numeric_trace_tolerates_percent_sign_restored_from_mineru_table(self) -> None:
         candidate = SAMPLE_CARD.replace(
             "明显下降", "从85.9%下降到9.4%"

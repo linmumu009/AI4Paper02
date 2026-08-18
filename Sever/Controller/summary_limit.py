@@ -166,6 +166,9 @@ def build_effective_cfg(user_id: Optional[int] = None, feature: str = "paper_rec
         "section_prompts": dict(SECTION_PROMPTS_DEFAULT),
         "card_prompt": summary_limit_prompt_card,
         "card_limits": dict(CARD_LIMITS_DEFAULT),
+        "headline_prompt": summary_limit_prompt_headline,
+        "structure_check_prompt": summary_limit_prompt_structure_check,
+        "structure_rewrite_prompt": summary_limit_prompt_structure_rewrite,
     }
 
     import config.config as _sys_cfg_sl
@@ -472,8 +475,17 @@ def split_sections(lines: List[str]) -> Tuple[List[str], List[Tuple[str, str, Li
             elif current_lines:
                 prefix.extend(current_lines)
             current_key = key
-            current_heading = line
-            current_lines = []
+            if key == "memory":
+                inline = re.match(
+                    r"^\s*(?:一句话记忆版|一句话记忆)\s*[:：]\s*(.*)$",
+                    line.strip(),
+                )
+                current_heading = "一句话记忆版："
+                value = inline.group(1).strip() if inline else ""
+                current_lines = [value] if value else []
+            else:
+                current_heading = line
+                current_lines = []
             continue
         if current_key is None:
             prefix.append(line)
@@ -821,7 +833,12 @@ def compress_headline(
     effective_cfg: Optional[Dict[str, Any]] = None,
 ) -> str:
     ecfg = effective_cfg or {}
-    sys_prompt = (summary_limit_prompt_headline or "").strip()
+    raw_prompt = (
+        ecfg["headline_prompt"]
+        if "headline_prompt" in ecfg
+        else summary_limit_prompt_headline
+    )
+    sys_prompt = str(raw_prompt or "").strip()
     content = text.strip()
     if not sys_prompt or not content:
         return text
@@ -1000,7 +1017,12 @@ def structure_matches_example(
     paper_id: str = "",
 ) -> bool:
     ecfg = effective_cfg or {}
-    sys_prompt = (summary_limit_prompt_structure_check or "").strip()
+    raw_prompt = (
+        ecfg["structure_check_prompt"]
+        if "structure_check_prompt" in ecfg
+        else summary_limit_prompt_structure_check
+    )
+    sys_prompt = str(raw_prompt or "").strip()
     if not sys_prompt:
         return True
     content = text.strip()
@@ -1043,7 +1065,12 @@ def restructure_to_example(
     effective_cfg: Optional[Dict[str, Any]] = None,
 ) -> str:
     ecfg = effective_cfg or {}
-    sys_prompt = (summary_limit_prompt_structure_rewrite or "").strip()
+    raw_prompt = (
+        ecfg["structure_rewrite_prompt"]
+        if "structure_rewrite_prompt" in ecfg
+        else summary_limit_prompt_structure_rewrite
+    )
+    sys_prompt = str(raw_prompt or "").strip()
     if not sys_prompt:
         return text
     content = text.strip()
@@ -1086,6 +1113,110 @@ def local_normalize_summary(
     return ensure_section_spacing(text)
 
 
+def refine_full_card_text(
+    client: OpenAI,
+    text: str,
+    *,
+    effective_cfg: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, bool, Optional[BaseException]]:
+    """Run only the validated full-card stage.
+
+    The returned text is safe to freeze and feed into different downstream
+    prompt chains during matched A/B evaluation.  A failed full-card rewrite
+    intentionally returns the normalized original so production can continue
+    through its legacy section fallback, exactly as before.
+    """
+    if not text.strip():
+        raise ValueError("summary_limit input is empty")
+    ecfg = effective_cfg or {}
+    base_text = normalize_style(text)
+    raw_card_prompt = (
+        ecfg["card_prompt"] if "card_prompt" in ecfg else summary_limit_prompt_card
+    )
+    card_prompt = str(raw_card_prompt or "").strip()
+    if not card_prompt or not card_needs_refinement(
+        base_text,
+        limits=ecfg.get("card_limits", CARD_LIMITS_DEFAULT),
+    ):
+        return base_text, False, None
+    try:
+        return rewrite_card(client, base_text, effective_cfg=ecfg), True, None
+    except Exception as exc:
+        return base_text, False, exc
+
+
+def finalize_card_text(
+    client: OpenAI,
+    base_text: str,
+    md_path: Path,
+    pdf_info_map: Dict[str, Dict[str, str]],
+    *,
+    card_rewritten: bool,
+    effective_cfg: Optional[Dict[str, Any]] = None,
+) -> Tuple[str, str]:
+    """Run only the user-visible downstream refinement stages."""
+    ecfg = effective_cfg or {}
+    sec_limits = ecfg.get("section_limits", SECTION_LIMITS_DEFAULT)
+    sec_prompts = ecfg.get("section_prompts", SECTION_PROMPTS_DEFAULT)
+    status = "copied"
+
+    base_text = normalize_style(inject_pdf_info(base_text, md_path, pdf_info_map))
+    lines = base_text.splitlines(keepends=True)
+    lines = apply_headline_limit(client, lines, effective_cfg=ecfg)
+    base_text = "".join(lines)
+    structure_ok = card_rewritten or structure_matches_example(
+        client, base_text, effective_cfg=ecfg, paper_id=md_path.stem
+    )
+    if structure_ok:
+        prefix, sections = split_sections(lines)
+        if not sections:
+            raise InvalidLlmResponseError(
+                "summary_limit output has no recognized sections"
+            )
+        out_lines: List[str] = []
+        out_lines.extend(prefix)
+        rewritten_any = False
+        for key, heading, content_lines in sections:
+            if out_lines and out_lines[-1].strip():
+                out_lines.append("\n")
+            block_text = "".join(content_lines).strip()
+            limit = sec_limits.get(key, 0)
+            if limit and non_ws_len(block_text) > limit:
+                sys_prompt = sec_prompts.get(key, "")
+                if sys_prompt:
+                    block_text = rewrite_block(
+                        client,
+                        block_text,
+                        sys_prompt,
+                        limit_chars=limit,
+                        effective_cfg=ecfg,
+                    )
+                    rewritten_any = True
+            if key == "memory":
+                memory_text = "".join(
+                    line.strip() for line in block_text.splitlines()
+                )
+                out_lines.append(f"一句话记忆版：{memory_text}\n")
+                continue
+            out_lines.append(heading)
+            if block_text:
+                if not block_text.endswith("\n"):
+                    block_text += "\n"
+                out_lines.append(block_text)
+        out_text = ensure_section_spacing("".join(out_lines))
+        status = "rewritten" if card_rewritten or rewritten_any else "copied"
+    else:
+        out_text = restructure_to_example(client, base_text, effective_cfg=ecfg)
+        out_text = ensure_section_spacing(normalize_style(out_text))
+        status = "rewritten"
+
+    out_text = require_nonempty_text(
+        out_text,
+        operation="summary_limit_output",
+    )
+    return out_text, status
+
+
 def process_one_with_fallback(
     client: OpenAI,
     md_path: Path,
@@ -1122,73 +1253,27 @@ def process_one(
     effective_cfg: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Path, str]:
     ecfg = effective_cfg or {}
-    sec_limits = ecfg.get("section_limits", SECTION_LIMITS_DEFAULT)
-    sec_prompts = ecfg.get("section_prompts", SECTION_PROMPTS_DEFAULT)
-
     text = md_path.read_text(encoding="utf-8", errors="ignore")
     if not text.strip():
         raise ValueError(f"summary_limit input is empty: {md_path.name}")
-    status = "copied"
-    base_text = normalize_style(text)
-    card_rewritten = False
-    raw_card_prompt = (
-        ecfg["card_prompt"] if "card_prompt" in ecfg else summary_limit_prompt_card
+    base_text, card_rewritten, refinement_error = refine_full_card_text(
+        client,
+        text,
+        effective_cfg=ecfg,
     )
-    card_prompt = str(raw_card_prompt or "").strip()
-    if card_prompt and card_needs_refinement(
+    if refinement_error is not None:
+        print(
+            f"[SUMMARY_LIMIT] fallback=legacy_sections for {md_path.stem}: "
+            f"{redact_sensitive_text(repr(refinement_error), max_length=500)}",
+            flush=True,
+        )
+    out_text, status = finalize_card_text(
+        client,
         base_text,
-        limits=ecfg.get("card_limits", CARD_LIMITS_DEFAULT),
-    ):
-        try:
-            base_text = rewrite_card(client, base_text, effective_cfg=ecfg)
-            card_rewritten = True
-        except Exception as exc:
-            print(
-                f"[SUMMARY_LIMIT] fallback=legacy_sections for {md_path.stem}: "
-                f"{redact_sensitive_text(repr(exc), max_length=500)}",
-                flush=True,
-            )
-    base_text = normalize_style(inject_pdf_info(base_text, md_path, pdf_info_map))
-    lines = base_text.splitlines(keepends=True)
-    lines = apply_headline_limit(client, lines, effective_cfg=ecfg)
-    base_text = "".join(lines)
-    structure_ok = card_rewritten or structure_matches_example(
-        client, base_text, effective_cfg=ecfg, paper_id=md_path.stem
-    )
-    if structure_ok:
-        prefix, sections = split_sections(lines)
-        if sections:
-            out_lines: List[str] = []
-            out_lines.extend(prefix)
-            rewritten_any = False
-            for key, heading, content_lines in sections:
-                if out_lines and out_lines[-1].strip():
-                    out_lines.append("\n")
-                out_lines.append(heading)
-                block_text = "".join(content_lines).strip()
-                limit = sec_limits.get(key, 0)
-                if limit and non_ws_len(block_text) > limit:
-                    sys_prompt = sec_prompts.get(key, "")
-                    if sys_prompt:
-                        block_text = rewrite_block(
-                            client, block_text, sys_prompt, limit_chars=limit,
-                            effective_cfg=ecfg,
-                        )
-                        rewritten_any = True
-                if block_text:
-                    if not block_text.endswith("\n"):
-                        block_text += "\n"
-                    out_lines.append(block_text)
-            out_text = ensure_section_spacing("".join(out_lines))
-            status = "rewritten" if card_rewritten or rewritten_any else "copied"
-    else:
-        out_text = restructure_to_example(client, base_text, effective_cfg=ecfg)
-        out_text = ensure_section_spacing(normalize_style(out_text))
-        status = "rewritten"
-
-    out_text = require_nonempty_text(
-        out_text,
-        operation="summary_limit_output",
+        md_path,
+        pdf_info_map,
+        card_rewritten=card_rewritten,
+        effective_cfg=ecfg,
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(out_text, encoding="utf-8")

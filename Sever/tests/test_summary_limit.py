@@ -19,10 +19,15 @@ from Controller.summary_limit import (  # noqa: E402
     build_effective_cfg,
     card_contract_errors,
     card_needs_refinement,
+    compress_headline,
+    finalize_card_text,
     load_pdf_info_map_for_run,
     process_one,
     process_one_with_fallback,
+    refine_full_card_text,
+    restructure_to_example,
     rewrite_card,
+    split_sections,
     structure_matches_example,
 )
 from services.llm_response_guard import (  # noqa: E402
@@ -100,6 +105,19 @@ class TestChoiceText(unittest.TestCase):
 
 
 class TestStructureMatchesExample(unittest.TestCase):
+    def test_prompt_can_be_disabled_per_effective_config(self):
+        client = MagicMock()
+
+        result = structure_matches_example(
+            client,
+            "some text",
+            paper_id="x",
+            effective_cfg={"structure_check_prompt": ""},
+        )
+
+        self.assertTrue(result)
+        client.chat.completions.create.assert_not_called()
+
     def test_none_content_is_not_treated_as_business_no(self):
         client = MagicMock()
         client.chat.completions.create.return_value = _resp_with_content(None)
@@ -161,6 +179,127 @@ class TestLoadPdfInfoMapForRun(unittest.TestCase):
 
 
 class TestFullCardRefinement(unittest.TestCase):
+    def test_frozen_full_card_stage_can_feed_multiple_downstream_configs(self):
+        client = MagicMock()
+        client.chat.completions.create.return_value = _resp_with_content(
+            REFINED_CARD
+        )
+        full_card_cfg = {
+            "card_prompt": "compress",
+            "model": "test-model",
+            "max_tokens": 2048,
+            "input_hard_limit": 129024,
+            "input_safety_margin": 4096,
+        }
+
+        frozen, rewritten, error = refine_full_card_text(
+            client,
+            LONG_CARD,
+            effective_cfg=full_card_cfg,
+        )
+
+        self.assertTrue(rewritten)
+        self.assertIsNone(error)
+        self.assertEqual(client.chat.completions.create.call_count, 1)
+        client.reset_mock()
+        common_downstream = {
+            **full_card_cfg,
+            "headline_prompt": "",
+            "structure_check_prompt": "",
+            "section_limits": {},
+            "section_prompts": {},
+        }
+        old_text, _ = finalize_card_text(
+            client,
+            frozen,
+            Path("2608.00001.md"),
+            {},
+            card_rewritten=rewritten,
+            effective_cfg=common_downstream,
+        )
+        new_text, _ = finalize_card_text(
+            client,
+            frozen,
+            Path("2608.00001.md"),
+            {},
+            card_rewritten=rewritten,
+            effective_cfg={**common_downstream, "headline_limit": 16},
+        )
+
+        self.assertEqual(old_text, new_text)
+        self.assertEqual(client.chat.completions.create.call_count, 0)
+
+    def test_headline_and_structure_rewrite_prompts_are_overridable(self):
+        client = MagicMock()
+
+        self.assertEqual(
+            compress_headline(
+                client,
+                "笔记标题：一个很长的标题",
+                effective_cfg={"headline_prompt": ""},
+            ),
+            "笔记标题：一个很长的标题",
+        )
+        self.assertEqual(
+            restructure_to_example(
+                client,
+                "原文",
+                effective_cfg={"structure_rewrite_prompt": ""},
+            ),
+            "原文",
+        )
+        client.chat.completions.create.assert_not_called()
+
+    def test_inline_memory_is_available_to_section_fallback(self):
+        _, sections = split_sections(
+            [
+                "🛎️文章简介\n",
+                "🔸研究问题：问题？\n",
+                "一句话记忆版：这是一个需要继续压缩的很长记忆句\n",
+            ]
+        )
+
+        memory = [item for item in sections if item[0] == "memory"]
+        self.assertEqual(len(memory), 1)
+        self.assertEqual(memory[0][1], "一句话记忆版：")
+        self.assertIn("需要继续压缩", "".join(memory[0][2]))
+
+    def test_process_can_compress_inline_memory_with_aligned_prompt(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "2608.00001.md"
+            output = root / "out.md"
+            source.write_text(LONG_CARD, encoding="utf-8")
+            client = MagicMock()
+            client.chat.completions.create.return_value = _resp_with_content(
+                "固定模型看框架"
+            )
+
+            _, status = process_one(
+                client,
+                source,
+                output,
+                {},
+                effective_cfg={
+                    "card_prompt": "",
+                    "headline_prompt": "",
+                    "structure_check_prompt": "",
+                    "section_limits": {"memory": 10},
+                    "section_prompts": {"memory": "compress memory"},
+                    "model": "test-model",
+                    "max_tokens": 2048,
+                    "input_hard_limit": 129024,
+                    "input_safety_margin": 4096,
+                },
+            )
+
+            self.assertEqual(status, "rewritten")
+            self.assertIn(
+                "一句话记忆版：固定模型看框架",
+                output.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(client.chat.completions.create.call_count, 1)
+
     def test_long_complete_card_requires_refinement(self):
         self.assertTrue(card_needs_refinement(LONG_CARD))
         self.assertFalse(card_needs_refinement(REFINED_CARD))
