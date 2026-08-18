@@ -95,6 +95,7 @@ from services.llm_response_guard import (  # noqa: E402
     InvalidLlmResponseError,
     require_nonempty_text,
 )
+from services.llm_request_options import build_thinking_kwargs  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -150,6 +151,7 @@ def _resolve_llm_for_user(user_id: Optional[int], feature: str = "paper_recommen
         "temperature": CFG_TEMPERATURE if CFG_TEMPERATURE is not None else 1.0,
         "max_tokens": CFG_MAX_TOKENS if CFG_MAX_TOKENS is not None else 1024,
         "system_prompt": (CFG_INFO_PROMPT or "").strip(),
+        "enable_thinking": False,
         "use_openrouter_free_pool": sys_use_pool,
     }
     if user_id is None:
@@ -170,6 +172,7 @@ def _resolve_llm_for_user(user_id: Optional[int], feature: str = "paper_recommen
         cfg["api_key"] = (preset.get("api_key") or cfg["api_key"]).strip()
         cfg["base_url"] = (preset.get("base_url") or cfg["base_url"]).strip()
         cfg["model"] = (preset.get("model") or cfg["model"]).strip()
+        cfg["enable_thinking"] = bool(preset.get("enable_thinking", False))
         cfg["use_openrouter_free_pool"] = bool(preset.get("use_openrouter_free_pool", cfg["use_openrouter_free_pool"]))
         if preset.get("temperature") is not None:
             cfg["temperature"] = preset["temperature"]
@@ -179,6 +182,8 @@ def _resolve_llm_for_user(user_id: Optional[int], feature: str = "paper_recommen
         cfg["api_key"] = (ucfg.get("llm_api_key") or cfg["api_key"]).strip()
         cfg["base_url"] = (ucfg.get("llm_base_url") or cfg["base_url"]).strip()
         cfg["model"] = (ucfg.get("llm_model") or cfg["model"]).strip()
+        if ucfg.get("enable_thinking") is not None:
+            cfg["enable_thinking"] = bool(ucfg["enable_thinking"])
         if ucfg.get("use_openrouter_free_pool") is not None:
             cfg["use_openrouter_free_pool"] = bool(ucfg["use_openrouter_free_pool"])
         if ucfg.get("temperature") is not None:
@@ -196,6 +201,8 @@ def _resolve_llm_for_user(user_id: Optional[int], feature: str = "paper_recommen
             cfg["api_key"] = (admin_llm.get("llm_api_key") or cfg["api_key"]).strip()
             cfg["base_url"] = (admin_llm.get("llm_base_url") or cfg["base_url"]).strip()
             cfg["model"] = (admin_llm.get("llm_model") or cfg["model"]).strip()
+            if admin_llm.get("enable_thinking") is not None:
+                cfg["enable_thinking"] = bool(admin_llm["enable_thinking"])
             cfg["use_openrouter_free_pool"] = bool(admin_llm.get("use_openrouter_free_pool", cfg["use_openrouter_free_pool"]))
             if admin_llm.get("temperature") is not None:
                 cfg["temperature"] = admin_llm["temperature"]
@@ -297,7 +304,17 @@ def parse_arxiv_json(json_path: Path) -> Dict[str, Dict[str, str]]:
     return meta
 
 
-def call_qwen(api_key: str, base_url: str, model: str, system_prompt: str, user_content: str, temperature: float, max_tokens: int, use_openrouter_free_pool: bool = False) -> str:
+def call_qwen(
+    api_key: str,
+    base_url: str,
+    model: str,
+    system_prompt: str,
+    user_content: str,
+    temperature: float,
+    max_tokens: int,
+    use_openrouter_free_pool: bool = False,
+    enable_thinking: bool = False,
+) -> str:
     """Call LLM via build_llm_client (supports OpenRouter Key pool).
 
     The signature retains positional args for backward compatibility with
@@ -316,6 +333,11 @@ def call_qwen(api_key: str, base_url: str, model: str, system_prompt: str, user_
         kwargs["temperature"] = float(temperature)
     if max_tokens is not None:
         kwargs["max_tokens"] = int(max_tokens)
+    kwargs.update(build_thinking_kwargs({
+        "base_url": base_url,
+        "model": model,
+        "enable_thinking": enable_thinking,
+    }))
     resp = client.chat.completions.create(
         model=model,
         messages=[
@@ -487,6 +509,7 @@ def run(args: argparse.Namespace) -> None:
     temperature = llm_cfg["temperature"]
     max_tokens = llm_cfg["max_tokens"]
     use_pool = bool(llm_cfg.get("use_openrouter_free_pool", False))
+    enable_thinking = bool(llm_cfg.get("enable_thinking", False))
     if use_pool:
         print(f"[INFO] pdf_info: using OpenRouter Key pool (base_url={base_url or 'default'})", flush=True)
     else:
@@ -556,7 +579,17 @@ def run(args: argparse.Namespace) -> None:
                 operation="pdf_info_source_text",
             )
             user_content = f"文件名：{p.name}\n文本：\n{content}"
-            out_text = call_qwen(api_key, base_url, model, system_prompt, user_content, temperature, max_tokens, use_openrouter_free_pool=use_pool)
+            out_text = call_qwen(
+                api_key,
+                base_url,
+                model,
+                system_prompt,
+                user_content,
+                temperature,
+                max_tokens,
+                use_openrouter_free_pool=use_pool,
+                enable_thinking=enable_thinking,
+            )
             obj_small = parse_json_or_fallback(out_text)
             meta = meta_map.get(
                 arxiv_id,

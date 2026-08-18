@@ -502,6 +502,7 @@ def _run_pdf_info(text: str, user_id: int) -> Dict[str, Any]:
         temperature=cfg.get("temperature", 1.0),
         max_tokens=cfg.get("max_tokens", 1024),
         use_openrouter_free_pool=bool(cfg.get("use_openrouter_free_pool", False)),
+        enable_thinking=bool(cfg.get("enable_thinking", False)),
     )
     return parse_json_or_fallback(raw)
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 
 _SEVER = Path(__file__).resolve().parents[1]
@@ -26,6 +28,68 @@ class RuntimeModuleCompletenessTests(unittest.TestCase):
         )
         self.assertEqual(qwen, {"extra_body": {"enable_thinking": True}})
         self.assertEqual(other, {})
+
+    def test_deepseek_thinking_option_is_explicit_for_official_endpoint(self) -> None:
+        disabled = build_thinking_kwargs(
+            {
+                "llm_base_url": "https://api.deepseek.com",
+                "llm_model": "deepseek-v4-flash",
+            }
+        )
+        enabled = build_thinking_kwargs(
+            {
+                "llm_base_url": "https://api.deepseek.com/beta",
+                "llm_model": "deepseek-v4-pro",
+                "enable_thinking": True,
+            }
+        )
+        proxied = build_thinking_kwargs(
+            {
+                "llm_base_url": "https://openrouter.ai/api/v1",
+                "llm_model": "deepseek/deepseek-v4-flash",
+            }
+        )
+        self.assertEqual(
+            disabled,
+            {"extra_body": {"thinking": {"type": "disabled"}}},
+        )
+        self.assertEqual(
+            enabled,
+            {"extra_body": {"thinking": {"type": "enabled"}}},
+        )
+        self.assertEqual(proxied, {})
+
+    def test_pdf_info_forwards_deepseek_non_thinking_request(self) -> None:
+        from Controller import pdf_info
+
+        client = MagicMock()
+        client.chat.completions.create.return_value = SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content='{"is_large": false}')
+                )
+            ]
+        )
+        with patch(
+            "services.llm_client_factory.build_llm_client",
+            return_value=client,
+        ):
+            content = pdf_info.call_qwen(
+                api_key="test-key",
+                base_url="https://api.deepseek.com",
+                model="deepseek-v4-flash",
+                system_prompt="system",
+                user_content="paper",
+                temperature=1.0,
+                max_tokens=2048,
+            )
+
+        self.assertEqual(content, '{"is_large": false}')
+        request = client.chat.completions.create.call_args.kwargs
+        self.assertEqual(
+            request["extra_body"],
+            {"thinking": {"type": "disabled"}},
+        )
 
     def test_pipeline_dependencies_reject_invalid_configuration(self) -> None:
         errors = validate_step_config(

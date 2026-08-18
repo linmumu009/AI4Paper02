@@ -32,6 +32,10 @@ _QWEN_MODEL_PREFIXES = (
     "qwq",
 )
 
+_DEEPSEEK_URL_FRAGMENTS = (
+    "api.deepseek.com",
+)
+
 
 def _is_qwen(base_url: str, model: str) -> bool:
     """Return True when the endpoint/model is a Qwen/DashScope deployment."""
@@ -42,6 +46,17 @@ def _is_qwen(base_url: str, model: str) -> bool:
     if any(mdl.startswith(p) for p in _QWEN_MODEL_PREFIXES):
         return True
     return False
+
+
+def _is_direct_deepseek(base_url: str) -> bool:
+    """Return True for the official DeepSeek OpenAI-compatible endpoint.
+
+    Keep this URL-scoped rather than model-scoped: a DeepSeek model routed via
+    another provider may not accept DeepSeek's vendor-specific ``thinking``
+    request body.
+    """
+    url = (base_url or "").lower()
+    return any(fragment in url for fragment in _DEEPSEEK_URL_FRAGMENTS)
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +72,11 @@ def build_thinking_kwargs(cfg: dict) -> dict:
         enable_thinking=True  → extra_body={"enable_thinking": True}
         enable_thinking=False → extra_body={"enable_thinking": False}
       (Passing False explicitly turns off thinking on hybrid-mode models like Qwen3.)
+    - Official DeepSeek endpoint:
+        enable_thinking=True  → extra_body={"thinking": {"type": "enabled"}}
+        enable_thinking=False → extra_body={"thinking": {"type": "disabled"}}
+      DeepSeek V4 defaults to thinking mode, so ``False`` must be sent
+      explicitly to preserve the configured output budget for final content.
     - All other providers: return {} — do not inject unknown parameters.
 
     The caller merges the returned dict into its existing kwargs::
@@ -75,5 +95,12 @@ def build_thinking_kwargs(cfg: dict) -> dict:
 
     if _is_qwen(base_url, model):
         return {"extra_body": {"enable_thinking": enable}}
+
+    if _is_direct_deepseek(base_url):
+        return {
+            "extra_body": {
+                "thinking": {"type": "enabled" if enable else "disabled"}
+            }
+        }
 
     return {}
