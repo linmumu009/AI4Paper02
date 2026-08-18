@@ -64,11 +64,13 @@ const errorType = ref<'proxy' | 'server' | 'unknown'>('unknown')
 const totalAvailable = ref<number>(0)
 const quotaLimit = ref<number | null>(null)
 const responseTier = ref<string>('anonymous')
+const latestRequestFellBack = ref(false)
 const todayDateKey = toLocalDateKey()
 const digestToolbarTitle = computed(() => getDigestContextLabel(
   selectedDate.value,
   dates.value[0] || '',
   todayDateKey,
+  latestRequestFellBack.value,
 ))
 
 // Card navigation
@@ -603,6 +605,7 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
   dateNotice.value = null
   isFallback.value = false
   effectiveDate.value = null
+  latestRequestFellBack.value = false
   try {
     const res = await fetchDigest(date)
     const fetchedPapers = Array.isArray(res.papers) ? res.papers : []
@@ -620,6 +623,12 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
     // Fallback metadata from backend
     effectiveDate.value = (res.effective_date as string | undefined) ?? date
     isFallback.value = (res.is_fallback as boolean | undefined) ?? false
+    latestRequestFellBack.value = Boolean(
+      isFallback.value
+      && !fallbackAuthed
+      && effectiveDate.value
+      && date === dates.value[0],
+    )
     currentIndex.value = 0
     listPage.value = 0
     history.value = []

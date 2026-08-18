@@ -11,8 +11,9 @@ export function getDigestContextLabel(
   selectedDate: string,
   latestDate: string,
   today = toLocalDateKey(),
+  latestRequestFellBack = false,
 ): DigestContextLabel {
   if (selectedDate && selectedDate === today) return '今日论文'
-  if (selectedDate && selectedDate === latestDate) return '最新一期'
+  if (selectedDate && (selectedDate === latestDate || latestRequestFellBack)) return '最新一期'
   return '历史日报'
 }

@@ -11,6 +11,15 @@ describe('digest freshness labels', () => {
     expect(getDigestContextLabel('2026-08-14', '2026-08-14', '2026-08-18')).toBe('最新一期')
   })
 
+  it('keeps the newest published fallback labeled as the latest edition', () => {
+    expect(getDigestContextLabel(
+      '2026-08-14',
+      '2026-08-18',
+      '2026-08-18',
+      true,
+    )).toBe('最新一期')
+  })
+
   it('distinguishes a selected historical digest', () => {
     expect(getDigestContextLabel('2026-08-13', '2026-08-14', '2026-08-18')).toBe('历史日报')
   })
