@@ -348,7 +348,7 @@ class SystemHealthServiceTests(unittest.TestCase):
         self.assertIn("backup_last_run_failed", issues)
         self.assertIn("backup_stale", issues)
 
-    def test_missing_scheduled_attempt_is_detected_after_start_grace(self) -> None:
+    def test_missing_scheduled_attempt_waits_for_source_ready_guard(self) -> None:
         with patch.object(
             service,
             "_load_schedule_config",
@@ -356,6 +356,23 @@ class SystemHealthServiceTests(unittest.TestCase):
         ):
             check, issues = service._scheduled_pipeline_check(
                 self._now(hour=7),
+                [],
+            )
+
+        self.assertTrue(check["ok"])
+        self.assertFalse(check["start_due"])
+        self.assertEqual(check["scheduled_time"], "06:00")
+        self.assertEqual(check["effective_scheduled_time"], "09:15")
+        self.assertNotIn("scheduled_pipeline_not_started", issues)
+
+    def test_missing_scheduled_attempt_is_detected_after_effective_start_grace(self) -> None:
+        with patch.object(
+            service,
+            "_load_schedule_config",
+            return_value=({"enabled": True, "hour": 6, "minute": 0}, True),
+        ):
+            check, issues = service._scheduled_pipeline_check(
+                self._now(hour=10),
                 [],
             )
 

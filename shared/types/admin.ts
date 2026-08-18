@@ -65,6 +65,11 @@ export interface ScheduleConfig {
   multi_user?: boolean
   max_concurrent_user_pipelines?: number
   scheduler_alive?: boolean
+  source_ready_hour?: number
+  source_ready_minute?: number
+  effective_weekday_hour?: number
+  effective_weekday_minute?: number
+  configured_before_source_ready?: boolean
 }
 
 export interface PipelineDataTrackingRecord {

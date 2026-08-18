@@ -23,11 +23,18 @@ from pydantic import BaseModel, Field
 
 from services import auth_service
 from services.pipeline_schedule_policy import (
+    DEFAULT_ARXIV_READY_HOUR,
+    DEFAULT_ARXIV_READY_MINUTE,
     DEFAULT_SCHEDULED_MAX_ATTEMPTS,
+    SCHEDULED_SOURCE_EMPTY_EXIT_CODE,
     count_scheduled_attempts,
+    effective_weekday_schedule_clock,
     failure_cooldown_remaining,
+    is_arxiv_release_day,
     rate_limit_cooldown_remaining,
+    schedule_uses_daily_arxiv,
     scheduled_attempt_is_due,
+    source_empty_result_needs_retry,
 )
 from services.safe_logging_service import redact_sensitive_data, redact_sensitive_text
 from services.safe_logging_service import safe_failure_detail
@@ -174,6 +181,12 @@ def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
             message = (
                 "arXiv 论文源当前限流，系统正在自动重试。"
                 "今日内容尚未生成，请稍后再查看。"
+            )
+        elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+            notice_type = "source_temporarily_unavailable"
+            message = (
+                "arXiv 当日批次暂未返回论文，系统会在稍后自动重试。"
+                "当前仍可阅读最近一期内容。"
             )
         else:
             notice_type = "pipeline_temporarily_unavailable"
@@ -355,6 +368,25 @@ def _scheduled_attempt_is_due(now: datetime, cfg: dict, attempt_count: int) -> b
         attempt_count,
         max_retries=_SCHEDULER_MAX_RETRIES,
     )
+
+
+def _schedule_timing_metadata(cfg: dict) -> dict:
+    effective_hour, effective_minute = effective_weekday_schedule_clock(cfg)
+    try:
+        configured_minutes = int(cfg.get("hour", 6)) * 60 + int(cfg.get("minute", 0))
+    except (TypeError, ValueError):
+        configured_minutes = 6 * 60
+    effective_minutes = effective_hour * 60 + effective_minute
+    return {
+        "source_ready_hour": DEFAULT_ARXIV_READY_HOUR,
+        "source_ready_minute": DEFAULT_ARXIV_READY_MINUTE,
+        "effective_weekday_hour": effective_hour,
+        "effective_weekday_minute": effective_minute,
+        "configured_before_source_ready": bool(
+            schedule_uses_daily_arxiv(cfg)
+            and configured_minutes < effective_minutes
+        ),
+    }
 
 
 def _get_log_tail(log_file: str, n: int = 300) -> list:
@@ -627,7 +659,12 @@ def _run_pipeline_thread(
             except OSError:
                 pass
         finished_at = datetime.now(timezone.utc).isoformat()
-        final_step = "已完成" if exit_code == 0 else f"异常退出 (code={exit_code})"
+        if exit_code == 0:
+            final_step = "已完成"
+        elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+            final_step = "等待 arXiv 当日批次，稍后自动重试"
+        else:
+            final_step = f"异常退出 (code={exit_code})"
         with _pipeline_lock:
             _pipeline_state["running"] = False
             _pipeline_state["finished_at"] = finished_at
@@ -780,6 +817,8 @@ def _run_multiuser_scheduler_thread(
     exit_code = 0
     user_ids_to_run: list = []
     trigger = cfg.get("trigger", "scheduled")
+    arxiv_count: Optional[int] = None
+    schedule_outcome = "completed"
     db_parent_run_id = 0
     try:
         db_parent_run_id = _create_db_run(
@@ -898,12 +937,22 @@ def _run_multiuser_scheduler_thread(
         # arxiv_search writes 0 rows to pipeline_arxiv_list when empty, so count=0 is the signal.
         try:
             from services import pipeline_db_service as _pdb
-            _arxiv_count = len(_pdb.get_arxiv_list_ids(today))
+            arxiv_count = len(_pdb.get_arxiv_list_ids(today))
         except Exception as _cnt_exc:
             _orch_log(f"[SCHEDULER] 无法查询今日论文数量: {_cnt_exc!r}，继续执行每用户阶段")
-            _arxiv_count = -1  # unknown; err on side of continuing
+            arxiv_count = None  # unknown; err on side of continuing
 
-        if _arxiv_count == 0:
+        if arxiv_count == 0:
+            if trigger == "scheduled" and is_arxiv_release_day(today):
+                schedule_outcome = "source_empty_retry"
+                exit_code = SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                _orch_log(
+                    "[SCHEDULER] 工作日 arXiv 当日批次为 0 篇，不再记为成功；"
+                    "已安排稍后自动重试"
+                )
+                return
+
+            schedule_outcome = "no_new_papers"
             _orch_log(f"[SCHEDULER] 今日 arxiv 论文为 0 篇，跳过每用户阶段 (per_user)")
             # Ensure all custom users also see a date notice so the frontend shows the right card
             try:
@@ -1070,7 +1119,12 @@ def _run_multiuser_scheduler_thread(
             pass
 
         finished_at = datetime.now(timezone.utc).isoformat()
-        final_step = "已完成" if exit_code == 0 else f"异常退出 (code={exit_code})"
+        if exit_code == 0:
+            final_step = "已完成"
+        elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+            final_step = "等待 arXiv 当日批次，稍后自动重试"
+        else:
+            final_step = f"异常退出 (code={exit_code})"
         with _pipeline_lock:
             _pipeline_state["running"] = False
             _pipeline_state["finished_at"] = finished_at
@@ -1101,6 +1155,12 @@ def _run_multiuser_scheduler_thread(
             "user_ids": user_ids_to_run,
             "exit_code": exit_code,
             "success": exit_code == 0,
+            "arxiv_count": arxiv_count,
+            "outcome": schedule_outcome if exit_code == 0 else (
+                "source_empty_retry"
+                if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                else "failed"
+            ),
         })
 
         _lock_path = f"{_SCHEDULER_LOCK_PATH}.{today}"
@@ -1294,6 +1354,16 @@ def _scheduler_loop():
             )
 
             history = _load_schedule_history(limit=200)
+            recover_empty_success = source_empty_result_needs_retry(
+                history,
+                today,
+                cfg,
+            )
+            due_cfg = (
+                {**cfg, "last_run_date": None}
+                if recover_empty_success
+                else cfg
+            )
             import time as _time
             retry_cooldown_remaining = 0.0
             if _arxiv_rate_limit_last_at is not None:
@@ -1322,13 +1392,29 @@ def _scheduler_loop():
                 ),
             )
 
-            if _scheduled_attempt_is_due(now, cfg, retry_count_today):
+            if _scheduled_attempt_is_due(now, due_cfg, retry_count_today):
                 if retry_cooldown_remaining > 0:
                     _scheduler_stop_event.wait(30)
                     continue
 
                 lock_path = f"{_SCHEDULER_LOCK_PATH}.{today}"
                 os.makedirs(os.path.dirname(_SCHEDULER_LOCK_PATH), exist_ok=True)
+                if recover_empty_success and os.path.isfile(lock_path):
+                    with _pipeline_lock:
+                        pipeline_running = bool(_pipeline_state.get("running"))
+                    if pipeline_running:
+                        _scheduler_stop_event.wait(30)
+                        continue
+                    try:
+                        os.remove(lock_path)
+                        print(
+                            f"[SCHEDULER] 检测到 {today} 仍有未恢复的空结果，"
+                            "已释放日锁并启动恢复重试",
+                            flush=True,
+                        )
+                    except OSError:
+                        _scheduler_stop_event.wait(30)
+                        continue
                 try:
                     fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                     try:
@@ -1355,10 +1441,15 @@ def _scheduler_loop():
                 )
                 if lease is not None:
                     use_multi_user = cfg.get("multi_user", True)
+                    launch_cfg = (
+                        {**cfg, "force": True}
+                        if recover_empty_success and use_multi_user
+                        else cfg
+                    )
                     if use_multi_user:
                         t = threading.Thread(
                             target=_run_with_execution_lease,
-                            args=(_run_multiuser_scheduler_thread, lease["token"], cfg, today),
+                            args=(_run_multiuser_scheduler_thread, lease["token"], launch_cfg, today),
                             daemon=True,
                         )
                     else:
@@ -1721,6 +1812,7 @@ def api_admin_get_schedule(
         "multi_user": cfg.get("multi_user", True),
         "max_concurrent_user_pipelines": cfg.get("max_concurrent_user_pipelines", 3),
         "scheduler_alive": scheduler_alive,
+        **_schedule_timing_metadata(cfg),
     }
 
 
@@ -1756,7 +1848,7 @@ def api_admin_update_schedule(
     if body.enabled:
         _start_scheduler()
 
-    return {"ok": True, "schedule": {
+    response_schedule = {
         "enabled": body.enabled,
         "hour": body.hour,
         "minute": body.minute,
@@ -1766,7 +1858,14 @@ def api_admin_update_schedule(
         "user_id": body.user_id,
         "multi_user": body.multi_user,
         "max_concurrent_user_pipelines": body.max_concurrent_user_pipelines,
-    }}
+        **_schedule_timing_metadata({
+            "hour": body.hour,
+            "minute": body.minute,
+            "pipeline": body.pipeline,
+            "multi_user": body.multi_user,
+        }),
+    }
+    return {"ok": True, "schedule": response_schedule}
 
 
 @router.get("/schedule/history", summary="Get schedule execution history")

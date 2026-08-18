@@ -65,6 +65,12 @@ import type {
 } from '../types/paper'
 import { isSuperAdmin, currentUser } from '../stores/auth'
 import { usePollingTask } from '../composables/usePollingTask'
+import {
+  formatChinaTimestamp,
+  formatScheduleClock,
+  formatScheduleDuration,
+  getScheduleStatus,
+} from '../utils/scheduleStatus'
 
 const AdminAnalytics = defineAsyncComponent(() => import('../components/AdminAnalytics.vue'))
 const PipelineConsole = defineAsyncComponent(() => import('../components/PipelineConsole.vue'))
@@ -353,6 +359,30 @@ const scheduleCustomUserCount = ref<number | null>(null)
 // Schedule execution history
 const scheduleHistory = ref<ScheduleHistoryRecord[]>([])
 const scheduleHistoryLoading = ref(false)
+const scheduleHistoryRows = computed(() => scheduleHistory.value.map(record => ({
+  ...record,
+  statusPresentation: getScheduleStatus(record),
+})))
+const configuredScheduleClock = computed(() => formatScheduleClock(
+  schedule.value.hour,
+  schedule.value.minute,
+))
+const scheduleSourceGuardActive = computed(() => {
+  const usesDailyArxiv = schedule.value.multi_user === true
+    || ['daily', 'default'].includes(schedule.value.pipeline)
+  const configuredMinutes = schedule.value.hour * 60 + schedule.value.minute
+  const sourceReadyMinutes = (schedule.value.source_ready_hour ?? 9) * 60
+    + (schedule.value.source_ready_minute ?? 15)
+  return usesDailyArxiv && configuredMinutes < sourceReadyMinutes
+})
+const effectiveWeekdayScheduleClock = computed(() => formatScheduleClock(
+  scheduleSourceGuardActive.value
+    ? (schedule.value.source_ready_hour ?? 9)
+    : schedule.value.hour,
+  scheduleSourceGuardActive.value
+    ? (schedule.value.source_ready_minute ?? 15)
+    : schedule.value.minute,
+))
 
 async function loadScheduleHistory() {
   scheduleHistoryLoading.value = true
@@ -475,7 +505,7 @@ async function handleSaveSchedule() {
       multi_user: schedule.value.multi_user ?? true,
       max_concurrent_user_pipelines: schedule.value.max_concurrent_user_pipelines ?? 3,
     })
-    schedule.value = res.schedule
+    schedule.value = { ...schedule.value, ...res.schedule }
   } catch (e: any) {
     window.alert(e?.response?.data?.detail || '保存失败')
   } finally {
@@ -2781,6 +2811,15 @@ watch(activeTab, (tab) => {
             </div>
           </div>
 
+          <div
+            v-if="scheduleSourceGuardActive"
+            role="status"
+            class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-300"
+          >
+            当前配置 {{ configuredScheduleClock }} 早于 arXiv 工作日批次稳定时间。
+            系统会在工作日自动延后到 {{ effectiveWeekdayScheduleClock }} 执行，避免空跑后误判为成功；管理员设置的更晚时间仍会照常保留。
+          </div>
+
           <!-- Summary & Save -->
           <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-border">
             <button
@@ -2791,7 +2830,10 @@ watch(activeTab, (tab) => {
               {{ scheduleSaving ? '保存中...' : '💾 保存配置' }}
             </button>
             <span v-if="schedule.enabled" class="text-xs text-text-muted">
-              每天 {{ String(schedule.hour).padStart(2, '0') }}:{{ String(schedule.minute).padStart(2, '0') }} 自动执行
+              配置时间 {{ configuredScheduleClock }}
+              <template v-if="scheduleSourceGuardActive">
+                · 工作日实际最早 {{ effectiveWeekdayScheduleClock }}
+              </template>
               <template v-if="schedule.last_run_date">
                 · 上次运行: {{ schedule.last_run_date }}
               </template>
@@ -2815,7 +2857,8 @@ watch(activeTab, (tab) => {
         <div class="rounded-xl bg-blue-500/5 border border-blue-500/20 p-4">
           <h3 class="text-sm font-medium text-blue-400 mb-2">💡 说明</h3>
           <ul class="text-xs text-text-muted space-y-1.5 list-none p-0 m-0">
-            <li>• 定时调度会在每天设定时间自动执行一次 Pipeline</li>
+            <li>• 定时调度会在每天设定时间自动执行 Pipeline；工作日会等待 arXiv 当日批次稳定后再开始</li>
+            <li>• 工作日空结果不会再记为成功，系统会按退避间隔自动重试</li>
             <li>• 自动执行期间仍可手动点击「脚本执行」运行，但不会同时执行两个</li>
             <li>• 调度配置会持久化保存，服务重启后自动恢复</li>
             <li>• 如果当天的 Pipeline 输出已存在，对应步骤会自动跳过</li>
@@ -2857,6 +2900,7 @@ watch(activeTab, (tab) => {
                 <tr class="border-b border-border text-text-muted">
                   <th class="text-left py-2 pr-3 font-medium whitespace-nowrap">执行时间</th>
                   <th class="text-left py-2 pr-3 font-medium whitespace-nowrap">触发方式</th>
+                  <th class="text-center py-2 pr-3 font-medium whitespace-nowrap">arXiv 论文</th>
                   <th class="text-center py-2 pr-3 font-medium whitespace-nowrap">执行配置数</th>
                   <th class="text-center py-2 pr-3 font-medium whitespace-nowrap">状态</th>
                   <th class="text-right py-2 font-medium whitespace-nowrap">耗时</th>
@@ -2864,13 +2908,13 @@ watch(activeTab, (tab) => {
               </thead>
               <tbody>
                 <tr
-                  v-for="rec in scheduleHistory"
+                  v-for="rec in scheduleHistoryRows"
                   :key="rec.run_id"
                   class="border-b border-border/50 hover:bg-bg-elevated/40 transition-colors"
                 >
                   <!-- 执行时间 -->
                   <td class="py-2 pr-3 whitespace-nowrap text-text-secondary font-mono">
-                    {{ rec.started_at ? rec.started_at.replace('T', ' ').replace(/\.\d+Z$/, '').replace('Z', '') : rec.date_str }}
+                    {{ formatChinaTimestamp(rec.started_at, rec.date_str) }}
                   </td>
                   <!-- 触发方式 -->
                   <td class="py-2 pr-3 whitespace-nowrap">
@@ -2881,6 +2925,10 @@ watch(activeTab, (tab) => {
                       {{ rec.trigger === 'scheduled' ? '⏰ 定时' : '▶ 手动' }}
                     </span>
                   </td>
+                  <!-- arXiv 论文数 -->
+                  <td class="py-2 pr-3 text-center whitespace-nowrap text-text-secondary">
+                    {{ rec.arxiv_count ?? '—' }}
+                  </td>
                   <!-- 执行配置数 -->
                   <td class="py-2 pr-3 text-center whitespace-nowrap text-text-secondary">
                     {{ rec.user_count }}
@@ -2889,18 +2937,28 @@ watch(activeTab, (tab) => {
                   <td class="py-2 pr-3 text-center whitespace-nowrap">
                     <span
                       class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium"
-                      :class="rec.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+                      :class="{
+                        'bg-green-500/10 text-green-400': rec.statusPresentation.tone === 'success',
+                        'bg-amber-500/10 text-amber-400': rec.statusPresentation.tone === 'warning',
+                        'bg-blue-500/10 text-blue-300': rec.statusPresentation.tone === 'neutral',
+                        'bg-red-500/10 text-red-400': rec.statusPresentation.tone === 'error',
+                      }"
                     >
-                      <span class="inline-block w-1.5 h-1.5 rounded-full" :class="rec.success ? 'bg-green-400' : 'bg-red-400'"></span>
-                      {{ rec.success ? '成功' : `失败 (${rec.exit_code ?? '?'})` }}
+                      <span
+                        class="inline-block w-1.5 h-1.5 rounded-full"
+                        :class="{
+                          'bg-green-400': rec.statusPresentation.tone === 'success',
+                          'bg-amber-400': rec.statusPresentation.tone === 'warning',
+                          'bg-blue-300': rec.statusPresentation.tone === 'neutral',
+                          'bg-red-400': rec.statusPresentation.tone === 'error',
+                        }"
+                      ></span>
+                      {{ rec.statusPresentation.label }}
                     </span>
                   </td>
                   <!-- 耗时 -->
                   <td class="py-2 text-right whitespace-nowrap text-text-muted font-mono">
-                    <template v-if="rec.started_at && rec.finished_at">
-                      {{ Math.round((new Date(rec.finished_at).getTime() - new Date(rec.started_at).getTime()) / 1000 / 60) }} 分钟
-                    </template>
-                    <template v-else>—</template>
+                    {{ formatScheduleDuration(rec.started_at, rec.finished_at) }}
                   </td>
                 </tr>
               </tbody>

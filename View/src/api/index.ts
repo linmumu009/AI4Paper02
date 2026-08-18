@@ -448,6 +448,8 @@ export interface ScheduleHistoryRecord {
   exit_code: number | null
   success: boolean
   pipeline?: string
+  arxiv_count?: number | null
+  outcome?: 'completed' | 'no_new_papers' | 'source_empty_retry' | 'failed'
 }
 
 export async function getScheduleHistory(limit = 50): Promise<ScheduleHistoryRecord[]> {

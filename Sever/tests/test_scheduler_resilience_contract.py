@@ -20,6 +20,7 @@ from services.pipeline_schedule_policy import (  # noqa: E402
     failure_cooldown_remaining,
     rate_limit_cooldown_remaining,
     scheduled_attempt_is_due,
+    source_empty_result_needs_retry,
 )
 
 
@@ -95,6 +96,95 @@ class SchedulerCatchUpTests(unittest.TestCase):
         self.assertFalse(
             scheduled_attempt_is_due(
                 now, pending, MAX_RETRIES, max_retries=MAX_RETRIES
+            )
+        )
+
+    def test_weekday_daily_schedule_waits_for_arxiv_release_window(self) -> None:
+        cfg = {
+            "enabled": True,
+            "hour": 6,
+            "minute": 0,
+            "pipeline": "daily",
+            "last_run_date": "2026-08-05",
+        }
+        self.assertFalse(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 6, 9, 14), cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+        self.assertTrue(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 6, 9, 15), cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+
+    def test_later_admin_schedule_and_weekend_time_are_preserved(self) -> None:
+        later_cfg = {
+            "enabled": True,
+            "hour": 10,
+            "minute": 5,
+            "pipeline": "daily",
+            "last_run_date": "2026-08-05",
+        }
+        self.assertFalse(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 6, 10, 4), later_cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+        self.assertTrue(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 6, 10, 5), later_cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+
+        weekend_cfg = {**later_cfg, "hour": 6, "minute": 0}
+        self.assertTrue(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 8, 6, 0), weekend_cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+
+    def test_legacy_empty_weekday_success_is_recovered_until_content_succeeds(self) -> None:
+        cfg = {"pipeline": "daily", "multi_user": True}
+        empty_success = {
+            "date_str": "2026-08-06",
+            "trigger": "scheduled",
+            "exit_code": 0,
+            "user_count": 0,
+            "finished_at": "2026-08-05T22:00:03+00:00",
+        }
+        self.assertTrue(
+            source_empty_result_needs_retry(
+                [empty_success], "2026-08-06", cfg
+            )
+        )
+        content_success = {
+            **empty_success,
+            "user_count": 4,
+            "arxiv_count": 25,
+            "finished_at": "2026-08-06T02:00:00+00:00",
+        }
+        self.assertFalse(
+            source_empty_result_needs_retry(
+                [content_success, empty_success], "2026-08-06", cfg
+            )
+        )
+        self.assertFalse(
+            source_empty_result_needs_retry(
+                [{**empty_success, "date_str": "2026-08-08"}],
+                "2026-08-08",
+                cfg,
+            )
+        )
+
+        retryable_empty = {
+            **empty_success,
+            "exit_code": 4,
+            "finished_at": "2026-08-06T01:15:00+00:00",
+        }
+        self.assertTrue(
+            source_empty_result_needs_retry(
+                [retryable_empty], "2026-08-06", cfg
             )
         )
 

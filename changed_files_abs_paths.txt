@@ -388,3 +388,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_auto_classif
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\AutoClassifyPanel.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\autoClassifyFolders.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\autoClassifyFolders.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\digestFreshness.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\digestFreshness.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\scheduleStatus.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\scheduleStatus.test.ts

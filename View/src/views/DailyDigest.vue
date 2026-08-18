@@ -37,6 +37,7 @@ import { useWorkspaceRouteState } from '../composables/useWorkspaceRouteState'
 import { usePaperDecisionActions } from '../composables/usePaperDecisionActions'
 import { useEntitlements } from '../composables/useEntitlements'
 import { getApiErrorMessage, getApiErrorStatus } from '../utils/apiError'
+import { getDigestContextLabel, toLocalDateKey } from '../utils/digestFreshness'
 import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShell.vue'
 import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
 import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
@@ -63,6 +64,12 @@ const errorType = ref<'proxy' | 'server' | 'unknown'>('unknown')
 const totalAvailable = ref<number>(0)
 const quotaLimit = ref<number | null>(null)
 const responseTier = ref<string>('anonymous')
+const todayDateKey = toLocalDateKey()
+const digestToolbarTitle = computed(() => getDigestContextLabel(
+  selectedDate.value,
+  dates.value[0] || '',
+  todayDateKey,
+))
 
 // Card navigation
 const cardAnimClass = ref('card-enter')
@@ -2652,7 +2659,7 @@ onBeforeRouteLeave(async (_to, _from, next) => {
               <li class="flex items-center gap-1.5"><span class="text-tinder-pink">✦</span>知识库 · 收藏 · 笔记</li>
               <li class="flex items-center gap-1.5"><span class="text-tinder-pink">✦</span>AI 问答 · 论文对比</li>
               <li class="flex items-center gap-1.5"><span class="text-tinder-pink">✦</span>灵感生成 · 中文翻译</li>
-              <li class="flex items-center gap-1.5"><span class="text-tinder-pink">✦</span>每日无限论文浏览</li>
+              <li class="flex items-center gap-1.5"><span class="text-tinder-pink">✦</span>注册后可浏览更多论文</li>
             </ul>
             <div class="flex flex-col gap-2 w-full">
               <button
@@ -3270,9 +3277,9 @@ onBeforeRouteLeave(async (_to, _from, next) => {
         >
           <template #toolbar>
             <div class="digest-workspace-toolbar">
-              <div class="digest-workspace-toolbar__context">
-                <span class="digest-workspace-toolbar__title">今日论文</span>
-                <span v-if="selectedDate" class="digest-workspace-toolbar__date">{{ selectedDate }}</span>
+              <div class="digest-workspace-toolbar__context" aria-live="polite">
+                <span class="digest-workspace-toolbar__title">{{ digestToolbarTitle }}</span>
+                <time v-if="selectedDate" class="digest-workspace-toolbar__date" :datetime="selectedDate">{{ selectedDate }}</time>
                 <span class="digest-workspace-toolbar__count">
                   <template v-if="digestViewMode === 'list' && listTotalPages > 1">
                     {{ listPage * LIST_PAGE_SIZE + 1 }}-{{ Math.min((listPage + 1) * LIST_PAGE_SIZE, displayPapers.length) }} / {{ displayPapers.length }} 篇
@@ -4259,10 +4266,6 @@ onBeforeRouteLeave(async (_to, _from, next) => {
   }
 
   .digest-workspace-toolbar__filters::-webkit-scrollbar {
-    display: none;
-  }
-
-  .digest-workspace-toolbar__date {
     display: none;
   }
 

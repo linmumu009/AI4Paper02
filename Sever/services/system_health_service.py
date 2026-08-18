@@ -14,7 +14,10 @@ from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from services import pipeline_db_service
-from services.pipeline_schedule_policy import DEFAULT_SCHEDULED_MAX_ATTEMPTS
+from services.pipeline_schedule_policy import (
+    DEFAULT_SCHEDULED_MAX_ATTEMPTS,
+    effective_scheduled_time,
+)
 from services.storage_health_service import get_storage_health
 
 
@@ -102,7 +105,7 @@ def _scheduled_pipeline_check(
     grace_minutes = max(5, _env_int("PIPELINE_HEALTH_START_GRACE_MINUTES", 45))
     pending_limit = max(10, _env_int("PIPELINE_HEALTH_PENDING_MINUTES", 30))
     running_limit = max(60, _env_int("PIPELINE_HEALTH_RUNNING_MINUTES", 480))
-    scheduled_at = current.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    scheduled_at = effective_scheduled_time(current, config)
     start_deadline = scheduled_at.timestamp() + grace_minutes * 60
     start_due = current.timestamp() >= start_deadline
 
@@ -164,6 +167,7 @@ def _scheduled_pipeline_check(
         "config_readable": config_ok,
         "enabled": enabled,
         "scheduled_time": f"{hour:02d}:{minute:02d}",
+        "effective_scheduled_time": scheduled_at.strftime("%H:%M"),
         "start_grace_minutes": grace_minutes,
         "start_due": start_due,
         "attempts": len(root_attempts),
