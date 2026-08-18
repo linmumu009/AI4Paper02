@@ -167,6 +167,8 @@ def scheduled_attempt_is_due(
 ) -> bool:
     """Return whether today's job needs its normal start or a same-day catch-up."""
     today = now.date().isoformat()
+    if schedule_uses_daily_arxiv(cfg) and not is_arxiv_release_day(today):
+        return False
     scheduled_today = effective_scheduled_time(now, cfg)
     return bool(
         cfg.get("enabled")

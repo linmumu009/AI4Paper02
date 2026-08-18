@@ -1565,15 +1565,29 @@ def has_images(date_str: str) -> bool:
 # pipeline_arxiv_list CRUD
 # ---------------------------------------------------------------------------
 
-def bulk_upsert_arxiv_list(date_str: str, papers: list) -> None:
+def bulk_upsert_arxiv_list(
+    date_str: str,
+    papers: list,
+    *,
+    replace_existing: bool = False,
+) -> None:
     """
     Store arxiv search results for a date.
     Each paper dict should have: paper_arxiv_id, title, abstract_text,
     authors (list), published_utc, link, categories (list), paper_categories (list).
+
+    ``replace_existing`` atomically removes stale rows for the same date before
+    inserting a newly verified full batch.  Partial rate-limited fetches keep
+    the legacy upsert-only behavior so they cannot erase a complete batch.
     """
     now = _now_iso()
     conn = _connect()
     try:
+        if replace_existing:
+            conn.execute(
+                "DELETE FROM pipeline_arxiv_list WHERE date_str=?",
+                (date_str,),
+            )
         conn.executemany(
             """
             INSERT INTO pipeline_arxiv_list

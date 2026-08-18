@@ -405,3 +405,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_recommend_ca
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_protocol.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_results.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_ledger.json
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_arxiv_announcement_batch.py

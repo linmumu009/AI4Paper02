@@ -627,17 +627,22 @@ def run_step(name, extra_args=None, env=None, recorder: Optional["PipelineRecord
     return r.returncode
 
 
-def detect_selected_count():
+def detect_selected_count(date_str: Optional[str] = None):
     data_root = os.path.join(ROOT, "data", "arxivList", "md")
     if not os.path.isdir(data_root):
         return None
-    files = [os.path.join(data_root, f) for f in os.listdir(data_root) if f.endswith(".md")]
-    if not files:
-        return None
-    files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-    latest = files[0]
+    if date_str:
+        selected_file = os.path.join(data_root, f"{date_str}.md")
+        if not os.path.isfile(selected_file):
+            return None
+    else:
+        files = [os.path.join(data_root, f) for f in os.listdir(data_root) if f.endswith(".md")]
+        if not files:
+            return None
+        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+        selected_file = files[0]
     try:
-        with open(latest, "r", encoding="utf-8") as f:
+        with open(selected_file, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line.startswith("- Selected"):
@@ -876,6 +881,15 @@ def main(argv=None):
             else:
                 step_args = []
 
+            # ``--date`` is a pipeline-level argument and is removed above.
+            # arxiv_search needs the same value explicitly so historical reruns
+            # and today's official announcement feed target the intended batch.
+            if step == "arxiv_search" and not any(
+                flag in step_args
+                for flag in ("--anchor-date", "--start", "--end", "--last-hours")
+            ):
+                step_args.extend(["--anchor-date", run_date])
+
             # Forward --user-id to supported steps
             if user_id_value and step in _USER_ID_STEPS:
                 step_args.extend(["--user-id", str(user_id_value)])
@@ -956,7 +970,11 @@ def main(argv=None):
                     raise RuntimeError(message)
 
             if step == "arxiv_search":
-                selected = detect_selected_count()
+                selected = detect_selected_count(run_date)
+                if selected is None:
+                    raise RuntimeError(
+                        f"arxiv_search did not produce a Selected count for {run_date}"
+                    )
                 if selected == 0:
                     print("[PIPELINE] No papers selected in current window; stop after arxiv_search.", flush=True)
                     try:

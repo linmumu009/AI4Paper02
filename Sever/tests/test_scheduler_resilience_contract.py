@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import sys
+import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,6 +59,48 @@ class ArxivStartupResilienceTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 app.cli()
         self.assertEqual(caught.exception.code, 2)
+
+    def test_pipeline_date_is_forwarded_to_arxiv_announcement_anchor(self) -> None:
+        captured_args = []
+
+        def fake_run_step(step, args, **_kwargs):
+            self.assertEqual(step, "arxiv_search")
+            captured_args.extend(args)
+            return 0
+
+        with (
+            patch.dict(app.PIPELINES, {"date_probe": ["arxiv_search"]}),
+            patch.object(app, "step_output_exists", return_value=False),
+            patch.object(app, "run_step", side_effect=fake_run_step),
+            patch.object(app, "detect_selected_count", return_value=1) as selected,
+        ):
+            app.main([
+                "date_probe",
+                "--date",
+                "2026-08-17",
+                "--only-step",
+                "arxiv_search",
+            ])
+
+        self.assertIn("--anchor-date", captured_args)
+        anchor_index = captured_args.index("--anchor-date")
+        self.assertEqual(captured_args[anchor_index + 1], "2026-08-17")
+        selected.assert_called_once_with("2026-08-17")
+
+    def test_selected_count_is_read_from_requested_date_not_latest_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            md_dir = Path(tmp) / "data" / "arxivList" / "md"
+            md_dir.mkdir(parents=True)
+            (md_dir / "2026-08-17.md").write_text(
+                "- Selected: **17**\n", encoding="utf-8"
+            )
+            (md_dir / "2026-08-18.md").write_text(
+                "- Selected: **99**\n", encoding="utf-8"
+            )
+            with patch.object(app, "ROOT", tmp):
+                selected = app.detect_selected_count("2026-08-17")
+
+        self.assertEqual(selected, 17)
 
 
 class SchedulerCatchUpTests(unittest.TestCase):
@@ -118,7 +161,7 @@ class SchedulerCatchUpTests(unittest.TestCase):
             )
         )
 
-    def test_later_admin_schedule_and_weekend_time_are_preserved(self) -> None:
+    def test_later_admin_schedule_is_preserved_and_daily_weekends_are_skipped(self) -> None:
         later_cfg = {
             "enabled": True,
             "hour": 10,
@@ -138,9 +181,22 @@ class SchedulerCatchUpTests(unittest.TestCase):
         )
 
         weekend_cfg = {**later_cfg, "hour": 6, "minute": 0}
-        self.assertTrue(
+        self.assertFalse(
             scheduled_attempt_is_due(
                 datetime(2026, 8, 8, 6, 0), weekend_cfg, 0, max_retries=MAX_RETRIES
+            )
+        )
+        non_arxiv_weekend_cfg = {
+            **weekend_cfg,
+            "pipeline": "idea",
+            "multi_user": False,
+        }
+        self.assertTrue(
+            scheduled_attempt_is_due(
+                datetime(2026, 8, 8, 6, 0),
+                non_arxiv_weekend_cfg,
+                0,
+                max_retries=MAX_RETRIES,
             )
         )
 

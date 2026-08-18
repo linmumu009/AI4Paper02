@@ -13,6 +13,7 @@ import json
 import os
 import re
 from collections import Counter
+from datetime import date as calendar_date
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -885,6 +886,15 @@ def get_daily_digest(date: str, user_id: int = 0) -> dict:
                 notice = get_date_notice(0, date)
         except Exception:
             pass
+        if notice is None:
+            try:
+                if calendar_date.fromisoformat(date).weekday() >= 5:
+                    notice = {
+                        "type": "no_papers_weekend",
+                        "message": "今天是周末，arXiv 不发布新的每日公告；你仍可继续阅读最近一期内容。",
+                    }
+            except ValueError:
+                pass
 
     return {
         "date": date,
