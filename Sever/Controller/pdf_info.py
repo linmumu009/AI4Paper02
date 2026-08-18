@@ -549,7 +549,65 @@ def run(args: argparse.Namespace) -> None:
             or not str(existing_map[paper_id].get("abstract") or "").strip()
         }
         available_ids = {path.stem for path in md_files}
-        missing_input_count = len(retry_ids - available_ids)
+        missing_input_ids = retry_ids - available_ids
+        unresolved_missing_ids: set[str] = set()
+        if missing_input_ids and available_ids:
+            # A small number of arXiv downloads can be HTML/error documents
+            # instead of PDFs, so the shared MinerU stage legitimately has no
+            # preview for those papers.  Preserve authoritative arXiv metadata
+            # and mark the institution as unknown rather than aborting every
+            # user's digest after all other papers were processed successfully.
+            # An entirely absent preview set still fails below because it points
+            # to a shared-stage outage, not an isolated bad source document.
+            fallback_items: List[Dict[str, Any]] = []
+            for paper_id in sorted(missing_input_ids):
+                meta = meta_map.get(paper_id) or {}
+                title = str(meta.get("title") or "").strip()
+                abstract = str(meta.get("abstract") or "").strip()
+                if not title or not abstract:
+                    unresolved_missing_ids.add(paper_id)
+                    continue
+                _pdb.upsert_paper_info(
+                    uid,
+                    date_dir,
+                    paper_id,
+                    title=title,
+                    institution="",
+                    is_large=False,
+                    institution_tier=4,
+                    abstract=abstract,
+                    published=str(meta.get("published") or ""),
+                    source=str(meta.get("source") or f"arxiv, {paper_id}"),
+                    extra={
+                        "source_status": "preview_unavailable",
+                        "source_reason": "mineru_preview_missing",
+                        "institution_inference": "not_run",
+                    },
+                )
+                fallback_items.append(
+                    {
+                        "title": title,
+                        "source": str(meta.get("source") or f"arxiv, {paper_id}"),
+                        "published": str(meta.get("published") or ""),
+                        "instution": "",
+                        "is_large": False,
+                        "institution_tier": 4,
+                        "abstract": abstract,
+                    }
+                )
+            agg.extend(fallback_items)
+            if fallback_items:
+                sample = ", ".join(sorted(missing_input_ids)[:5])
+                print(
+                    f"[pdf_info][WARN] MinerU preview unavailable for "
+                    f"{len(fallback_items)} paper(s); saved arXiv metadata-only "
+                    f"fallbacks and excluded them from institution selection "
+                    f"(sample: {sample})",
+                    flush=True,
+                )
+        else:
+            unresolved_missing_ids = set(missing_input_ids)
+        missing_input_count = len(unresolved_missing_ids)
         remaining_files = [path for path in md_files if path.stem in retry_ids]
     else:
         remaining_files = [p for p in md_files if p.stem not in existing_ids]

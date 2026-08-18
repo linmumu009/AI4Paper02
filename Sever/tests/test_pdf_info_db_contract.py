@@ -104,6 +104,63 @@ class PdfInfoDbContractTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 pdf_info.run(args)
 
+    def test_partial_missing_preview_uses_arxiv_metadata_fallback(self) -> None:
+        selected = [
+            {"paper_arxiv_id": "paper-a", "passed_theme_filter": 1},
+            {"paper_arxiv_id": "paper-missing", "passed_theme_filter": 1},
+        ]
+        arxiv_rows = [
+            {
+                "paper_arxiv_id": "paper-a",
+                "title": "Available title",
+                "abstract_text": "Available abstract",
+                "published_utc": "2026-08-05T00:00:00Z",
+            },
+            {
+                "paper_arxiv_id": "paper-missing",
+                "title": "Fallback title",
+                "abstract_text": "Fallback abstract",
+                "published_utc": "2026-08-05T00:00:00Z",
+            },
+        ]
+        cfg = {
+            "system_prompt": "classify",
+            "api_key": "test",
+            "base_url": "https://example.invalid",
+            "model": "test",
+            "temperature": 0,
+            "max_tokens": 20,
+            "use_openrouter_free_pool": False,
+        }
+        with (
+            patch.dict(os.environ, {"RUN_DATE": self.date_str}),
+            patch.object(pipeline_db_service, "get_selected_papers", return_value=selected),
+            patch.object(pipeline_db_service, "get_arxiv_list", return_value=arxiv_rows),
+            patch.object(pipeline_db_service, "get_paper_info_map", return_value={}),
+            patch.object(pipeline_db_service, "upsert_paper_info") as upsert,
+            patch.object(pdf_info, "_resolve_llm_for_user", return_value=cfg),
+            patch.object(
+                pdf_info,
+                "call_qwen",
+                return_value='{"instution":"Lab","is_large":true,"abstract":""}',
+            ) as call_llm,
+        ):
+            pdf_info.run(self._args())
+
+        call_llm.assert_called_once()
+        self.assertEqual(upsert.call_count, 2)
+        fallback_call = next(
+            call
+            for call in upsert.call_args_list
+            if call.args[2] == "paper-missing"
+        )
+        self.assertFalse(fallback_call.kwargs["is_large"])
+        self.assertEqual(fallback_call.kwargs["institution_tier"], 4)
+        self.assertEqual(
+            fallback_call.kwargs["extra"]["source_status"],
+            "preview_unavailable",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
