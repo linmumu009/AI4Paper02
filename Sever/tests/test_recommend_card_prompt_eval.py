@@ -11,12 +11,15 @@ if SEVER_ROOT not in sys.path:
 
 from config.recommend_card_prompts import (  # noqa: E402
     ACTIVE_GENERATION_PROMPT,
+    ACTIVE_REFINEMENT_VERSION,
     GENERATION_PROMPT_CURRENT,
+    REFINEMENT_CANDIDATES,
     upgrade_known_generation_prompt,
 )
 from services.recommend_card_prompt_eval import (  # noqa: E402
     FIELD_ORDER,
     combine_scores,
+    build_refinement_retry_note,
     deterministic_report,
     parse_card,
     promotion_table,
@@ -111,6 +114,55 @@ class RecommendCardPromptEvalTests(unittest.TestCase):
         self.assertIn("main_contribution", report["unsupported_numbers"])
         self.assertIn("9999", report["unsupported_numbers"]["main_contribution"])
 
+    def test_refinement_contract_flags_hard_limit_and_metadata_changes(self) -> None:
+        candidate = SAMPLE_CARD.replace(
+            "拆解视觉语用捷径", "这是一个明显超过十六字程序硬上限的中文短标题"
+        ).replace("A Controlled Benchmark", "Changed Title")
+
+        report = deterministic_report(
+            candidate,
+            source_text=SAMPLE_CARD,
+            refinement_input=SAMPLE_CARD,
+        )
+
+        self.assertFalse(report["contract_pass"])
+        self.assertIn("short_title>16", report["contract_errors"])
+        self.assertIn("original_title_changed", report["contract_errors"])
+
+    def test_safe_budget_refinement_prompt_uses_margin_and_exact_template(self) -> None:
+        prompt = REFINEMENT_CANDIDATES["r4_safe_budget_template"]
+
+        self.assertIn("安全目标", prompt)
+        self.assertIn("短标题不超过12字", prompt)
+        self.assertIn("重点思路恰好3条", prompt)
+        self.assertIn("论文原标题与来源必须逐字复制", prompt)
+
+    def test_retry_note_reports_actual_length_and_safer_target(self) -> None:
+        candidate = SAMPLE_CARD.replace(
+            "拆解视觉语用捷径", "这是一个明显超过十六字程序硬上限的中文短标题"
+        )
+
+        note = build_refinement_retry_note(
+            ["short_title>16"], candidate_text=candidate
+        )
+
+        self.assertIn("硬上限16字", note)
+        self.assertIn("目标不超过12字", note)
+        self.assertIn("至少再删", note)
+
+    def test_atomic_safe_budget_prompt_has_extra_margin(self) -> None:
+        prompt = REFINEMENT_CANDIDATES["r5_atomic_safe_budget"]
+
+        self.assertIn("短标题不超过8字", prompt)
+        self.assertIn("一句话记忆28字", prompt)
+
+    def test_evidence_safe_budget_prompt_guards_strong_claims(self) -> None:
+        prompt = REFINEMENT_CANDIDATES["r6_evidence_safe_budget"]
+
+        self.assertIn("严格优于所有", prompt)
+        self.assertIn("不得把相关性改成因果", prompt)
+        self.assertIn("不能先删可核对的专有名词", prompt)
+
     def test_numeric_trace_tolerates_percent_sign_restored_from_mineru_table(self) -> None:
         candidate = SAMPLE_CARD.replace(
             "明显下降", "从85.9%下降到9.4%"
@@ -194,6 +246,75 @@ class RecommendCardPromptEvalTests(unittest.TestCase):
         self.assertFalse(rows[1]["promoted"])
         self.assertEqual(rows[1]["champion_after"], "good")
 
+    def test_refinement_promotion_allows_small_clean_factuality_variance(self) -> None:
+        def paper(score: float, factuality: float) -> dict:
+            return {
+                "score": score,
+                "factuality_score": factuality,
+                "field_scores": {key: 90.0 for key in FIELD_ORDER},
+                "judge": {
+                    "hallucination_severity": "none",
+                    "unsupported_claims": [],
+                },
+                "deterministic": {
+                    "unsupported_numbers": {},
+                    "contract_pass": True,
+                },
+            }
+
+        scores = {
+            "base": {key: paper(88, 97.0) for key in ("p1", "p2", "p3")},
+            "clean": {key: paper(96, 96.5) for key in ("p1", "p2", "p3")},
+        }
+
+        rows = promotion_table(
+            scores,
+            baseline="base",
+            challengers=("clean",),
+            factuality_tolerance=1.0,
+            require_clean_factuality=True,
+        )
+
+        self.assertTrue(rows[0]["promoted"])
+        self.assertTrue(rows[0]["factuality_clean"])
+
+    def test_refinement_safety_gate_uses_only_shared_papers(self) -> None:
+        def paper(score: float) -> dict:
+            return {
+                "score": score,
+                "factuality_score": 98.0,
+                "field_scores": {key: 95.0 for key in FIELD_ORDER},
+                "judge": {
+                    "hallucination_severity": "none",
+                    "unsupported_claims": [],
+                },
+                "deterministic": {
+                    "unsupported_numbers": {},
+                    "contract_pass": True,
+                },
+            }
+
+        unsafe_extra = paper(100.0)
+        unsafe_extra["judge"]["hallucination_severity"] = "major"
+        scores = {
+            "base": {key: paper(88.0) for key in ("p1", "p2", "p3")},
+            "candidate": {
+                **{key: paper(96.0) for key in ("p1", "p2", "p3")},
+                "unpaired": unsafe_extra,
+            },
+        }
+
+        rows = promotion_table(
+            scores,
+            baseline="base",
+            challengers=("candidate",),
+            require_clean_factuality=True,
+        )
+
+        self.assertTrue(rows[0]["promoted"])
+        self.assertTrue(rows[0]["factuality_clean"])
+        self.assertEqual(rows[0]["paper_count"], 3)
+
     def test_only_known_legacy_default_is_upgraded(self) -> None:
         self.assertEqual(
             upgrade_known_generation_prompt(GENERATION_PROMPT_CURRENT),
@@ -201,6 +322,9 @@ class RecommendCardPromptEvalTests(unittest.TestCase):
         )
         custom = "我的自定义提示词"
         self.assertEqual(upgrade_known_generation_prompt(custom), custom)
+
+    def test_failed_followup_candidates_do_not_replace_active_refinement(self) -> None:
+        self.assertEqual(ACTIVE_REFINEMENT_VERSION, "r1_field_limits")
 
 
 if __name__ == "__main__":

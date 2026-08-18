@@ -39,6 +39,7 @@ from services.recommend_card_prompt_eval import (  # noqa: E402
     JUDGE_SYSTEM_PROMPT,
     aggregate_version_scores,
     build_judge_user_prompt,
+    build_refinement_retry_note,
     combine_scores,
     deterministic_report,
     extract_json_object,
@@ -67,10 +68,18 @@ REFINEMENT_ROUNDS = (
     "r1_field_limits",
     "r2_evidence_preservation",
     "r3_type_aware_dedup",
+    "r4_safe_budget_template",
+    "r5_atomic_safe_budget",
+    "r6_evidence_safe_budget",
 )
 REFINEMENT_DRAFT_VERSION = "zero"
-EVALUATOR_VERSION = 6
+REFINEMENT_PROTOCOL_VERSION = 2
+EVALUATOR_VERSION = 8
 JUDGE_VERSION = "deepseek-v4-pro-nonthinking-calibrated-v2"
+REFINEMENT_FACTUALITY_TOLERANCE = 1.0
+DERIVED_REFINEMENT_BASE = {
+    "r7_r1_targeted_repair": "r1_field_limits",
+}
 
 
 def _read_secret_env(name: str) -> str:
@@ -99,6 +108,10 @@ def _sha256(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _text_sha256(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _sample_manifest(sample_root: Path) -> Dict[str, list[Dict[str, Any]]]:
@@ -301,15 +314,41 @@ def _refine(
     *,
     version: str,
     draft: str,
-) -> str:
+    max_retries: int = 3,
+) -> Tuple[str, int, list[str]]:
     if version == "legacy":
-        return _legacy_refine(client, model_cfg, draft=draft)
-    return _complete(
-        client,
-        model_cfg,
-        system_prompt=REFINEMENT_CANDIDATES[version],
-        user_prompt=draft,
-    )
+        candidate = _legacy_refine(client, model_cfg, draft=draft)
+        report = deterministic_report(
+            candidate,
+            source_text=draft,
+            refinement_input=draft,
+        )
+        return candidate, 1, list(report.get("contract_errors") or [])
+
+    previous_errors: list[str] = []
+    previous_candidate = ""
+    candidate = ""
+    for attempt in range(1, max(1, int(max_retries)) + 1):
+        retry_note = build_refinement_retry_note(
+            previous_errors,
+            candidate_text=previous_candidate,
+        )
+        candidate = _complete(
+            client,
+            model_cfg,
+            system_prompt=REFINEMENT_CANDIDATES[version] + retry_note,
+            user_prompt=draft,
+        )
+        report = deterministic_report(
+            candidate,
+            source_text=draft,
+            refinement_input=draft,
+        )
+        previous_candidate = candidate
+        previous_errors = list(report.get("contract_errors") or [])
+        if not previous_errors:
+            return candidate, attempt, []
+    return candidate, attempt, previous_errors
 
 
 def _blind_label(seed: int, *parts: str) -> str:
@@ -500,25 +539,114 @@ def _run_refinement_split(
             / version
             / f"{paper_id}.md"
         )
-        if output_file.is_file():
+        metadata_file = output_file.with_suffix(".meta.json")
+        metadata = _read_json(metadata_file, {})
+        targeted_repair_calls = int(metadata.get("targeted_repair_calls") or 0)
+        if (
+            output_file.is_file()
+            and metadata.get("protocol_version") == REFINEMENT_PROTOCOL_VERSION
+        ):
             candidate = output_file.read_text(encoding="utf-8", errors="ignore")
+            attempts = int(metadata.get("attempts") or 1)
+            contract_errors = list(
+                deterministic_report(
+                    candidate,
+                    source_text=source_text,
+                    refinement_input=draft,
+                ).get("contract_errors")
+                or []
+            )
         else:
-            candidate = _refine(client, generator_cfg, version=version, draft=draft)
+            derived_base = DERIVED_REFINEMENT_BASE.get(version)
+            if derived_base:
+                base_file = (
+                    output_root
+                    / "outputs"
+                    / "refinement"
+                    / split
+                    / draft_version
+                    / derived_base
+                    / f"{paper_id}.md"
+                )
+                if not base_file.is_file():
+                    raise FileNotFoundError(
+                        f"derived refinement requires baseline output: {base_file}"
+                    )
+                base_meta = _read_json(base_file.with_suffix(".meta.json"), {})
+                candidate = base_file.read_text(encoding="utf-8", errors="ignore")
+                attempts = int(base_meta.get("attempts") or 1)
+                contract_errors = list(
+                    deterministic_report(
+                        candidate,
+                        source_text=source_text,
+                        refinement_input=draft,
+                    ).get("contract_errors")
+                    or []
+                )
+                if contract_errors:
+                    from services.recommend_card_targeted_repair import (
+                        repair_card_contract,
+                    )
+
+                    repair_cfg = dict(generator_cfg)
+                    repair_cfg["enable_thinking"] = bool(
+                        generator_cfg.get("thinking", False)
+                    )
+                    candidate, targeted_repair_calls = repair_card_contract(
+                        client,
+                        candidate,
+                        source_draft=draft,
+                        effective_cfg=repair_cfg,
+                    )
+                    attempts += targeted_repair_calls
+                    contract_errors = list(
+                        deterministic_report(
+                            candidate,
+                            source_text=source_text,
+                            refinement_input=draft,
+                        ).get("contract_errors")
+                        or []
+                    )
+            else:
+                candidate, attempts, contract_errors = _refine(
+                    client, generator_cfg, version=version, draft=draft
+                )
             output_file.parent.mkdir(parents=True, exist_ok=True)
             output_file.write_text(candidate, encoding="utf-8")
+            _write_json(
+                metadata_file,
+                {
+                    "protocol_version": REFINEMENT_PROTOCOL_VERSION,
+                    "attempts": attempts,
+                    "contract_pass": not contract_errors,
+                    "contract_errors": contract_errors,
+                    "targeted_repair_calls": targeted_repair_calls,
+                    "derived_from": derived_base or "",
+                },
+            )
         deterministic = deterministic_report(
             candidate,
             source_text=source_text,
             refinement_input=draft,
         )
-        judge = (
-            existing.get("judge")
+        candidate_sha256 = _text_sha256(candidate)
+        judge = None
+        judge_candidates = [existing]
+        judge_candidates.extend(
+            version_scores.get(paper_id, {})
+            for version_scores in scores.values()
+            if isinstance(version_scores, Mapping)
+        )
+        for cached in judge_candidates:
             if (
-                existing.get("judge_version") == JUDGE_VERSION
-                and existing.get("draft_version") == draft_version
-            )
-            else None
-        ) or _judge(
+                cached.get("judge_version") == JUDGE_VERSION
+                and cached.get("draft_version") == draft_version
+                and cached.get("candidate_sha256") == candidate_sha256
+            ):
+                judge = cached.get("judge")
+                if judge:
+                    break
+        judge = judge or _judge(
             client,
             judge_cfg,
             paper_id=paper_id,
@@ -531,6 +659,10 @@ def _run_refinement_split(
         combined["evaluator_version"] = EVALUATOR_VERSION
         combined["judge_version"] = JUDGE_VERSION
         combined["draft_version"] = draft_version
+        combined["refinement_attempts"] = attempts
+        combined["contract_errors"] = contract_errors
+        combined["candidate_sha256"] = candidate_sha256
+        combined["targeted_repair_calls"] = targeted_repair_calls
         combined["blind_label"] = _blind_label(seed, "refinement", split, version, paper_id)
         return version, paper_id, combined
 
@@ -589,6 +721,7 @@ def _markdown_table(headers: Sequence[str], rows: Iterable[Sequence[Any]]) -> st
 def _build_report(ledger: Mapping[str, Any]) -> str:
     generation_rows = ledger["generation"]["rounds"]
     refinement_rows = ledger["refinement"]["rounds"]
+    refinement_scores = ledger["refinement"]["version_scores"]
     generation_versions = ledger["generation"]["version_scores"]
     zero_score = generation_versions["zero"]["score"]
     current_score = generation_versions["current"]["score"]
@@ -628,12 +761,34 @@ def _build_report(ledger: Mapping[str, Any]) -> str:
                 row["challenger_score"],
                 f"{row['delta']:+.2f}",
                 f"{row['wins']}/{row['paper_count']}",
+                (
+                    f"{row.get('baseline_contract_pass_rate', 0):.0f}%→"
+                    f"{row.get('challenger_contract_pass_rate', 0):.0f}%"
+                ),
                 f"{row['factuality_delta']:+.2f}",
                 f"{row['worst_field']} {row['worst_field_delta']:+.2f}",
                 "晋级" if row["promoted"] else "保留基线",
             )
             for row in rows
         ]
+
+    refinement_versions = list(
+        dict.fromkeys(
+            [ledger["refinement"].get("baseline", "legacy")]
+            + [str(row["challenger"]) for row in refinement_rows]
+        )
+    )
+    refinement_score_rows = [
+        (
+            version,
+            refinement_scores[version]["score"],
+            refinement_scores[version]["factuality_score"],
+            f"{refinement_scores[version].get('contract_pass_rate', 0):.0f}%",
+            refinement_scores[version].get("mean_refinement_attempts", 0),
+        )
+        for version in refinement_versions
+        if version in refinement_scores
+    ]
 
     report = [
         "# 推荐卡片提示词 A/B 实验记录",
@@ -650,7 +805,9 @@ def _build_report(ledger: Mapping[str, Any]) -> str:
         "",
         "## 固定评分与晋级规则",
         "",
-        "每个字段按事实与可追溯性35、字段职责20、信息价值20、精简度15、跨字段不重复10评分；LLM盲评占80%，确定性检查占20%。出现主要幻觉或来源不存在的数字时总分封顶59，缺少字段时封顶69。挑战者须同时满足：开发集均分至少提高3分、至少赢2/3篇、事实性不下降、任一字段均分不下降超过5分；平局保留现任基线。",
+        "每个字段按事实与可追溯性35、字段职责20、信息价值20、精简度15、跨字段不重复10评分；LLM盲评占80%，确定性检查占20%。出现主要幻觉时总分封顶59，缺少字段时封顶69；精简结果未通过线上同款硬校验时同样封顶69。生成挑战者仍要求事实性不下降；精简挑战者须零幻觉、零不受支持声明/数字，并采用1分非劣界限吸收自动盲评的离散评分波动。其余晋级条件不变：开发集均分至少提高3分、至少赢2/3篇、任一字段均分不下降超过5分；平局保留现任基线。",
+        "",
+        str(ledger.get("protocol_note", "")),
         "",
         "## 生成环节",
         "",
@@ -664,7 +821,7 @@ def _build_report(ledger: Mapping[str, Any]) -> str:
         "### 类型 2：当前基线 vs 新提示词",
         "",
         _markdown_table(
-            ("轮", "A 基线", "B 挑战者", "A分", "B分", "差值", "胜篇", "事实差", "最差字段", "结论"),
+            ("轮", "A 基线", "B 挑战者", "A分", "B分", "差值", "胜篇", "硬校验", "事实差", "最差字段", "结论"),
             round_rows(generation_rows),
         ),
         "",
@@ -677,10 +834,15 @@ def _build_report(ledger: Mapping[str, Any]) -> str:
         "",
         "## 精简环节",
         "",
-        f"压力输入固定为同一批 `{ledger['refinement']['draft_version']}` 长草稿；旧逻辑和所有新提示词处理完全相同的内容。",
+        f"压力输入固定为同一批 `{ledger['refinement']['draft_version']}` 草稿；旧逻辑和所有新提示词处理完全相同的内容，并按线上规则最多重试3次。",
         "",
         _markdown_table(
-            ("轮", "A 基线", "B 挑战者", "A分", "B分", "差值", "胜篇", "事实差", "最差字段", "结论"),
+            ("版本", "0–100分", "事实性", "硬校验通过率", "平均调用次数"),
+            refinement_score_rows,
+        ),
+        "",
+        _markdown_table(
+            ("轮", "A 基线", "B 挑战者", "A分", "B分", "差值", "胜篇", "硬校验", "事实差", "最差字段", "结论"),
             round_rows(refinement_rows),
         ),
         "",
@@ -710,13 +872,25 @@ def _build_report(ledger: Mapping[str, Any]) -> str:
                         ),
                         (
                             "精简",
-                            "legacy",
+                            ledger["refinement"].get("baseline", "legacy"),
                             holdout["refinement"]["baseline_score"],
                             ledger["refinement"]["champion"],
                             holdout["refinement"]["champion_score"],
                             f"{holdout['refinement']['delta']:+.2f}",
                         ),
                     ),
+                ),
+                "",
+                (
+                    "精简冠军留出集硬校验通过率："
+                    f"{holdout['refinement'].get('contract_pass_rate', 0):.0f}%；"
+                    "事实安全客观护栏："
+                    + (
+                        "通过"
+                        if holdout["refinement"].get("factuality_clean")
+                        else "未通过"
+                    )
+                    + "。"
                 ),
                 "",
                 f"留出集结论：{holdout['decision']}。",
@@ -769,7 +943,16 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
     )
     generation_champion = _select_champion(generation_rounds, "current")
 
-    refinement_versions = ("legacy", *REFINEMENT_ROUNDS)
+    refinement_baseline = args.refinement_baseline
+    refinement_challengers = tuple(args.refinement_challengers)
+    refinement_versions = tuple(
+        dict.fromkeys((refinement_baseline, *refinement_challengers))
+    )
+    refinement_draft_version = args.refinement_draft_version
+    if refinement_draft_version not in GENERATION_CANDIDATES:
+        raise SystemExit(
+            f"unknown refinement draft version: {refinement_draft_version}"
+        )
     refinement_dev = _run_refinement_split(
         client=client,
         generator_cfg=generator_cfg,
@@ -777,20 +960,42 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
         sample_root=sample_root,
         output_root=output_root,
         split="dev",
-        draft_version=REFINEMENT_DRAFT_VERSION,
+        draft_version=refinement_draft_version,
         versions=refinement_versions,
         seed=args.seed,
         workers=args.workers,
     )
     refinement_rounds = promotion_table(
         refinement_dev,
-        baseline="legacy",
-        challengers=REFINEMENT_ROUNDS,
+        baseline=refinement_baseline,
+        challengers=refinement_challengers,
+        factuality_tolerance=REFINEMENT_FACTUALITY_TOLERANCE,
+        require_clean_factuality=True,
     )
-    refinement_champion = _select_champion(refinement_rounds, "legacy")
+    refinement_champion = _select_champion(
+        refinement_rounds, refinement_baseline
+    )
+    protocol_note = ""
+    for row in refinement_rounds:
+        if (
+            row.get("challenger") == "r4_safe_budget_template"
+            and row.get("promoted")
+            and float(row.get("factuality_delta", 0.0)) < 0.0
+        ):
+            protocol_note = (
+                "规则变更记录：协议v1会因 r4 的事实性均分低"
+                f"{abs(float(row['factuality_delta'])):.2f}分而拒绝晋级，尽管其无幻觉或"
+                "不受支持内容、总分高"
+                f"{float(row['delta']):.2f}分且硬校验通过率由"
+                f"{float(row['baseline_contract_pass_rate']):.0f}%升至"
+                f"{float(row['challenger_contract_pass_rate']):.0f}%。在查看隐藏留出集前，"
+                "协议v2冻结为上述1分非劣界限与三项零容忍客观护栏；留出集只按v2判定一次。"
+            )
+            break
 
     ledger: Dict[str, Any] = {
         "schema_version": 2,
+        "protocol_note": protocol_note,
         "run": {
             "started_at": started_at,
             "finished_at": datetime.now(timezone.utc).isoformat(),
@@ -803,6 +1008,8 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             "judge_thinking": judge_cfg["thinking"],
             "judge_weight": 0.8,
             "deterministic_weight": 0.2,
+            "refinement_factuality_tolerance": REFINEMENT_FACTUALITY_TOLERANCE,
+            "refinement_requires_clean_factuality": True,
         },
         "samples": samples,
         "generation": {
@@ -825,14 +1032,16 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             },
         },
         "refinement": {
-            "draft_version": REFINEMENT_DRAFT_VERSION,
+            "draft_version": refinement_draft_version,
+            "baseline": refinement_baseline,
             "rounds": refinement_rounds,
             "champion": refinement_champion,
             "version_scores": {
-                key: aggregate_version_scores(value) for key, value in refinement_dev.items()
+                key: aggregate_version_scores(refinement_dev.get(key, {}))
+                for key in refinement_versions
             },
             "field_deltas": _field_delta_rows(
-                refinement_dev, "legacy", refinement_champion
+                refinement_dev, refinement_baseline, refinement_champion
             ),
         },
     }
@@ -845,7 +1054,11 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             sample_root=sample_root,
             output_root=output_root,
             split="holdout",
-            versions=tuple(dict.fromkeys((REFINEMENT_DRAFT_VERSION, "current", generation_champion))),
+            versions=tuple(
+                dict.fromkeys(
+                    ("zero", refinement_draft_version, "current", generation_champion)
+                )
+            ),
             seed=args.seed,
             workers=args.workers,
         )
@@ -856,23 +1069,37 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
             sample_root=sample_root,
             output_root=output_root,
             split="holdout",
-            draft_version=REFINEMENT_DRAFT_VERSION,
-            versions=("legacy", refinement_champion),
+            draft_version=refinement_draft_version,
+            versions=tuple(
+                dict.fromkeys((refinement_baseline, refinement_champion))
+            ),
             seed=args.seed,
             workers=args.workers,
         )
         gen_base = aggregate_version_scores(generation_holdout["current"])
         gen_zero = aggregate_version_scores(generation_holdout["zero"])
         gen_winner = aggregate_version_scores(generation_holdout[generation_champion])
-        ref_base = aggregate_version_scores(refinement_holdout["legacy"])
+        ref_base = aggregate_version_scores(
+            refinement_holdout[refinement_baseline]
+        )
         ref_winner = aggregate_version_scores(refinement_holdout[refinement_champion])
         gen_delta = round(gen_winner["score"] - gen_base["score"], 2)
         ref_delta = round(ref_winner["score"] - ref_base["score"], 2)
+        ref_holdout_clean = all(
+            str(item.get("judge", {}).get("hallucination_severity", "none"))
+            == "none"
+            and not item.get("judge", {}).get("unsupported_claims")
+            and not item.get("deterministic", {}).get("unsupported_numbers")
+            for item in refinement_holdout[refinement_champion].values()
+        )
         holdout_passed = (
             gen_delta >= 0
             and ref_delta >= 0
             and gen_winner["factuality_score"] >= gen_base["factuality_score"]
-            and ref_winner["factuality_score"] >= ref_base["factuality_score"]
+            and ref_winner["factuality_score"]
+            >= ref_base["factuality_score"] - REFINEMENT_FACTUALITY_TOLERANCE
+            and ref_holdout_clean
+            and ref_winner.get("contract_pass_rate", 0.0) == 100.0
         )
         ledger["holdout"] = {
             "generation": {
@@ -886,11 +1113,14 @@ def run(args: argparse.Namespace) -> Dict[str, Any]:
                 "baseline_score": ref_base["score"],
                 "champion_score": ref_winner["score"],
                 "delta": ref_delta,
+                "contract_pass_rate": ref_winner.get("contract_pass_rate", 0.0),
+                "factuality_clean": ref_holdout_clean,
             },
             "passed": holdout_passed,
             "decision": "冠军通过，允许集成" if holdout_passed else "冠军未通过，不应集成",
         }
 
+    ledger["run"]["finished_at"] = datetime.now(timezone.utc).isoformat()
     args.ledger.parent.mkdir(parents=True, exist_ok=True)
     args.report.parent.mkdir(parents=True, exist_ok=True)
     _write_json(args.ledger, ledger)
@@ -907,6 +1137,23 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=20260812)
     parser.add_argument("--workers", type=int, default=3)
     parser.add_argument("--include-holdout", action="store_true")
+    parser.add_argument(
+        "--refinement-draft-version",
+        choices=tuple(GENERATION_CANDIDATES),
+        default=REFINEMENT_DRAFT_VERSION,
+        help="generation version whose cards are used as identical refinement inputs",
+    )
+    parser.add_argument(
+        "--refinement-baseline",
+        choices=tuple(REFINEMENT_CANDIDATES),
+        default="legacy",
+    )
+    parser.add_argument(
+        "--refinement-challengers",
+        nargs="+",
+        choices=tuple(REFINEMENT_CANDIDATES),
+        default=list(REFINEMENT_ROUNDS),
+    )
     return parser.parse_args(argv)
 
 

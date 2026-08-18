@@ -1,0 +1,183 @@
+{
+  "schema_version": 1,
+  "run": {
+    "finished_at": "2026-08-18T05:03:31.269391+00:00",
+    "generator_model": "deepseek-v4-flash",
+    "judge_model": "deepseek-v4-pro",
+    "seed": 20260812
+  },
+  "samples": {
+    "dev": [
+      {
+        "paper_id": "2608.06218",
+        "sha256": "d8109fe41c691022602b22f14d609a2847b20232cc17668d83ef459f124d5830",
+        "bytes": 35860
+      },
+      {
+        "paper_id": "2608.06301",
+        "sha256": "7a5052ba7356045a9e4863ca37304169005cf4a07069eb1ff86a0b358b966615",
+        "bytes": 60463
+      },
+      {
+        "paper_id": "2608.09772",
+        "sha256": "d7e203f61ffb0b1d5aeedefaee365ae49739217a314f3cab51f464d57a991e3c",
+        "bytes": 49810
+      }
+    ],
+    "holdout": [
+      {
+        "paper_id": "2608.05069",
+        "sha256": "11f73b6a7ff6a43293e20c872eff95bcd98001bed4350a2cd44b5831a724dcde",
+        "bytes": 31892
+      },
+      {
+        "paper_id": "2608.09880",
+        "sha256": "bf03a517c60285cde988cf4830457f28ce7e230b2b118e693500d023185ca2a0",
+        "bytes": 60573
+      }
+    ]
+  },
+  "baseline": "r1_field_limits",
+  "challenger": "r7_r1_targeted_repair",
+  "splits": {
+    "dev": {
+      "baseline": {
+        "score": 88.07,
+        "factuality_score": 97.14,
+        "field_scores": {
+          "short_title": 96.25,
+          "recommendation_reason": 97.33,
+          "research_question": 97.33,
+          "main_contribution": 97.33,
+          "key_ideas": 97.33,
+          "analysis_summary": 96.54,
+          "personal_opinion": 97.33,
+          "memory_sentence": 95.56
+        },
+        "paper_count": 3,
+        "contract_pass_rate": 66.67,
+        "mean_refinement_attempts": 2.0
+      },
+      "challenger": {
+        "score": 97.3,
+        "factuality_score": 96.9,
+        "field_scores": {
+          "short_title": 97.6,
+          "recommendation_reason": 97.33,
+          "research_question": 97.33,
+          "main_contribution": 97.33,
+          "key_ideas": 97.07,
+          "analysis_summary": 97.07,
+          "personal_opinion": 97.33,
+          "memory_sentence": 97.6
+        },
+        "paper_count": 3,
+        "contract_pass_rate": 100.0,
+        "mean_refinement_attempts": 3.0
+      },
+      "score_delta": 9.23,
+      "factuality_delta": -0.24,
+      "factuality_clean": false,
+      "changed_papers": 1,
+      "targeted_repair_calls": 3,
+      "worst_field": "key_ideas",
+      "worst_field_delta": -0.26,
+      "field_deltas": {
+        "short_title": 1.35,
+        "recommendation_reason": 0.0,
+        "research_question": 0.0,
+        "main_contribution": 0.0,
+        "key_ideas": -0.26,
+        "analysis_summary": 0.53,
+        "personal_opinion": 0.0,
+        "memory_sentence": 2.04
+      },
+      "passed": false
+    },
+    "holdout_posthoc": {
+      "baseline": {
+        "score": 69.0,
+        "factuality_score": 96.97,
+        "field_scores": {
+          "short_title": 96.0,
+          "recommendation_reason": 95.2,
+          "research_question": 96.0,
+          "main_contribution": 96.0,
+          "key_ideas": 95.2,
+          "analysis_summary": 93.4,
+          "personal_opinion": 95.6,
+          "memory_sentence": 94.38
+        },
+        "paper_count": 2,
+        "contract_pass_rate": 0.0,
+        "mean_refinement_attempts": 3.0
+      },
+      "challenger": {
+        "score": 94.47,
+        "factuality_score": 95.9,
+        "field_scores": {
+          "short_title": 95.6,
+          "recommendation_reason": 93.6,
+          "research_question": 95.6,
+          "main_contribution": 95.6,
+          "key_ideas": 93.6,
+          "analysis_summary": 92.8,
+          "personal_opinion": 94.4,
+          "memory_sentence": 95.6
+        },
+        "paper_count": 2,
+        "contract_pass_rate": 100.0,
+        "mean_refinement_attempts": 4.5
+      },
+      "score_delta": 25.47,
+      "factuality_delta": -1.07,
+      "factuality_clean": true,
+      "changed_papers": 2,
+      "targeted_repair_calls": 3,
+      "worst_field": "recommendation_reason",
+      "worst_field_delta": -1.6,
+      "field_deltas": {
+        "short_title": -0.4,
+        "recommendation_reason": -1.6,
+        "research_question": -0.4,
+        "main_contribution": -0.4,
+        "key_ideas": -1.6,
+        "analysis_summary": -0.6,
+        "personal_opinion": -1.2,
+        "memory_sentence": 1.22
+      },
+      "passed": false
+    }
+  },
+  "pairwise": {
+    "judge_version": "deepseek-v4-pro-targeted-repair-pairwise-v1",
+    "verdicts": [
+      {
+        "paper_id": "2608.06301",
+        "challenger_faithfulness": "worse",
+        "challenger_unsupported": false,
+        "challenger_material_loss": true,
+        "challenger_preferred": false,
+        "passed": false
+      },
+      {
+        "paper_id": "2608.05069",
+        "challenger_faithfulness": "worse",
+        "challenger_unsupported": true,
+        "challenger_material_loss": true,
+        "challenger_preferred": false,
+        "passed": false
+      },
+      {
+        "paper_id": "2608.09880",
+        "challenger_faithfulness": "worse",
+        "challenger_unsupported": false,
+        "challenger_material_loss": true,
+        "challenger_preferred": false,
+        "passed": false
+      }
+    ],
+    "passed": false
+  },
+  "passed": false
+}

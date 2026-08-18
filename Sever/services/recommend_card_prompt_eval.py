@@ -386,6 +386,34 @@ def deterministic_report(
                 field_scores[left] = round(max(0.0, field_scores[left] - 6.0), 2)
                 field_scores[right] = round(max(0.0, field_scores[right] - 6.0), 2)
 
+    contract_errors: List[str] = []
+    if missing:
+        contract_errors.append("missing=" + ",".join(missing))
+    for key in FIELD_ORDER:
+        if lengths[key] > CARD_FIELD_LIMITS[key]:
+            contract_errors.append(f"{key}>{CARD_FIELD_LIMITS[key]}")
+    if len(card.key_ideas) != 3:
+        contract_errors.append(f"key_ideas_count={len(card.key_ideas)}")
+    if len(card.analysis_summary) != 3:
+        contract_errors.append(
+            f"analysis_summary_count={len(card.analysis_summary)}"
+        )
+    if card.research_question and not card.research_question.rstrip().endswith(
+        ("？", "?")
+    ):
+        contract_errors.append("research_question_not_question")
+    if refinement_input:
+        source_card = parse_card(refinement_input)
+        for key in ("original_title", "source"):
+            expected = str(getattr(source_card, key) or "").strip()
+            actual = str(getattr(card, key) or "").strip()
+            if expected and actual != expected:
+                contract_errors.append(f"{key}_changed")
+        if unsupported_numbers:
+            contract_errors.append(
+                "unsupported_numbers=" + ",".join(sorted(unsupported_numbers))
+            )
+
     weighted = sum(field_scores[key] * FIELD_WEIGHTS[key] for key in FIELD_ORDER)
     return {
         "score": round(weighted, 2),
@@ -399,7 +427,61 @@ def deterministic_report(
             "key_ideas": len(card.key_ideas),
             "analysis_summary": len(card.analysis_summary),
         },
+        "contract_enforced": bool(refinement_input),
+        "contract_pass": not contract_errors,
+        "contract_errors": contract_errors,
     }
+
+
+def build_refinement_retry_note(
+    errors: Sequence[str],
+    *,
+    candidate_text: str,
+    limits: Optional[Mapping[str, int]] = None,
+) -> str:
+    """Turn validator errors into actionable, content-free retry guidance."""
+    if not errors:
+        return ""
+    effective_limits = dict(limits or CARD_FIELD_LIMITS)
+    card = parse_card(candidate_text)
+    guidance: List[str] = []
+    for error in errors:
+        matched = re.match(r"^([a-z_]+)>(\d+)$", error)
+        if matched and matched.group(1) in FIELD_ORDER:
+            key = matched.group(1)
+            hard_limit = int(effective_limits.get(key) or matched.group(2))
+            current = non_ws_len(card.field_text(key))
+            safety_target = max(1, int(hard_limit * 0.75))
+            guidance.append(
+                f"{FIELD_LABELS[key]}当前{current}字，硬上限{hard_limit}字；"
+                f"至少再删{max(1, current - safety_target)}字，目标不超过{ safety_target }字"
+            )
+            continue
+        if error.startswith("key_ideas_count="):
+            guidance.append("重点思路必须拆成恰好3个独立的🔸条目")
+            continue
+        if error.startswith("analysis_summary_count="):
+            guidance.append("分析总结必须拆成恰好3个独立的🔸条目")
+            continue
+        if error == "research_question_not_question":
+            guidance.append("研究问题必须只写问题，并以中文问号结尾")
+            continue
+        if error in {"original_title_changed", "source_changed"}:
+            label = "论文原标题" if error.startswith("original_title") else "来源"
+            guidance.append(f"{label}必须从原始卡片逐字复制")
+            continue
+        if error.startswith("unsupported_numbers="):
+            guidance.append("删除原始卡片中不存在的数字，不要用新数字替换")
+            continue
+        if error.startswith("missing="):
+            guidance.append("补齐缺失字段，但只能复用原始卡片已有信息")
+            continue
+        guidance.append(error)
+    return (
+        "\n\n上一次输出未通过程序校验。"
+        + "；".join(guidance)
+        + "。请从原始卡片重新生成完整终稿；不要解释，也不要沿用超限句。"
+    )
 
 
 JUDGE_SYSTEM_PROMPT = """\
@@ -534,6 +616,14 @@ def combine_scores(
     if deterministic.get("missing_fields"):
         overall = min(overall, 69.0)
         caps.append("structure_cap_69")
+    if deterministic.get("contract_enforced") and not deterministic.get(
+        "contract_pass", False
+    ):
+        # A refinement that fails the same hard contract used in production is
+        # rejected and falls back to the legacy path. It must not win an A/B
+        # test merely because the rejected prose reads well in isolation.
+        overall = min(overall, 69.0)
+        caps.append("refinement_contract_cap_69")
     return {
         "score": round(overall, 2),
         "field_scores": combined_fields,
@@ -551,6 +641,8 @@ def aggregate_version_scores(per_paper: Mapping[str, Mapping[str, Any]]) -> Dict
             "factuality_score": 0.0,
             "field_scores": {key: 0.0 for key in FIELD_ORDER},
             "paper_count": 0,
+            "contract_pass_rate": 0.0,
+            "mean_refinement_attempts": 0.0,
         }
     values = list(per_paper.values())
     return {
@@ -565,6 +657,20 @@ def aggregate_version_scores(per_paper: Mapping[str, Mapping[str, Any]]) -> Dict
             for key in FIELD_ORDER
         },
         "paper_count": len(values),
+        "contract_pass_rate": round(
+            100.0
+            * sum(
+                bool(item.get("deterministic", {}).get("contract_pass", False))
+                for item in values
+            )
+            / len(values),
+            2,
+        ),
+        "mean_refinement_attempts": round(
+            sum(float(item.get("refinement_attempts", 0.0)) for item in values)
+            / len(values),
+            2,
+        ),
     }
 
 
@@ -575,6 +681,8 @@ def promotion_table(
     challengers: Sequence[str],
     zero_version: str = "",
     minimum_delta: float = 3.0,
+    factuality_tolerance: float = 0.0,
+    require_clean_factuality: bool = False,
 ) -> List[Dict[str, Any]]:
     """Apply the frozen champion-promotion rule and return an auditable ledger."""
     rows: List[Dict[str, Any]] = []
@@ -600,11 +708,25 @@ def promotion_table(
         }
         worst_field = min(regressions, key=regressions.get) if regressions else ""
         worst_regression = regressions.get(worst_field, 0.0)
+        factuality_clean = all(
+            str(challenger_papers[paper_id].get("judge", {}).get(
+                "hallucination_severity", "none"
+            ))
+            == "none"
+            and not challenger_papers[paper_id].get("judge", {}).get(
+                "unsupported_claims"
+            )
+            and not challenger_papers[paper_id].get("deterministic", {}).get(
+                "unsupported_numbers"
+            )
+            for paper_id in shared_ids
+        )
         promoted = bool(
             shared_ids
             and delta >= minimum_delta
             and wins >= required_wins
-            and factuality_delta >= 0.0
+            and factuality_delta >= -abs(float(factuality_tolerance))
+            and (factuality_clean or not require_clean_factuality)
             and worst_regression >= -5.0
         )
         previous = champion
@@ -626,8 +748,16 @@ def promotion_table(
                 "wins": wins,
                 "paper_count": len(shared_ids),
                 "factuality_delta": round(factuality_delta, 2),
+                "factuality_tolerance": abs(float(factuality_tolerance)),
+                "factuality_clean": factuality_clean,
                 "worst_field": worst_field,
                 "worst_field_delta": round(worst_regression, 2),
+                "baseline_contract_pass_rate": champion_agg[
+                    "contract_pass_rate"
+                ],
+                "challenger_contract_pass_rate": challenger_agg[
+                    "contract_pass_rate"
+                ],
                 "promoted": promoted,
                 "champion_after": champion,
             }

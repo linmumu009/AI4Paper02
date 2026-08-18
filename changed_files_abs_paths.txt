@@ -392,3 +392,10 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\digestFreshnes
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\digestFreshness.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\scheduleStatus.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\scheduleStatus.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\recommend_card_targeted_repair.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\scripts\recommend_card_targeted_repair_ab.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_summary_limit_targeted_repair.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_ab_results.md
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_ab_ledger.json
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_targeted_repair_results.md
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_targeted_repair_ledger.json
