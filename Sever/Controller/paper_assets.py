@@ -8,7 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import sys
 
@@ -17,6 +17,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from openai import OpenAI
 from services.llm_request_options import build_thinking_kwargs
 from services.llm_response_guard import (
+    EmptyLlmResponseError,
+    InvalidLlmResponseError,
     require_meaningful_structure,
     require_nonempty_text,
 )
@@ -449,6 +451,9 @@ def extract_blocks_with_llm(
     client: OpenAI,
     md_text: str,
     effective_cfg: Optional[Dict[str, Any]] = None,
+    *,
+    max_attempts: int = 3,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Dict[str, List[str]]]:
     content = (md_text or "").strip()
     if not content:
@@ -477,36 +482,67 @@ def extract_blocks_with_llm(
 
     model_name = (cfg.get("model") or get_assets_model()) if cfg else get_assets_model()
 
-    resp = client.chat.completions.create(
-        model=model_name,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {
-                "role": "user",
-                "content": "请根据系统提示词对下面这篇论文进行结构化分析：\n\n" + user_content,
-            },
-        ],
-        stream=False,
-        **kwargs,
-    )
-    reply = require_nonempty_text(
-        resp.choices[0].message.content if resp.choices else None,
-        operation="paper_assets_generation",
-    )
-    obj = require_meaningful_structure(
-        parse_json_from_text(reply),
-        operation="paper_assets_generation",
-    )
-    # 模型按 prompt 只输出 blocks 对象（13 个键在顶层）；兼容历史上可能返回 {"blocks": {...}} 的情况
-    if isinstance(obj, dict) and "blocks" in obj and isinstance(obj["blocks"], dict):
-        blocks_raw = obj["blocks"]
-    else:
-        blocks_raw = obj
-    blocks = ensure_blocks_structure(blocks_raw)
-    return require_meaningful_structure(
-        blocks,
-        operation="paper_assets_generation",
-    )
+    attempts = max(1, int(max_attempts))
+    last_error: Optional[BaseException] = None
+
+    for attempt in range(1, attempts + 1):
+        resp = client.chat.completions.create(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {
+                    "role": "user",
+                    "content": "请根据系统提示词对下面这篇论文进行结构化分析：\n\n" + user_content,
+                },
+            ],
+            stream=False,
+            **kwargs,
+        )
+        choice = resp.choices[0] if resp.choices else None
+        try:
+            reply = require_nonempty_text(
+                choice.message.content if choice is not None else None,
+                operation="paper_assets_generation",
+            )
+            obj = require_meaningful_structure(
+                parse_json_from_text(reply),
+                operation="paper_assets_generation",
+            )
+            # 模型按 prompt 只输出 blocks 对象（13 个键在顶层）；兼容历史上可能返回 {"blocks": {...}} 的情况
+            if (
+                isinstance(obj, dict)
+                and "blocks" in obj
+                and isinstance(obj["blocks"], dict)
+            ):
+                blocks_raw = obj["blocks"]
+            else:
+                blocks_raw = obj
+            blocks = ensure_blocks_structure(blocks_raw)
+            return require_meaningful_structure(
+                blocks,
+                operation="paper_assets_generation",
+            )
+        except (EmptyLlmResponseError, InvalidLlmResponseError) as exc:
+            last_error = exc
+            if attempt >= attempts:
+                raise
+            finish_reason = getattr(choice, "finish_reason", None)
+            if finish_reason == "length" and kwargs.get("max_tokens"):
+                current_max = int(kwargs["max_tokens"])
+                kwargs["max_tokens"] = min(32768, max(current_max + 4096, current_max * 2))
+            delay = float(2 ** (attempt - 1))
+            print(
+                f"[PAPER_ASSETS] retry invalid structured response "
+                f"attempt={attempt}/{attempts} reason={type(exc).__name__} "
+                f"finish_reason={finish_reason} next_max_tokens={kwargs.get('max_tokens')} "
+                f"delay={delay:.1f}s",
+                flush=True,
+            )
+            sleep(delay)
+
+    if last_error is not None:
+        raise last_error
+    raise InvalidLlmResponseError("paper_assets generation did not produce output")
 
 
 def list_md_files(in_dir: Path) -> List[Path]:

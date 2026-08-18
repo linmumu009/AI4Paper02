@@ -39,6 +39,24 @@ def _client(content):
     )
 
 
+class _SequenceCompletions:
+    def __init__(self, contents):
+        self.contents = list(contents)
+        self.calls = 0
+
+    def create(self, **_kwargs):
+        content = self.contents[min(self.calls, len(self.contents) - 1)]
+        self.calls += 1
+        return SimpleNamespace(
+            choices=[
+                SimpleNamespace(
+                    message=SimpleNamespace(content=content),
+                    finish_reason="stop",
+                )
+            ]
+        )
+
+
 class StructuredLlmResponseContractTests(unittest.TestCase):
     def test_nested_payload_requires_visible_text(self) -> None:
         self.assertTrue(has_meaningful_text({"items": [{"title": " result "}]}))
@@ -78,7 +96,12 @@ class StructuredLlmResponseContractTests(unittest.TestCase):
         ):
             with self.subTest(content=content):
                 with self.assertRaises(error_type):
-                    extract_blocks_with_llm(_client(content), "paper text", cfg)
+                    extract_blocks_with_llm(
+                        _client(content),
+                        "paper text",
+                        cfg,
+                        max_attempts=1,
+                    )
 
         blocks = extract_blocks_with_llm(
             _client(
@@ -87,6 +110,27 @@ class StructuredLlmResponseContractTests(unittest.TestCase):
             "paper text",
             cfg,
         )
+        self.assertEqual(blocks["summary"]["one_sentence_summary"], "finding")
+
+    def test_paper_assets_retries_invalid_json_before_failing_the_paper(self) -> None:
+        completions = _SequenceCompletions(
+            [
+                "not json",
+                '{"blocks":{"summary":{"one_sentence_summary":"finding"}}}',
+            ]
+        )
+        client = SimpleNamespace(
+            chat=SimpleNamespace(completions=completions)
+        )
+
+        blocks = extract_blocks_with_llm(
+            client,
+            "paper text",
+            {"model": "test", "system_prompt": "analyze"},
+            sleep=lambda _delay: None,
+        )
+
+        self.assertEqual(completions.calls, 2)
         self.assertEqual(blocks["summary"]["one_sentence_summary"], "finding")
 
     def test_idea_json_call_rejects_empty_malformed_and_empty_payload(self) -> None:
