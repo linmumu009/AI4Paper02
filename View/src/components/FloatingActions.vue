@@ -42,6 +42,9 @@ function goToDigest() {
   if (isDigestPage.value) {
     // 已在推荐页：通过 shared ref 通知 DailyDigest 执行清理逻辑
     requestDigestReset()
+  } else if (route.name === 'paper-detail' && route.query.from === 'digest') {
+    // 与详情页左上角返回保持一致，恢复进入详情前的日期、筛选和当前卡片。
+    router.back()
   } else {
     router.push({ name: 'digest' })
   }

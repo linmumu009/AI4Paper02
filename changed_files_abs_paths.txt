@@ -410,3 +410,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\SummaryDe
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useSummaryDensity.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\PaperCard.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useSummaryDensity.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\FloatingActions.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\FloatingActions.test.ts
