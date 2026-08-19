@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { PaperSummary } from '../types/paper'
+import { computed, ref, watch } from 'vue'
+import type { PaperSummary, SummaryDensity } from '../types/paper'
 import { openExternal } from '../utils/openExternal'
 import { useEntitlements } from '../composables/useEntitlements'
+import { useSummaryDensity } from '../composables/useSummaryDensity'
 import PaperCardShareMenu from './PaperCardShareMenu.vue'
-import { nudgePaper } from '../api/index'
+import SummaryDensityToggle from './SummaryDensityToggle.vue'
+import { fetchPaperDetail, nudgePaper } from '../api/index'
 
 const props = defineProps<{
   paper: PaperSummary
@@ -33,6 +35,84 @@ async function onNudge(direction: 'more' | 'less') {
 
 const cardRootEl = ref<HTMLElement | null>(null)
 const { tier } = useEntitlements()
+const { density: summaryDensity, setDensity } = useSummaryDensity('concise')
+const detailedPaper = ref<PaperSummary | null>(null)
+const detailedLoading = ref(false)
+const detailedUnavailable = ref(props.paper.has_detailed_summary === false)
+const summaryVersionMessage = ref('')
+let detailRequestToken = 0
+
+const detailedAvailable = computed(() =>
+  props.paper.has_detailed_summary !== false && !detailedUnavailable.value,
+)
+const activeSummaryDensity = computed<SummaryDensity>(() =>
+  summaryDensity.value === 'detailed' && detailedPaper.value ? 'detailed' : 'concise',
+)
+const displayPaper = computed(() =>
+  activeSummaryDensity.value === 'detailed' && detailedPaper.value
+    ? detailedPaper.value
+    : props.paper,
+)
+
+async function loadDetailedSummary(activateAfterLoad: boolean) {
+  if (detailedPaper.value) {
+    if (activateAfterLoad) setDensity('detailed')
+    return
+  }
+  if (!detailedAvailable.value || detailedLoading.value) return
+
+  const paperId = props.paper.paper_id
+  const requestToken = ++detailRequestToken
+  detailedLoading.value = true
+  summaryVersionMessage.value = ''
+  try {
+    const detail = await fetchPaperDetail(paperId)
+    if (requestToken !== detailRequestToken || props.paper.paper_id !== paperId) return
+    const detailed = detail.summary_variants?.detailed
+    if (!detailed) {
+      detailedUnavailable.value = true
+      summaryVersionMessage.value = '这篇论文暂时只有精简版'
+      return
+    }
+    detailedPaper.value = { ...props.paper, ...detailed }
+    if (activateAfterLoad) setDensity('detailed')
+  } catch {
+    if (requestToken === detailRequestToken) {
+      summaryVersionMessage.value = '详细版加载失败，可点击重试'
+    }
+  } finally {
+    if (requestToken === detailRequestToken) detailedLoading.value = false
+  }
+}
+
+function selectSummaryDensity(value: SummaryDensity) {
+  if (value === 'concise') {
+    summaryVersionMessage.value = ''
+    setDensity('concise')
+    return
+  }
+  void loadDetailedSummary(true)
+}
+
+watch(
+  summaryDensity,
+  value => {
+    if (value === 'detailed') void loadDetailedSummary(false)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => props.paper.paper_id,
+  () => {
+    detailRequestToken += 1
+    detailedPaper.value = null
+    detailedLoading.value = false
+    detailedUnavailable.value = props.paper.has_detailed_summary === false
+    summaryVersionMessage.value = ''
+    if (summaryDensity.value === 'detailed') void loadDetailedSummary(false)
+  },
+)
 
 function buildCardPlainText(): string {
   const p = props.paper
@@ -121,7 +201,7 @@ const effectiveTier = computed(() => {
   return props.paper.is_large_institution ? 3 : 4
 })
 
-const firstImage = computed(() => props.paper.images?.[0] ?? null)
+const firstImage = computed(() => displayPaper.value.images?.[0] ?? null)
 
 /** Return CSS class for institution badge based on tier */
 function tierBadgeClass(tier: number): string {
@@ -198,24 +278,43 @@ function tierLabel(tier: number): string {
         </div>
       </div>
 
+      <div class="flex items-center justify-between gap-3">
+        <SummaryDensityToggle
+          compact
+          :model-value="activeSummaryDensity"
+          :detailed-available="detailedAvailable"
+          :loading="detailedLoading"
+          @update:model-value="selectSummaryDensity"
+        />
+        <span
+          v-if="summaryVersionMessage"
+          class="text-[10px] leading-snug text-text-muted text-right"
+          role="status"
+        >{{ summaryVersionMessage }}</span>
+        <span
+          v-else-if="activeSummaryDensity === 'detailed'"
+          class="text-[10px] leading-snug text-text-muted text-right"
+        >分享仍使用精简版</span>
+      </div>
+
       <!-- === 标题区 === -->
       <div>
         <h2 class="text-xl font-bold text-text-primary leading-snug">
-          {{ paper.short_title }}
+          {{ displayPaper.short_title }}
         </h2>
         <p class="text-sm card-text mt-1">
-          📖 {{ paper['📖标题'] }}
+          📖 {{ displayPaper['📖标题'] }}
         </p>
         <p class="text-xs text-text-muted mt-1 font-mono">
-          🌐 {{ paper['🌐来源'] }}
+          🌐 {{ displayPaper['🌐来源'] }}
         </p>
         <!-- 作者信息 -->
-        <p v-if="paper.authors && paper.authors.length" class="text-xs text-text-muted mt-1 truncate">
-          👤 {{ formatAuthors(paper.authors) }}
+        <p v-if="displayPaper.authors && displayPaper.authors.length" class="text-xs text-text-muted mt-1 truncate">
+          👤 {{ formatAuthors(displayPaper.authors) }}
         </p>
         <!-- 推荐理由（新格式） -->
-        <p v-if="paper['推荐理由']" class="text-xs mt-2 text-tinder-blue leading-relaxed">
-          <span class="font-semibold">推荐理由：</span>{{ paper['推荐理由'] }}
+        <p v-if="displayPaper['推荐理由']" class="text-xs mt-2 text-tinder-blue leading-relaxed">
+          <span class="font-semibold">推荐理由：</span>{{ displayPaper['推荐理由'] }}
         </p>
         <!-- 个性化推荐解释 + 轻量纠偏按钮 -->
         <div v-if="paper.why_recommended || paper.is_exploration" class="flex items-center gap-2 mt-2 flex-wrap">
@@ -255,7 +354,7 @@ function tierLabel(tier: number): string {
         />
         <div class="px-3 py-1.5 border-t border-border flex items-center justify-between gap-2">
           <span class="text-[11px] text-text-muted">图表预览</span>
-          <span class="text-[11px] text-text-muted">{{ paper.image_count || 1 }} 张图</span>
+          <span class="text-[11px] text-text-muted">{{ displayPaper.image_count || 1 }} 张图</span>
         </div>
       </div>
 
@@ -263,21 +362,21 @@ function tierLabel(tier: number): string {
       <div class="space-y-1.5">
         <h3 class="text-sm font-semibold text-tinder-blue">🛎️ 文章简介</h3>
         <div class="text-sm card-text space-y-1">
-          <p v-if="paper['🛎️文章简介']?.['🔸研究问题']">
-            <span class="text-tinder-pink font-medium">研究问题：</span>{{ paper['🛎️文章简介']['🔸研究问题'] }}
+          <p v-if="displayPaper['🛎️文章简介']?.['🔸研究问题']">
+            <span class="text-tinder-pink font-medium">研究问题：</span>{{ displayPaper['🛎️文章简介']['🔸研究问题'] }}
           </p>
-          <p v-if="paper['🛎️文章简介']?.['🔸主要贡献']">
-            <span class="text-tinder-pink font-medium">主要贡献：</span>{{ paper['🛎️文章简介']['🔸主要贡献'] }}
+          <p v-if="displayPaper['🛎️文章简介']?.['🔸主要贡献']">
+            <span class="text-tinder-pink font-medium">主要贡献：</span>{{ displayPaper['🛎️文章简介']['🔸主要贡献'] }}
           </p>
         </div>
       </div>
 
       <!-- === 📝重点思路 === -->
-      <div v-if="paper['📝重点思路']?.length" class="space-y-1.5">
+      <div v-if="displayPaper['📝重点思路']?.length" class="space-y-1.5">
         <h3 class="text-sm font-semibold text-tinder-blue">📝 重点思路</h3>
         <div class="space-y-1.5">
           <div
-            v-for="(item, idx) in paper['📝重点思路']"
+            v-for="(item, idx) in displayPaper['📝重点思路']"
             :key="'m' + idx"
             class="flex items-start gap-2"
           >
@@ -292,11 +391,11 @@ function tierLabel(tier: number): string {
       </div>
 
       <!-- === 🔎分析总结 === -->
-      <div v-if="paper['🔎分析总结']?.length" class="space-y-1.5">
+      <div v-if="displayPaper['🔎分析总结']?.length" class="space-y-1.5">
         <h3 class="text-sm font-semibold text-tinder-blue">🔎 分析总结</h3>
         <div class="space-y-1.5">
           <div
-            v-for="(item, idx) in paper['🔎分析总结']"
+            v-for="(item, idx) in displayPaper['🔎分析总结']"
             :key="'f' + idx"
             class="flex items-start gap-2"
           >
@@ -309,16 +408,16 @@ function tierLabel(tier: number): string {
       </div>
 
       <!-- === 💡个人观点 === -->
-      <div v-if="paper['💡个人观点']" class="space-y-1.5">
+      <div v-if="displayPaper['💡个人观点']" class="space-y-1.5">
         <h3 class="text-sm font-semibold text-tinder-blue">💡 个人观点</h3>
         <p class="text-sm card-text italic">
-          {{ paper['💡个人观点'] }}
+          {{ displayPaper['💡个人观点'] }}
         </p>
       </div>
 
       <!-- === 一句话记忆版（新格式） === -->
-      <div v-if="paper['一句话记忆版']" class="text-xs text-text-muted italic leading-relaxed px-2 py-1.5 rounded bg-bg-elevated border border-border">
-        <span class="not-italic font-semibold">💡 </span>{{ paper['一句话记忆版'] }}
+      <div v-if="displayPaper['一句话记忆版']" class="text-xs text-text-muted italic leading-relaxed px-2 py-1.5 rounded bg-bg-elevated border border-border">
+        <span class="not-italic font-semibold">💡 </span>{{ displayPaper['一句话记忆版'] }}
       </div>
 
       <!-- === Footer: rec date + quick actions === -->

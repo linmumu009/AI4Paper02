@@ -1,5 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { clearSummaryDensityPreference } from '../../composables/useSummaryDensity'
 
 const api = vi.hoisted(() => ({
   addKbPaper: vi.fn(),
@@ -44,6 +45,16 @@ const detail = {
 } as any
 
 describe('PaperDetailBody resource recovery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSummaryDensityPreference()
+    api.fetchPaperResourceStatus.mockResolvedValue({
+      paper_id: '2601.00001',
+      state: 'ready',
+      recoverable: false,
+    })
+  })
+
   it('explains an expired cache and can save then recover it', async () => {
     api.fetchPaperResourceStatus.mockResolvedValueOnce({
       paper_id: '2601.00001',
@@ -91,5 +102,64 @@ describe('PaperDetailBody resource recovery', () => {
     expect(api.processKbPaper).toHaveBeenCalledWith('2601.00001')
     expect(wrapper.text()).toContain('恢复中')
     expect(api.showError).not.toHaveBeenCalled()
+  })
+
+  it('defaults to the detailed version and lets the user switch to concise', async () => {
+    const variantDetail = {
+      ...detail,
+      summary: {
+        ...detail.summary,
+        short_title: '速览标题',
+        '🛎️文章简介': {
+          '🔸研究问题': '速览研究问题',
+          '🔸主要贡献': '速览主要贡献',
+        },
+      },
+      summary_variants: {
+        concise: {
+          ...detail.summary,
+          short_title: '速览标题',
+          '🛎️文章简介': {
+            '🔸研究问题': '速览研究问题',
+            '🔸主要贡献': '速览主要贡献',
+          },
+        },
+        detailed: {
+          ...detail.summary,
+          short_title: '详细标题',
+          '🛎️文章简介': {
+            '🔸研究问题': '详细研究问题',
+            '🔸主要贡献': '详细主要贡献',
+          },
+        },
+      },
+    } as any
+
+    const wrapper = mount(PaperDetailBody, {
+      props: { detail: variantDetail, effectiveSource: 'recommendation' },
+      global: {
+        stubs: {
+          SummarySection: {
+            props: ['summary'],
+            template: '<div data-test="summary-section">{{ summary[\'🛎️文章简介\'][\'🔸主要贡献\'] }}</div>',
+          },
+          AssetsAccordion: true,
+          ResearchMemoryPanel: true,
+          AddToProjectDialog: true,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('详细标题')
+    expect(wrapper.get('[data-test="summary-section"]').text()).toContain('详细主要贡献')
+
+    const conciseButton = wrapper.findAll('button')
+      .find(button => button.text().includes('精简版'))
+    await conciseButton!.trigger('click')
+
+    expect(wrapper.text()).toContain('速览标题')
+    expect(wrapper.get('[data-test="summary-section"]').text()).toContain('速览主要贡献')
+    expect(window.localStorage.getItem('ai4papers-summary-density')).toBe('concise')
   })
 })

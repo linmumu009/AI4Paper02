@@ -5,7 +5,7 @@ export interface PaperImage {
   source?: string
 }
 
-/** 单篇论文摘要（来自 file_collect _limit.md + pdf_info.json） */
+/** 单篇论文摘要（默认是适合卡片与分享的速览版） */
 export interface PaperSummary {
   institution: string
   short_title: string
@@ -32,6 +32,8 @@ export interface PaperSummary {
   categories?: string[]
   /** Paper authors list */
   authors?: string[]
+  /** Whether a distinct pre-refinement detailed summary can be loaded. */
+  has_detailed_summary?: boolean
 
   // ── Preference layer fields (added by preference_service.rerank_papers) ─────
   /** How well this paper matches the user's learned preference profile (0–1). */
@@ -50,6 +52,15 @@ export interface PaperSummary {
   days_since_saved?: number
   /** ISO timestamp when this paper was saved to KB. */
   saved_at?: string
+}
+
+export type SummaryDensity = 'concise' | 'detailed'
+
+export interface PaperSummaryVariants {
+  /** Backward-compatible refined summary used by cards and sharing. */
+  concise: PaperSummary
+  /** Pre-refinement summary; null when old data only has one valid version. */
+  detailed?: PaperSummary | null
 }
 
 /** 所有 paper_assets block 共有的基础字段 */
@@ -187,6 +198,7 @@ export interface PapersResponse {
 
 export interface PaperDetailResponse {
   summary: PaperSummary
+  summary_variants?: PaperSummaryVariants
   paper_assets: PaperAssets | null
   date: string
   images: PaperImage[]

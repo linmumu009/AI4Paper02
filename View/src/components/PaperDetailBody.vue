@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import SummarySection from './SummarySection.vue'
+import SummaryDensityToggle from './SummaryDensityToggle.vue'
 import AssetsAccordion from './AssetsAccordion.vue'
 import ResearchMemoryPanel from './ResearchMemoryPanel.vue'
 import AddToProjectDialog from './project/AddToProjectDialog.vue'
-import type { PaperDetailResponse, PaperImage, PaperResourceStatus } from '../types/paper'
+import type { PaperDetailResponse, PaperImage, PaperResourceStatus, SummaryDensity } from '../types/paper'
 import { isAuthenticated } from '../stores/auth'
 import { addKbPaper, fetchPaperResourceStatus, processKbPaper } from '../api'
 import { useToast } from '../composables/useToast'
+import { useSummaryDensity } from '../composables/useSummaryDensity'
 
 const props = defineProps<{
   detail: PaperDetailResponse
@@ -22,12 +24,29 @@ const emit = defineEmits<{
 const activeTab = ref<'summary' | 'images' | 'assets' | 'memory'>('summary')
 const selectedImage = ref<PaperImage | null>(null)
 const paperImages = computed(() => props.detail.images || [])
-const paperId = computed(() => props.detail.summary.paper_id || '')
+const { density: summaryDensity, setDensity } = useSummaryDensity('detailed')
+const conciseSummary = computed(() => props.detail.summary_variants?.concise || props.detail.summary)
+const detailedSummary = computed(() => props.detail.summary_variants?.detailed || null)
+const detailedAvailable = computed(() => Boolean(detailedSummary.value))
+const activeSummaryDensity = computed<SummaryDensity>(() =>
+  summaryDensity.value === 'detailed' && detailedAvailable.value ? 'detailed' : 'concise',
+)
+const displaySummary = computed(() =>
+  activeSummaryDensity.value === 'detailed' && detailedSummary.value
+    ? detailedSummary.value
+    : conciseSummary.value,
+)
+const paperId = computed(() => displaySummary.value.paper_id || '')
 const showProjectDialog = ref(false)
 const resourceStatus = ref<PaperResourceStatus | null>(null)
 const resourceStatusLoading = ref(false)
 const resourceRecoveryRunning = ref(false)
 const { showToast, showError } = useToast()
+
+function selectSummaryDensity(value: SummaryDensity) {
+  if (value === 'detailed' && !detailedAvailable.value) return
+  setDensity(value)
+}
 
 const showResourceNotice = computed(() =>
   props.effectiveSource !== 'user_upload'
@@ -101,26 +120,26 @@ watch(paperId, loadResourceStatus, { immediate: true })
       <div class="flex flex-wrap items-center gap-2 mb-3">
         <span
           class="px-3 py-1 rounded-full text-xs font-semibold text-white"
-          :class="detail.summary.institution_tier === 1
+          :class="displaySummary.institution_tier === 1
             ? 'bg-gradient-to-r from-[#b8860b] to-[#f5c518]'
-            : detail.summary.institution_tier === 2
+            : displaySummary.institution_tier === 2
               ? 'bg-gradient-to-r from-[#4a6fa5] to-[#7bb3d3]'
-              : detail.summary.institution_tier === 3
+              : displaySummary.institution_tier === 3
                 ? 'bg-gradient-to-r from-[#8b5e3c] to-[#c4956a]'
                 : 'bg-brand-gradient'"
         >
-          {{ detail.summary.institution || '未知机构' }}
+          {{ displaySummary.institution || '未知机构' }}
         </span>
         <span
-          v-if="detail.summary.institution_tier === 1"
+          v-if="displaySummary.institution_tier === 1"
           class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
         >T1 · 顶尖</span>
         <span
-          v-else-if="detail.summary.institution_tier === 2"
+          v-else-if="displaySummary.institution_tier === 2"
           class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300"
         >T2 · 一流</span>
         <span
-          v-else-if="detail.summary.institution_tier === 3"
+          v-else-if="displaySummary.institution_tier === 3"
           class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300"
         >T3 · 知名</span>
         <span
@@ -130,17 +149,30 @@ watch(paperId, loadResourceStatus, { immediate: true })
         <span class="text-xs text-text-muted">{{ detail.date }}</span>
       </div>
 
+      <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+        <SummaryDensityToggle
+          :model-value="activeSummaryDensity"
+          :detailed-available="detailedAvailable"
+          @update:model-value="selectSummaryDensity"
+        />
+        <p class="m-0 text-[11px] leading-relaxed text-text-muted">
+          {{ detailedAvailable
+            ? '精简版适合快速浏览和分享，详细版保留更多研究细节。'
+            : '这篇历史论文暂时只有精简版。' }}
+        </p>
+      </div>
+
       <h1 class="text-xl sm:text-2xl font-bold text-text-primary leading-snug mb-2">
-        {{ detail.summary.short_title }}
+        {{ displaySummary.short_title }}
       </h1>
       <p class="text-sm text-text-secondary leading-relaxed mb-2">
-        {{ detail.summary['📖标题'] }}
+        {{ displaySummary['📖标题'] }}
       </p>
       <p
-        v-if="detail.summary['推荐理由']"
+        v-if="displaySummary['推荐理由']"
         class="text-sm text-tinder-blue leading-relaxed mb-4 px-3 py-2 rounded-lg bg-tinder-blue/8 border border-tinder-blue/20"
       >
-        <span class="font-semibold">推荐理由：</span>{{ detail.summary['推荐理由'] }}
+        <span class="font-semibold">推荐理由：</span>{{ displaySummary['推荐理由'] }}
       </p>
       <div v-else class="mb-4"></div>
 
@@ -178,7 +210,7 @@ watch(paperId, loadResourceStatus, { immediate: true })
         >
           🗂️ 加入课题
         </button>
-        <span class="self-center text-xs font-mono text-text-muted">{{ detail.summary.paper_id }}</span>
+        <span class="self-center text-xs font-mono text-text-muted">{{ displaySummary.paper_id }}</span>
       </div>
 
       <div
@@ -261,7 +293,7 @@ watch(paperId, loadResourceStatus, { immediate: true })
     </div>
 
     <div v-if="activeTab === 'summary'" class="bg-bg-card rounded-2xl border border-border p-4 sm:p-6">
-      <SummarySection :summary="detail.summary" />
+      <SummarySection :summary="displaySummary" />
     </div>
 
     <div
@@ -344,7 +376,7 @@ watch(paperId, loadResourceStatus, { immediate: true })
       asset-type="paper"
       :asset-id="paperId"
       :source-scope="paperId.startsWith('up_') ? 'mypapers' : 'kb'"
-      :asset-title="detail.summary.short_title || detail.summary['📖标题']"
+      :asset-title="displaySummary.short_title || displaySummary['📖标题']"
       @close="showProjectDialog = false"
     />
   </div>

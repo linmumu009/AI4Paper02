@@ -406,3 +406,7 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinemen
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_results.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_ledger.json
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_arxiv_announcement_batch.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\SummaryDensityToggle.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useSummaryDensity.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\PaperCard.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests__\useSummaryDensity.test.ts

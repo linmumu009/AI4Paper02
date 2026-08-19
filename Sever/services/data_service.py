@@ -268,6 +268,73 @@ def _finalize_renderable_summary(
     return normalized
 
 
+def _normalized_summary_source(value: Any) -> str:
+    """Normalize markdown for reliable raw-vs-concise comparisons."""
+    if not isinstance(value, str):
+        return ""
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _parse_detailed_summary(
+    raw_text: Any,
+    concise_text: Any,
+    paper_id: str,
+    *,
+    title_hint: Any = "",
+) -> Optional[dict]:
+    """Return a valid detailed summary only when it differs from concise.
+
+    Some historical rows contain only one summary, while others copied the
+    same markdown into both columns. Neither case should expose a misleading
+    "detailed" switch in the UI.
+    """
+    raw_source = _normalized_summary_source(raw_text)
+    concise_source = _normalized_summary_source(concise_text)
+    if not raw_source or not concise_source or raw_source == concise_source:
+        return None
+    return _finalize_renderable_summary(
+        _parse_limit_md(str(raw_text), paper_id),
+        paper_id,
+        title_hint=title_hint,
+    )
+
+
+_SUMMARY_CONTEXT_FIELDS = (
+    "institution",
+    "is_large_institution",
+    "institution_tier",
+    "abstract",
+    "relevance_score",
+    "headline",
+    "paper_assets",
+    "is_personalized",
+    "pipeline_user_id",
+    "authors",
+    "categories",
+    "images",
+    "image_count",
+)
+
+
+def _copy_summary_context(target: Optional[dict], source: dict) -> Optional[dict]:
+    """Copy non-editorial paper metadata to another summary variant."""
+    if target is None:
+        return None
+    for key in _SUMMARY_CONTEXT_FIELDS:
+        if key in source:
+            target[key] = source[key]
+    return target
+
+
+def _build_summary_variants(concise: dict, detailed: Optional[dict]) -> dict:
+    """Build the additive response contract while preserving concise root data."""
+    available = detailed is not None
+    concise["has_detailed_summary"] = available
+    if detailed is not None:
+        detailed["has_detailed_summary"] = True
+    return {"concise": concise, "detailed": detailed}
+
+
 # ---------------------------------------------------------------------------
 # Security helpers
 # ---------------------------------------------------------------------------
@@ -360,6 +427,18 @@ def _find_limit_md(paper_dir: str, paper_id: str) -> Optional[str]:
         for f in os.listdir(paper_dir):
             if "_limit" in f and f.endswith(".md"):
                 return os.path.join(paper_dir, f)
+    return None
+
+
+def _find_summary_md(paper_dir: str, paper_id: str) -> Optional[str]:
+    """Find the pre-refinement _summary.md file in a paper directory."""
+    exact = os.path.join(paper_dir, f"{paper_id}_summary.md")
+    if os.path.isfile(exact):
+        return exact
+    if os.path.isdir(paper_dir):
+        for filename in os.listdir(paper_dir):
+            if filename.endswith("_summary.md") and "_limit" not in filename:
+                return os.path.join(paper_dir, filename)
     return None
 
 
@@ -539,7 +618,8 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
         for dp in db_papers:
             paper_id = dp.get("paper_id", "")
             # Parse limit markdown if available
-            limit_text = dp.get("summary_limit", "") or dp.get("summary_raw", "")
+            raw_text = dp.get("summary_raw", "")
+            limit_text = dp.get("summary_limit", "") or raw_text
             if not isinstance(limit_text, str) or not limit_text.strip():
                 # A selected paper is not publication-ready until its summary
                 # exists. Never expose a blank, half-built card to users.
@@ -566,6 +646,12 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
             images = _build_paper_image_entries(paper_id, date, image_map.get(paper_id, []))
             parsed["images"] = images
             parsed["image_count"] = len(images)
+            parsed["has_detailed_summary"] = _parse_detailed_summary(
+                raw_text,
+                limit_text,
+                paper_id,
+                title_hint=dp.get("title"),
+            ) is not None
             result.append(parsed)
         return result
     except Exception:
@@ -593,6 +679,7 @@ def _get_papers_from_files(date: str) -> Optional[list[dict]]:
             continue
 
         data = _parse_limit_md(md_text, paper_id)
+        raw_text = _read_text(_find_summary_md(paper_dir, paper_id) or "")
 
         # Merge pdf_info.json (institution, is_large, institution_tier, abstract)
         pdf_info = _read_json(os.path.join(paper_dir, "pdf_info.json"))
@@ -620,6 +707,12 @@ def _get_papers_from_files(date: str) -> Optional[list[dict]]:
         # List images
         data["images"] = _build_paper_image_entries(paper_id, date, _list_paper_images(paper_dir))
         data["image_count"] = len(data["images"])
+        data["has_detailed_summary"] = _parse_detailed_summary(
+            raw_text,
+            md_text,
+            paper_id,
+            title_hint=data.get("📖标题", ""),
+        ) is not None
 
         papers.append(data)
 
@@ -645,6 +738,8 @@ def _detail_from_saved_snapshot(paper_id: str, snapshot: dict) -> dict:
     """Build a stable detail response from a user's saved KB snapshot."""
     raw_data = snapshot.get("paper_data")
     data = dict(raw_data) if isinstance(raw_data, dict) else {}
+    raw_text = data.get("summary_raw", "")
+    concise_text = data.get("summary_limit", "")
     data["paper_id"] = paper_id
 
     title = str(data.get("📖标题") or data.get("short_title") or "").strip()
@@ -663,8 +758,17 @@ def _detail_from_saved_snapshot(paper_id: str, snapshot: dict) -> dict:
         }
 
     created_at = str(snapshot.get("created_at") or "")
+    detailed = _parse_detailed_summary(
+        raw_text,
+        concise_text,
+        paper_id,
+        title_hint=title,
+    )
+    detailed = _copy_summary_context(detailed, data)
+    variants = _build_summary_variants(data, detailed)
     return {
         "summary": data,
+        "summary_variants": variants,
         "paper_assets": None,
         "date": created_at[:10],
         "images": [],
@@ -724,7 +828,8 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 info = bundle.get("info") or {}
                 summary_row = bundle.get("summary") or {}
                 assets_row = bundle.get("assets") or {}
-                limit_text = summary_row.get("summary_limit", "") or summary_row.get("summary_raw", "")
+                raw_text = summary_row.get("summary_raw", "")
+                limit_text = summary_row.get("summary_limit", "") or raw_text
                 if not isinstance(limit_text, str) or not limit_text.strip():
                     continue
                 data = _parse_limit_md(limit_text, paper_id)
@@ -747,6 +852,14 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 data["abstract"] = info.get("abstract", "")
                 data["relevance_score"] = bundle.get("theme_score")
                 data["is_personalized"] = candidate_uid != 0 and candidate_uid == user_id
+                detailed = _parse_detailed_summary(
+                    raw_text,
+                    limit_text,
+                    paper_id,
+                    title_hint=assets_row.get("title", "") or info.get("title", ""),
+                )
+                detailed = _copy_summary_context(detailed, data)
+                variants = _build_summary_variants(data, detailed)
 
                 images = _build_paper_image_entries(
                     paper_id,
@@ -757,6 +870,7 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 blocks = assets_row.get("blocks") if assets_row else None
                 return {
                     "summary": data,
+                    "summary_variants": variants,
                     "paper_assets": {
                         "paper_id": paper_id,
                         "title": assets_row.get("title", ""),
@@ -793,6 +907,7 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
             continue
 
         data = _parse_limit_md(md_text, paper_id)
+        raw_text = _read_text(_find_summary_md(paper_dir, paper_id) or "")
 
         pdf_info = _read_json(os.path.join(paper_dir, "pdf_info.json"))
         if pdf_info:
@@ -824,9 +939,19 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
         if theme_scores:
             data["relevance_score"] = theme_scores.get(paper_id)
 
+        detailed = _parse_detailed_summary(
+            raw_text,
+            md_text,
+            paper_id,
+            title_hint=data.get("📖标题", ""),
+        )
+        detailed = _copy_summary_context(detailed, data)
+        variants = _build_summary_variants(data, detailed)
+
         local_pdf_url = _find_local_pdf_url(paper_id)
         return {
             "summary": data,
+            "summary_variants": variants,
             "paper_assets": paper_assets,
             "date": date_dir,
             "images": images,
