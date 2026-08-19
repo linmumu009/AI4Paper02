@@ -19,6 +19,7 @@ from Controller import arxiv_search04  # noqa: E402
 from services.pipeline_schedule_policy import (  # noqa: E402
     count_scheduled_attempts,
     failure_cooldown_remaining,
+    multi_user_notice_action,
     rate_limit_cooldown_remaining,
     scheduled_attempt_is_due,
     source_empty_result_needs_retry,
@@ -104,6 +105,54 @@ class ArxivStartupResilienceTests(unittest.TestCase):
 
 
 class SchedulerCatchUpTests(unittest.TestCase):
+    def test_partial_user_failure_only_notifies_failed_users(self) -> None:
+        self.assertEqual(
+            multi_user_notice_action(
+                1,
+                schedule_outcome="failed",
+                shared_stage_succeeded=True,
+                per_user_stage_completed=True,
+                has_failed_users=True,
+            ),
+            "user_failures",
+        )
+
+    def test_shared_failure_keeps_shared_notice(self) -> None:
+        self.assertEqual(
+            multi_user_notice_action(
+                2,
+                schedule_outcome="failed",
+                shared_stage_succeeded=False,
+                per_user_stage_completed=False,
+                has_failed_users=False,
+            ),
+            "shared_failure",
+        )
+
+    def test_source_empty_retry_keeps_shared_notice_after_shared_step(self) -> None:
+        self.assertEqual(
+            multi_user_notice_action(
+                4,
+                schedule_outcome="source_empty_retry",
+                shared_stage_succeeded=True,
+                per_user_stage_completed=False,
+                has_failed_users=False,
+            ),
+            "shared_failure",
+        )
+
+    def test_cleanup_failure_keeps_completed_user_results_visible(self) -> None:
+        self.assertEqual(
+            multi_user_notice_action(
+                1,
+                schedule_outcome="failed",
+                shared_stage_succeeded=True,
+                per_user_stage_completed=True,
+                has_failed_users=False,
+            ),
+            "clear",
+        )
+
     def test_same_day_late_start_is_due(self) -> None:
         cfg = {
             "enabled": True,

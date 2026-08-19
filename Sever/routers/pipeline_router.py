@@ -31,6 +31,7 @@ from services.pipeline_schedule_policy import (
     effective_weekday_schedule_clock,
     failure_cooldown_remaining,
     is_arxiv_release_day,
+    multi_user_notice_action,
     rate_limit_cooldown_remaining,
     schedule_uses_daily_arxiv,
     scheduled_attempt_is_due,
@@ -197,6 +198,24 @@ def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
         print(f"[SCHEDULER] 无法写入共享阶段故障提示: {exc!r}", flush=True)
 
 
+def _write_user_failure_notices(date_str: str, user_ids: list[int]) -> None:
+    """Publish a failure state only for users whose personalized run failed."""
+    if not user_ids:
+        return
+    try:
+        from services import pipeline_db_service as _pdb
+
+        for user_id in sorted(set(int(uid) for uid in user_ids)):
+            _pdb.upsert_date_notice(
+                user_id,
+                date_str,
+                "pipeline_temporarily_unavailable",
+                "您的今日内容生成暂时失败，系统正在自动恢复，请稍后再查看。",
+            )
+    except Exception as exc:
+        print(f"[SCHEDULER] 无法写入用户阶段故障提示: {exc!r}", flush=True)
+
+
 def _clear_shared_failure_notices(date_str: str) -> None:
     """Remove transient notices once the shared stage succeeds."""
     try:
@@ -206,6 +225,35 @@ def _clear_shared_failure_notices(date_str: str) -> None:
             _pdb.delete_date_notices_by_type(date_str, notice_type)
     except Exception as exc:
         print(f"[SCHEDULER] 无法清理过期共享阶段故障提示: {exc!r}", flush=True)
+
+
+def _publish_multi_user_run_notices(
+    date_str: str,
+    exit_code: int,
+    *,
+    schedule_outcome: str,
+    shared_stage_succeeded: bool,
+    per_user_stage_completed: bool,
+    failed_user_ids: list[int],
+) -> None:
+    """Keep successful users visible when only one personalized run fails."""
+    action = multi_user_notice_action(
+        exit_code,
+        schedule_outcome=schedule_outcome,
+        shared_stage_succeeded=shared_stage_succeeded,
+        per_user_stage_completed=per_user_stage_completed,
+        has_failed_users=bool(failed_user_ids),
+    )
+    if action == "shared_failure":
+        _write_shared_failure_notices(date_str, exit_code)
+        return
+
+    # Shared inputs and every per-user subprocess result are known. Remove the
+    # broad processing state first, then replace it only for failed users. A
+    # cleanup-only failure must not hide otherwise complete daily results.
+    _clear_shared_failure_notices(date_str)
+    if action == "user_failures":
+        _write_user_failure_notices(date_str, failed_user_ids)
 _arxiv_rate_limit_last_at: Optional[float] = None
 
 
@@ -819,6 +867,9 @@ def _run_multiuser_scheduler_thread(
     trigger = cfg.get("trigger", "scheduled")
     arxiv_count: Optional[int] = None
     schedule_outcome = "completed"
+    shared_stage_succeeded = False
+    per_user_stage_completed = False
+    user_exit_codes: dict[int, int] = {}
     db_parent_run_id = 0
     try:
         db_parent_run_id = _create_db_run(
@@ -932,6 +983,7 @@ def _run_multiuser_scheduler_thread(
             _orch_log(f"[SCHEDULER] 共享阶段失败 (exit={shared_exit})，终止多用户编排")
             exit_code = shared_exit
             return
+        shared_stage_succeeded = True
 
         # Short-circuit: if shared phase found 0 papers for today, skip per_user entirely.
         # arxiv_search writes 0 rows to pipeline_arxiv_list when empty, so count=0 is the signal.
@@ -1044,11 +1096,15 @@ def _run_multiuser_scheduler_thread(
                 uid = futures[fut]
                 try:
                     _, ec = fut.result()
+                    user_exit_codes[uid] = ec
                     if ec != 0:
                         exit_code = ec
                 except Exception as exc:
                     _orch_log(f"[SCHEDULER] user={uid} 运行异常: {exc!r}")
+                    user_exit_codes[uid] = -1
                     exit_code = -1
+
+        per_user_stage_completed = True
 
         _orch_log(f"[SCHEDULER] 所有每用户管线已完成 for {today}")
 
@@ -1105,10 +1161,17 @@ def _run_multiuser_scheduler_thread(
         exit_code = -1
 
     finally:
-        if exit_code == 0:
-            _clear_shared_failure_notices(today)
-        else:
-            _write_shared_failure_notices(today, exit_code)
+        _publish_multi_user_run_notices(
+            today,
+            exit_code,
+            schedule_outcome=schedule_outcome,
+            shared_stage_succeeded=shared_stage_succeeded,
+            per_user_stage_completed=per_user_stage_completed,
+            failed_user_ids=[
+                uid for uid, user_exit in user_exit_codes.items()
+                if user_exit != 0
+            ],
+        )
 
         # Update parent DB run status
         try:

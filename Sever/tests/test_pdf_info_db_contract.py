@@ -161,6 +161,123 @@ class PdfInfoDbContractTests(unittest.TestCase):
             "preview_unavailable",
         )
 
+    def test_invalid_json_is_retried_and_recovered(self) -> None:
+        selected = [{"paper_arxiv_id": "paper-a", "passed_theme_filter": 1}]
+        arxiv_rows = [{
+            "paper_arxiv_id": "paper-a",
+            "title": "Recovered title",
+            "abstract_text": "Recovered abstract",
+            "published_utc": "2026-08-05T00:00:00Z",
+        }]
+        cfg = {
+            "system_prompt": "classify",
+            "api_key": "test",
+            "base_url": "https://example.invalid",
+            "model": "test",
+            "temperature": 0,
+            "max_tokens": 20,
+            "use_openrouter_free_pool": False,
+        }
+        with (
+            patch.dict(os.environ, {"RUN_DATE": self.date_str}),
+            patch.object(pipeline_db_service, "get_selected_papers", return_value=selected),
+            patch.object(pipeline_db_service, "get_arxiv_list", return_value=arxiv_rows),
+            patch.object(pipeline_db_service, "get_paper_info_map", return_value={}),
+            patch.object(pipeline_db_service, "upsert_paper_info") as upsert,
+            patch.object(pdf_info, "_resolve_llm_for_user", return_value=cfg),
+            patch.object(
+                pdf_info,
+                "call_qwen",
+                side_effect=[
+                    "not json",
+                    '{"instution":"Large Lab","is_large":true,"institution_tier":2}',
+                ],
+            ) as call_llm,
+        ):
+            pdf_info.run(self._args())
+
+        self.assertEqual(call_llm.call_count, 2)
+        kwargs = upsert.call_args.kwargs
+        self.assertTrue(kwargs["is_large"])
+        self.assertEqual(
+            kwargs["extra"]["institution_inference"],
+            "recovered_after_retry",
+        )
+
+    def test_persistent_invalid_json_falls_back_without_failing_batch(self) -> None:
+        selected = [{"paper_arxiv_id": "paper-a", "passed_theme_filter": 1}]
+        arxiv_rows = [{
+            "paper_arxiv_id": "paper-a",
+            "title": "Fallback title",
+            "abstract_text": "Fallback abstract",
+            "published_utc": "2026-08-05T00:00:00Z",
+        }]
+        cfg = {
+            "system_prompt": "classify",
+            "api_key": "test",
+            "base_url": "https://example.invalid",
+            "model": "test",
+            "temperature": 0,
+            "max_tokens": 20,
+            "use_openrouter_free_pool": False,
+        }
+        with (
+            patch.dict(os.environ, {"RUN_DATE": self.date_str}),
+            patch.object(pipeline_db_service, "get_selected_papers", return_value=selected),
+            patch.object(pipeline_db_service, "get_arxiv_list", return_value=arxiv_rows),
+            patch.object(pipeline_db_service, "get_paper_info_map", return_value={}),
+            patch.object(pipeline_db_service, "upsert_paper_info") as upsert,
+            patch.object(pdf_info, "_resolve_llm_for_user", return_value=cfg),
+            patch.object(pdf_info, "call_qwen", return_value="still not json") as call_llm,
+        ):
+            pdf_info.run(self._args())
+
+        self.assertEqual(call_llm.call_count, 2)
+        kwargs = upsert.call_args.kwargs
+        self.assertFalse(kwargs["is_large"])
+        self.assertEqual(kwargs["institution_tier"], 4)
+        self.assertEqual(kwargs["title"], "Fallback title")
+        self.assertEqual(
+            kwargs["extra"]["institution_inference"],
+            "unavailable",
+        )
+
+    def test_provider_failure_still_fails_step_instead_of_hiding_outage(self) -> None:
+        selected = [{"paper_arxiv_id": "paper-a", "passed_theme_filter": 1}]
+        arxiv_rows = [{
+            "paper_arxiv_id": "paper-a",
+            "title": "Unavailable title",
+            "abstract_text": "Unavailable abstract",
+            "published_utc": "2026-08-05T00:00:00Z",
+        }]
+        cfg = {
+            "system_prompt": "classify",
+            "api_key": "test",
+            "base_url": "https://example.invalid",
+            "model": "test",
+            "temperature": 0,
+            "max_tokens": 20,
+            "use_openrouter_free_pool": False,
+        }
+        with (
+            patch.dict(os.environ, {"RUN_DATE": self.date_str}),
+            patch.object(pipeline_db_service, "get_selected_papers", return_value=selected),
+            patch.object(pipeline_db_service, "get_arxiv_list", return_value=arxiv_rows),
+            patch.object(pipeline_db_service, "get_paper_info_map", return_value={}),
+            patch.object(pipeline_db_service, "upsert_paper_info") as upsert,
+            patch.object(pdf_info, "_resolve_llm_for_user", return_value=cfg),
+            patch.object(
+                pdf_info,
+                "call_qwen",
+                side_effect=RuntimeError("provider unavailable"),
+            ) as call_llm,
+        ):
+            with self.assertRaises(SystemExit):
+                pdf_info.run(self._args())
+
+        call_llm.assert_called_once()
+        upsert.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

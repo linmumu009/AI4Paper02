@@ -92,6 +92,7 @@ from config.config import pdf_info_system_prompt as CFG_INFO_PROMPT  # noqa: E40
 from config.config import DATA_ROOT, PAPER_THEME_FILTER_DIR  # noqa: E402
 from config.config import pdf_info_concurrency  # noqa: E402
 from services.llm_response_guard import (  # noqa: E402
+    EmptyLlmResponseError,
     InvalidLlmResponseError,
     require_nonempty_text,
 )
@@ -396,6 +397,54 @@ def parse_json_or_fallback(text: str) -> Dict[str, Any]:
     return obj
 
 
+_STRUCTURED_RESPONSE_MAX_ATTEMPTS = 2
+_STRUCTURED_RESPONSE_RETRY_SUFFIX = """
+
+上一次回答无法解析。请重新检查论文内容，并且只返回一个合法 JSON 对象；
+不要使用 Markdown 代码块，不要添加解释文字。JSON 必须包含 instution、is_large、
+institution_tier 三个字段，其中 is_large 只能是 true 或 false。
+""".strip()
+
+
+def _extract_institution_with_retry(
+    *,
+    api_key: str,
+    base_url: str,
+    model: str,
+    system_prompt: str,
+    user_content: str,
+    temperature: Any,
+    max_tokens: Any,
+    use_openrouter_free_pool: bool,
+    enable_thinking: bool,
+) -> tuple[Dict[str, Any], int]:
+    """Retry only unusable successful responses, not transport/provider failures."""
+    last_error: Exception | None = None
+    for attempt in range(1, _STRUCTURED_RESPONSE_MAX_ATTEMPTS + 1):
+        prompt = user_content
+        if attempt > 1:
+            prompt = f"{user_content}\n\n{_STRUCTURED_RESPONSE_RETRY_SUFFIX}"
+        try:
+            out_text = call_qwen(
+                api_key,
+                base_url,
+                model,
+                system_prompt,
+                prompt,
+                temperature,
+                max_tokens,
+                use_openrouter_free_pool=use_openrouter_free_pool,
+                enable_thinking=enable_thinking,
+            )
+            return parse_json_or_fallback(out_text), attempt
+        except (EmptyLlmResponseError, InvalidLlmResponseError) as exc:
+            last_error = exc
+            if attempt < _STRUCTURED_RESPONSE_MAX_ATTEMPTS:
+                continue
+    assert last_error is not None
+    raise last_error
+
+
 def run(args: argparse.Namespace) -> None:
     output_mode = getattr(args, "output_mode", None) or os.environ.get("PIPELINE_OUTPUT_MODE", "file")
     run_date = os.environ.get("RUN_DATE") or datetime.utcnow().date().isoformat()
@@ -618,6 +667,7 @@ def run(args: argparse.Namespace) -> None:
     total = len(remaining_files)
     processed = 0
     errors = 0
+    fallbacks = 0
     if total == 0:
         print(f"[process] 0/0")
         if missing_input_count:
@@ -637,18 +687,6 @@ def run(args: argparse.Namespace) -> None:
                 operation="pdf_info_source_text",
             )
             user_content = f"文件名：{p.name}\n文本：\n{content}"
-            out_text = call_qwen(
-                api_key,
-                base_url,
-                model,
-                system_prompt,
-                user_content,
-                temperature,
-                max_tokens,
-                use_openrouter_free_pool=use_pool,
-                enable_thinking=enable_thinking,
-            )
-            obj_small = parse_json_or_fallback(out_text)
             meta = meta_map.get(
                 arxiv_id,
                 {
@@ -662,6 +700,42 @@ def run(args: argparse.Namespace) -> None:
                 meta.get("title"),
                 operation="pdf_info_title_metadata",
             )
+            try:
+                obj_small, response_attempts = _extract_institution_with_retry(
+                    api_key=api_key,
+                    base_url=base_url,
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_content=user_content,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    use_openrouter_free_pool=use_pool,
+                    enable_thinking=enable_thinking,
+                )
+            except (EmptyLlmResponseError, InvalidLlmResponseError) as response_exc:
+                # One malformed model response must not discard every other paper
+                # in the daily digest. Preserve authoritative arXiv metadata and
+                # classify this paper conservatively so the institution filter
+                # excludes it until a later rerun can recover the inference.
+                abstract = require_nonempty_text(
+                    meta.get("abstract"),
+                    operation="pdf_info_abstract_metadata",
+                )
+                return arxiv_id, {
+                    "title": title,
+                    "source": meta.get("source", "") or f"arxiv, {arxiv_id}",
+                    "published": meta.get("published", ""),
+                    "instution": "",
+                    "is_large": False,
+                    "institution_tier": 4,
+                    "abstract": abstract,
+                    "extra": {
+                        "source_status": "metadata_only",
+                        "institution_inference": "unavailable",
+                        "institution_inference_reason": type(response_exc).__name__,
+                        "institution_inference_attempts": _STRUCTURED_RESPONSE_MAX_ATTEMPTS,
+                    },
+                }, repr(response_exc)
             abstract = require_nonempty_text(
                 meta.get("abstract") or obj_small.get("abstract"),
                 operation="pdf_info_abstract_metadata",
@@ -679,6 +753,11 @@ def run(args: argparse.Namespace) -> None:
                 "institution_tier": institution_tier,
                 "abstract": abstract,
             }
+            if response_attempts > 1:
+                item["extra"] = {
+                    "institution_inference": "recovered_after_retry",
+                    "institution_inference_attempts": response_attempts,
+                }
             return arxiv_id, item, ""
         except Exception as e:
             return arxiv_id, None, repr(e)
@@ -706,6 +785,14 @@ def run(args: argparse.Namespace) -> None:
                 if errors <= _MAX_ERR_SAMPLES:
                     print(f"\n[ERR sample] {arxiv_id}: {err}", flush=True)
             else:
+                if err:
+                    fallbacks += 1
+                    if fallbacks <= _MAX_ERR_SAMPLES:
+                        print(
+                            f"\n[WARN] {arxiv_id}: institution inference unavailable "
+                            f"after retry; using metadata-only fallback ({err})",
+                            flush=True,
+                        )
                 if output_mode == "db" and _pdb is not None:
                     try:
                         _pdb.upsert_paper_info(
@@ -717,6 +804,7 @@ def run(args: argparse.Namespace) -> None:
                             abstract=item.get("abstract") or "",
                             published=item.get("published") or "",
                             source=item.get("source") or "",
+                            extra=item.get("extra") or {},
                         )
                         agg.append(item)
                     except Exception as db_exc:
@@ -735,7 +823,11 @@ def run(args: argparse.Namespace) -> None:
 
     print()
     if output_mode == "db":
-        print(f"[pdf_info] DB output: {len(agg)} records for user={uid} date={date_dir}", flush=True)
+        print(
+            f"[pdf_info] DB output: {len(agg)} records for user={uid} "
+            f"date={date_dir} fallbacks={fallbacks}",
+            flush=True,
+        )
     print("============结束机构识别与信息写入==============", flush=True)
     if errors or missing_input_count or deferred_count:
         raise SystemExit(1)

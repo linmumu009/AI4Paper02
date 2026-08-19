@@ -12,6 +12,30 @@ DEFAULT_ARXIV_READY_MINUTE = 15
 SCHEDULED_SOURCE_EMPTY_EXIT_CODE = 4
 
 
+def multi_user_notice_action(
+    exit_code: int,
+    *,
+    schedule_outcome: str,
+    shared_stage_succeeded: bool,
+    per_user_stage_completed: bool,
+    has_failed_users: bool,
+) -> str:
+    """Return ``clear``, ``shared_failure`` or ``user_failures`` for a run."""
+    if exit_code == 0:
+        return "clear"
+    if (
+        schedule_outcome == "source_empty_retry"
+        or not shared_stage_succeeded
+        or not per_user_stage_completed
+    ):
+        return "shared_failure"
+    if has_failed_users:
+        return "user_failures"
+    # Cleanup failed after all personalized results were published. Keep those
+    # results visible while the scheduler retries the maintenance work.
+    return "clear"
+
+
 def _configured_clock(cfg: Mapping[str, object]) -> tuple[int, int]:
     try:
         hour = int(cfg.get("hour", 6))
