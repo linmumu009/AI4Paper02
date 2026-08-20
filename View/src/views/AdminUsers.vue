@@ -1220,6 +1220,14 @@ const FEATURE_DEFAULTS_META: FeatureDefaultsMeta[] = [
       { key: 'round3_system_prompt', label: 'Round 3 提示词（全文深读）' },
     ],
   },
+  {
+    feature: 'auto_classify',
+    label: '自动分类与目录拓展',
+    icon: '🗂️',
+    desc: '收藏后自动分类和 AI 拓展目录使用的全局默认模型；用户个人模型优先',
+    editableFields: [],
+    promptFields: [],
+  },
 ]
 
 const featureDefaultsData = ref<AdminFeatureDefaultEntry[]>([])
@@ -3695,7 +3703,7 @@ watch(activeTab, (tab) => {
                 </div>
 
                 <!-- Numeric params row -->
-                <div>
+                <div v-if="meta.editableFields.length">
                   <h3 class="text-xs font-semibold text-text-secondary mb-3 flex items-center gap-1.5">
                     <span>⚙️</span> 模型参数
                   </h3>

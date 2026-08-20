@@ -12,7 +12,12 @@ _SEVER = Path(__file__).resolve().parents[1]
 if str(_SEVER) not in sys.path:
     sys.path.insert(0, str(_SEVER))
 
-from services import auto_classify_service, kb_service, user_settings_service  # noqa: E402
+from services import (  # noqa: E402
+    auto_classify_service,
+    kb_service,
+    user_presets_service,
+    user_settings_service,
+)
 from services.llm_response_guard import InvalidLlmResponseError  # noqa: E402
 
 
@@ -249,6 +254,71 @@ class AutoClassifyFolderSuggestionTests(unittest.TestCase):
         move_papers.assert_not_called()
         self.assertEqual(result["suggestions"][0]["name"], "推理优化")
         self.assertEqual(result["analyzed_papers"], 2)
+
+    def test_user_model_preset_takes_priority_over_platform_default(self) -> None:
+        with (
+            patch.object(
+                user_settings_service,
+                "get_settings",
+                return_value={"enabled": False, "llm_preset_id": 9},
+            ),
+            patch.object(
+                user_presets_service,
+                "get_llm_preset",
+                return_value={
+                    "base_url": "https://user.example/v1",
+                    "api_key": "user-key",
+                    "model": "user-model",
+                    "max_tokens": 900,
+                    "temperature": 0.25,
+                    "enable_thinking": True,
+                },
+            ),
+            patch.object(
+                user_settings_service,
+                "resolve_admin_llm_for_feature",
+            ) as resolve_admin,
+        ):
+            result = auto_classify_service._resolve_llm_config(
+                7,
+                require_enabled=False,
+            )
+
+        self.assertEqual(result["base_url"], "https://user.example/v1")
+        self.assertEqual(result["model"], "user-model")
+        self.assertEqual(result["max_tokens"], 900)
+        self.assertTrue(result["enable_thinking"])
+        resolve_admin.assert_not_called()
+
+    def test_platform_default_is_used_when_user_has_no_model(self) -> None:
+        with (
+            patch.object(
+                user_settings_service,
+                "get_settings",
+                return_value={"enabled": False, "llm_preset_id": ""},
+            ),
+            patch.object(
+                user_settings_service,
+                "resolve_admin_llm_for_feature",
+                return_value={
+                    "llm_base_url": "https://api.deepseek.com",
+                    "llm_api_key": "platform-key",
+                    "llm_model": "deepseek-chat",
+                    "max_tokens": 1200,
+                    "temperature": 0.15,
+                },
+            ) as resolve_admin,
+        ):
+            result = auto_classify_service._resolve_llm_config(
+                7,
+                require_enabled=False,
+            )
+
+        resolve_admin.assert_called_once_with("auto_classify")
+        self.assertEqual(result["base_url"], "https://api.deepseek.com")
+        self.assertEqual(result["model"], "deepseek-chat")
+        self.assertEqual(result["max_tokens"], 1200)
+        self.assertEqual(result["temperature"], 0.15)
 
     def test_sync_uses_recreated_parent_id_for_existing_child(self) -> None:
         class _Connection:

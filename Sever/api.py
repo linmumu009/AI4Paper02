@@ -31,6 +31,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from services.private_file_access_service import PrivateKbFilesMiddleware
 from services.safe_logging_service import (
+    extract_error_reference,
     is_error_reference,
     is_public_error_detail,
     log_internal_error,
@@ -201,15 +202,18 @@ async def sanitized_http_exception_handler(
     if exc.status_code < 500:
         return await http_exception_handler(request, exc)
     existing_reference = str((exc.headers or {}).get("X-Error-ID") or "")
-    if (
-        is_error_reference(existing_reference)
-        and is_public_error_detail(exc.detail)
-        and existing_reference in str(exc.detail)
-    ):
+    detail_reference = extract_error_reference(exc.detail)
+    if is_public_error_detail(exc.detail) and is_error_reference(detail_reference):
+        reference = (
+            existing_reference
+            if is_error_reference(existing_reference)
+            and existing_reference == detail_reference
+            else detail_reference
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content={"detail": exc.detail},
-            headers={"X-Error-ID": existing_reference},
+            headers={"X-Error-ID": reference},
         )
     reference = log_internal_error(
         _logger,

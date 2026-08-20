@@ -11,6 +11,7 @@ if str(_SEVER) not in sys.path:
     sys.path.insert(0, str(_SEVER))
 
 from services.safe_logging_service import (  # noqa: E402
+    extract_error_reference,
     is_error_reference,
     is_public_error_detail,
     log_internal_error,
@@ -59,6 +60,7 @@ class SafeLoggingServiceTests(unittest.TestCase):
         self.assertNotIn("private-link-token", logged)
         detail = public_error_detail(reference)
         self.assertTrue(is_public_error_detail(detail))
+        self.assertEqual(extract_error_reference(detail), reference)
 
     def test_truncates_unbounded_upstream_errors(self) -> None:
         redacted = redact_sensitive_text("x" * 9000, max_length=100)
@@ -113,6 +115,12 @@ class SafeLoggingServiceTests(unittest.TestCase):
         )
         referenced = public_error_detail("abcdef123456", "翻译失败")
         self.assertEqual(safe_stored_error(referenced), referenced)
+
+    def test_public_error_reference_requires_the_safe_detail_shape(self) -> None:
+        detail = public_error_detail("abcdef123456", "AI 目录建议生成失败，请稍后重试")
+        self.assertEqual(extract_error_reference(detail), "abcdef123456")
+        self.assertEqual(extract_error_reference(detail + " internal traceback"), "")
+        self.assertFalse(is_public_error_detail(detail + "\ninternal traceback"))
 
     def test_structured_diagnostics_redact_secret_fields_and_nested_text(self) -> None:
         redacted = redact_sensitive_data({

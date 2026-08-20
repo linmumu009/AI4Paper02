@@ -3180,7 +3180,10 @@ watch(() => currentUser.value, () => {
       <!-- ============================== -->
       <!-- Placeholder for disabled features -->
       <!-- ============================== -->
-      <AutoClassifyPanel v-else-if="activeNav === 'auto_classify'" />
+      <AutoClassifyPanel
+        v-else-if="activeNav === 'auto_classify'"
+        @navigate-settings="activeNav = $event"
+      />
 
       <div v-else class="flex items-center justify-center h-full">
         <div class="text-center">

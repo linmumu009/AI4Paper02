@@ -10,7 +10,9 @@ from typing import Any
 
 
 _REDACTED = "[REDACTED]"
-_PUBLIC_ERROR_RE = re.compile(r"错误编号：[0-9a-f]{12}")
+_PUBLIC_ERROR_RE = re.compile(
+    r"^[^\r\n]{1,160}（错误编号：([0-9a-f]{12})）$"
+)
 _ERROR_REFERENCE_RE = re.compile(r"^[0-9a-f]{12}$")
 _QUERY_SECRET_RE = re.compile(
     r"(?i)([?&](?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|"
@@ -140,7 +142,13 @@ def safe_stored_error(value: Any, fallback: str = "任务执行失败，请重�
 
 
 def is_public_error_detail(value: Any) -> bool:
-    return bool(_PUBLIC_ERROR_RE.search(str(value or "")))
+    return bool(_PUBLIC_ERROR_RE.fullmatch(str(value or "")))
+
+
+def extract_error_reference(value: Any) -> str:
+    """Return the reference embedded in a safe public error detail, if any."""
+    match = _PUBLIC_ERROR_RE.fullmatch(str(value or ""))
+    return match.group(1) if match else ""
 
 
 def is_error_reference(value: Any) -> bool:

@@ -20,6 +20,10 @@ import type { AutoClassifyFolderNode } from '../utils/autoClassifyFolders'
 import { getApiErrorMessage } from '../utils/apiError'
 import PresetSelector from './PresetSelector.vue'
 
+const emit = defineEmits<{
+  'navigate-settings': [tab: string]
+}>()
+
 // ---------------------------------------------------------------------------
 // Tree node type (in-memory editing state)
 // ---------------------------------------------------------------------------
@@ -526,18 +530,18 @@ const selectedLlmPreset = computed(() =>
         <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        自动分类已停用。启用后，收藏论文时若未手动选择文件夹，AI 将自动完成分类。
+        收藏后的自动分类已停用；模型设置、目录编辑和「AI 拓展目录」仍可单独使用。
       </div>
 
       <!-- ══════════════════════════════════════════════════════════════
            SECTION 2 — 配置卡片（双列）
       ══════════════════════════════════════════════════════════════ -->
       <div
-        class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5 transition-opacity duration-200"
-        :class="!form.enabled ? 'opacity-40 pointer-events-none' : ''"
+        data-testid="auto-classify-settings-grid"
+        class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5"
       >
         <!-- Left: AI 模型 -->
-        <div class="bg-bg-card border border-border rounded-xl p-4 flex flex-col gap-0">
+        <div data-testid="auto-classify-model-card" class="bg-bg-card border border-border rounded-xl p-4 flex flex-col gap-0">
           <div class="flex items-center gap-2 mb-3">
             <svg class="w-4 h-4 text-tinder-green shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/>
@@ -549,12 +553,15 @@ const selectedLlmPreset = computed(() =>
             <h3 class="text-sm font-semibold text-text-primary">AI 模型</h3>
           </div>
           <p class="text-xs text-text-muted mb-3 leading-relaxed">
-            分类只需一次轻量调用（约 500 token），推荐速度快、成本低的模型。
+            未选择时使用平台默认模型；选择个人预设后，将优先使用你的配置。
           </p>
           <PresetSelector
             v-model="form.llm_preset_id"
             :presets="llmPresets"
+            placeholder="使用平台默认模型"
+            :none-option="{ label: '使用平台默认模型' }"
             show-model-hint
+            :on-go-to-create="() => emit('navigate-settings', 'llm_presets')"
           />
 
           <!-- Custom prompt toggle -->
@@ -614,7 +621,12 @@ const selectedLlmPreset = computed(() =>
         </div>
 
         <!-- Right: 置信度阈值 -->
-        <div class="bg-bg-card border border-border rounded-xl p-4 flex flex-col">
+        <div
+          data-testid="auto-classify-confidence-card"
+          class="bg-bg-card border border-border rounded-xl p-4 flex flex-col transition-opacity duration-200"
+          :class="!form.enabled ? 'opacity-40' : ''"
+          :aria-disabled="!form.enabled"
+        >
           <div class="flex items-center gap-2 mb-3">
             <svg class="w-4 h-4 text-tinder-gold shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
@@ -653,11 +665,13 @@ const selectedLlmPreset = computed(() =>
           </div>
 
           <input
+            data-testid="auto-classify-confidence-input"
             v-model.number="form.confidence_threshold"
             type="range"
             min="0.3"
             max="0.95"
             step="0.05"
+            :disabled="!form.enabled"
             class="w-full h-1.5 rounded-full appearance-none cursor-pointer accent-tinder-green mb-1"
           />
           <div class="flex justify-between text-[10px] text-text-muted">

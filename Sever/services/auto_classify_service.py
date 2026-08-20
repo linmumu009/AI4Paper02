@@ -231,12 +231,35 @@ def _resolve_llm_config(
         "model": model,
         "max_tokens": cfg.get("max_tokens") or 512,
         "temperature": cfg.get("temperature") if cfg.get("temperature") is not None else 0.1,
+        "enable_thinking": bool(cfg.get("enable_thinking", False)),
         "use_openrouter_free_pool": use_pool,
     }
     if has_llm_credentials(user_result):
         return user_result
 
-    # System-level fallback: try system defaults
+    # Platform default configured by an administrator.  A user's preset/direct
+    # connection always wins; this layer gives everyone else a working model
+    # without forcing them to copy a shared API key into a personal preset.
+    admin_cfg = uss.resolve_admin_llm_for_feature("auto_classify") or {}
+    admin_result = {
+        "base_url": (admin_cfg.get("llm_base_url") or "").strip(),
+        "api_key": (admin_cfg.get("llm_api_key") or "").strip(),
+        "model": (admin_cfg.get("llm_model") or "").strip(),
+        "max_tokens": admin_cfg.get("max_tokens") or cfg.get("max_tokens") or 512,
+        "temperature": (
+            admin_cfg.get("temperature")
+            if admin_cfg.get("temperature") is not None
+            else cfg.get("temperature") if cfg.get("temperature") is not None else 0.1
+        ),
+        "enable_thinking": bool(admin_cfg.get("enable_thinking", False)),
+        "use_openrouter_free_pool": bool(
+            admin_cfg.get("use_openrouter_free_pool", False)
+        ),
+    }
+    if has_llm_credentials(admin_result):
+        return admin_result
+
+    # Legacy system-level fallback kept for existing installations.
     _sys_key = (getattr(_sys_cfg, "auto_classify_api_key", "") or "").strip()
     _sys_mdl = (getattr(_sys_cfg, "auto_classify_model", "") or "").strip()
     _sys_pool = bool(getattr(_sys_cfg, "auto_classify_use_openrouter_free_pool", False))
@@ -247,6 +270,9 @@ def _resolve_llm_config(
             "model": _sys_mdl,
             "max_tokens": cfg.get("max_tokens") or getattr(_sys_cfg, "auto_classify_max_tokens", 512),
             "temperature": cfg.get("temperature") if cfg.get("temperature") is not None else getattr(_sys_cfg, "auto_classify_temperature", 0.1),
+            "enable_thinking": bool(
+                getattr(_sys_cfg, "auto_classify_enable_thinking", False)
+            ),
             "use_openrouter_free_pool": _sys_pool,
         }
         if has_llm_credentials(sys_result):
