@@ -52,6 +52,8 @@ _UNCLASSIFIED_FOLDER_NAME = "未分类"
 MAX_FOLDER_SUGGESTIONS = 8
 MAX_SUGGESTION_PAPERS = 60
 MIN_SUGGESTION_PAPER_SUPPORT = 2
+FOLDER_SUGGESTION_INITIAL_MAX_TOKENS = 2048
+FOLDER_SUGGESTION_RETRY_MAX_TOKENS = 4096
 
 
 class FolderSuggestionError(RuntimeError):
@@ -95,6 +97,8 @@ _SUGGEST_FOLDERS_SYSTEM_PROMPT = """\
 - 「未分类」是兜底目录，不能作为任何建议目录的父目录。
 - parent_path 必须是给定现有目录的完整路径，或空字符串（表示根目录）。
 - name 只能是单级目录名，不得包含 / 或反斜杠。
+- name 最多 32 个字符，description 最多 120 个字符，reason 最多 160 个字符。
+- 每条建议最多列出 12 个 paper_ids；内容要简洁，不要重复论文标题或摘要。
 - 最多返回 {max_suggestions} 条，按价值从高到低排序。没有必要拓展时返回空数组。
 
 只返回一个 JSON 对象，不要返回 Markdown 或额外说明：
@@ -600,9 +604,21 @@ def _parse_folder_suggestions_response(
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise InvalidLlmResponseError(
-            "folder suggestion response was not valid JSON"
-        ) from exc
+        # Some OpenAI-compatible providers still wrap an otherwise valid JSON
+        # object in a short preface/suffix even when the prompt forbids it.
+        # Recover only one complete JSON object; all fields still pass the
+        # strict validation below before anything is shown or persisted.
+        object_start = text.find("{")
+        if object_start < 0:
+            raise InvalidLlmResponseError(
+                "folder suggestion response was not valid JSON"
+            ) from exc
+        try:
+            payload, _end = json.JSONDecoder().raw_decode(text[object_start:])
+        except json.JSONDecodeError as nested_exc:
+            raise InvalidLlmResponseError(
+                "folder suggestion response was not valid JSON"
+            ) from nested_exc
     if not isinstance(payload, dict):
         raise InvalidLlmResponseError("folder suggestion payload must be an object")
     raw_suggestions = payload.get("suggestions")
@@ -955,6 +971,62 @@ def _do_classify(user_id: int, paper_id: str, scope: str = "kb") -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _request_folder_suggestion_completion(
+    client: object,
+    llm_cfg: dict,
+    messages: list[dict],
+) -> tuple[object, Optional[str]]:
+    """Request bounded structured output, retrying one truncated/empty response."""
+    from services.llm_request_options import build_thinking_kwargs
+
+    try:
+        configured_max = int(llm_cfg.get("max_tokens") or 1200)
+    except (TypeError, ValueError):
+        configured_max = 1200
+    initial_max = max(
+        FOLDER_SUGGESTION_INITIAL_MAX_TOKENS,
+        min(configured_max, FOLDER_SUGGESTION_RETRY_MAX_TOKENS),
+    )
+    thinking_cfg = {
+        "llm_base_url": llm_cfg["base_url"],
+        "llm_model": llm_cfg["model"],
+        "enable_thinking": llm_cfg.get("enable_thinking", False),
+    }
+    request_kwargs = {
+        "model": llm_cfg["model"],
+        "messages": messages,
+        "max_tokens": initial_max,
+        "temperature": llm_cfg.get("temperature", 0.1),
+        **build_thinking_kwargs(thinking_cfg),
+    }
+    if "api.deepseek.com" in (llm_cfg.get("base_url") or "").lower():
+        request_kwargs["response_format"] = {"type": "json_object"}
+
+    raw: object = None
+    finish_reason: Optional[str] = None
+    for attempt in range(2):
+        response = client.chat.completions.create(**request_kwargs)
+        choices = getattr(response, "choices", None) or []
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None) if choice is not None else None
+        raw = getattr(message, "content", None) if message is not None else None
+        finish_reason = (
+            getattr(choice, "finish_reason", None) if choice is not None else None
+        )
+        if isinstance(raw, str) and raw.strip() and finish_reason != "length":
+            return raw, finish_reason
+        if attempt == 0:
+            logger.warning(
+                "auto_classify: retrying folder suggestions reason=%s chars=%d next_max_tokens=%d",
+                "length_limit" if finish_reason == "length" else "empty_response",
+                len(raw) if isinstance(raw, str) else 0,
+                FOLDER_SUGGESTION_RETRY_MAX_TOKENS,
+            )
+            request_kwargs["max_tokens"] = FOLDER_SUGGESTION_RETRY_MAX_TOKENS
+
+    return raw, finish_reason
+
+
 def suggest_folders(
     user_id: int,
     scope: str = "kb",
@@ -1000,27 +1072,17 @@ def suggest_folders(
 
     try:
         from services.llm_client_factory import build_llm_client
-        from services.llm_request_options import build_thinking_kwargs
 
         client = build_llm_client(llm_cfg)
-        thinking_cfg = {
-            "llm_base_url": llm_cfg["base_url"],
-            "llm_model": llm_cfg["model"],
-            "enable_thinking": llm_cfg.get("enable_thinking", False),
-        }
-        configured_max = int(llm_cfg.get("max_tokens") or 1200)
         with _classify_semaphore:
-            response = client.chat.completions.create(
-                model=llm_cfg["model"],
-                messages=[
+            raw, finish_reason = _request_folder_suggestion_completion(
+                client,
+                llm_cfg,
+                [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=max(800, min(configured_max, 1800)),
-                temperature=llm_cfg.get("temperature", 0.1),
-                **build_thinking_kwargs(thinking_cfg),
             )
-        raw = response.choices[0].message.content if response.choices else None
     except Exception as exc:
         public_error = safe_failure_detail(
             logger,
@@ -1039,9 +1101,10 @@ def suggest_folders(
         )
     except (EmptyLlmResponseError, InvalidLlmResponseError) as exc:
         logger.warning(
-            "auto_classify: invalid folder suggestion response: %s chars=%d",
+            "auto_classify: invalid folder suggestion response: %s chars=%d finish_reason=%s",
             type(exc).__name__,
             len(raw) if isinstance(raw, str) else 0,
+            finish_reason,
         )
         raise FolderSuggestionError(
             "AI 返回的目录建议格式无效，请重试",
