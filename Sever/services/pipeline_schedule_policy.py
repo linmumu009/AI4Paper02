@@ -2,14 +2,91 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable, Mapping
+from zoneinfo import ZoneInfo
 
 
 DEFAULT_SCHEDULED_MAX_ATTEMPTS = 8
 DEFAULT_ARXIV_READY_HOUR = 9
 DEFAULT_ARXIV_READY_MINUTE = 15
 SCHEDULED_SOURCE_EMPTY_EXIT_CODE = 4
+
+# DeepSeek bills weekday requests at peak rates from 09:00-12:00 and
+# 14:00-18:00 Beijing time.  Keep a small boundary buffer so a request is not
+# priced at the higher tier because of clock skew or a response repair that is
+# launched exactly on the boundary.
+DEEPSEEK_PRICING_TIMEZONE = "Asia/Shanghai"
+DEEPSEEK_OFFPEAK_WINDOWS = (
+    "00:00-08:55",
+    "12:05-13:50",
+    "18:05-24:00",
+)
+_DEEPSEEK_MORNING_END_MINUTE = 8 * 60 + 55
+_DEEPSEEK_LUNCH_START_MINUTE = 12 * 60 + 5
+_DEEPSEEK_LUNCH_END_MINUTE = 13 * 60 + 50
+_DEEPSEEK_EVENING_START_MINUTE = 18 * 60 + 5
+_SHANGHAI_TZ = ZoneInfo(DEEPSEEK_PRICING_TIMEZONE)
+
+
+def _as_shanghai_time(now: datetime | None = None) -> datetime:
+    current = now or datetime.now(_SHANGHAI_TZ)
+    if current.tzinfo is None:
+        return current.replace(tzinfo=_SHANGHAI_TZ)
+    return current.astimezone(_SHANGHAI_TZ)
+
+
+def is_deepseek_offpeak(now: datetime | None = None) -> bool:
+    """Return whether *now* is inside the buffered DeepSeek off-peak window."""
+    current = _as_shanghai_time(now)
+    if current.weekday() >= 5:
+        return True
+    minute = current.hour * 60 + current.minute
+    return bool(
+        minute < _DEEPSEEK_MORNING_END_MINUTE
+        or _DEEPSEEK_LUNCH_START_MINUTE <= minute < _DEEPSEEK_LUNCH_END_MINUTE
+        or minute >= _DEEPSEEK_EVENING_START_MINUTE
+    )
+
+
+def next_deepseek_offpeak_start(now: datetime | None = None) -> datetime:
+    """Return the next buffered off-peak start in Asia/Shanghai."""
+    current = _as_shanghai_time(now)
+    if is_deepseek_offpeak(current):
+        return current
+
+    minute = current.hour * 60 + current.minute
+    if minute < _DEEPSEEK_LUNCH_START_MINUTE:
+        return current.replace(hour=12, minute=5, second=0, microsecond=0)
+    if minute < _DEEPSEEK_EVENING_START_MINUTE:
+        return current.replace(hour=18, minute=5, second=0, microsecond=0)
+
+    # Defensive fallback.  The normal weekday evening branch is already
+    # off-peak, but keeping this path makes the helper safe if windows change.
+    following = current + timedelta(days=1)
+    return following.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def seconds_until_deepseek_offpeak(now: datetime | None = None) -> float:
+    current = _as_shanghai_time(now)
+    if is_deepseek_offpeak(current):
+        return 0.0
+    return max(0.0, (next_deepseek_offpeak_start(current) - current).total_seconds())
+
+
+def deepseek_offpeak_metadata(now: datetime | None = None) -> dict[str, object]:
+    """Return API-safe status metadata for the admin scheduling screen."""
+    current = _as_shanghai_time(now)
+    offpeak = is_deepseek_offpeak(current)
+    next_start = None if offpeak else next_deepseek_offpeak_start(current)
+    return {
+        "deepseek_offpeak_timezone": DEEPSEEK_PRICING_TIMEZONE,
+        "deepseek_offpeak_windows": list(DEEPSEEK_OFFPEAK_WINDOWS),
+        "deepseek_offpeak_now": offpeak,
+        "deepseek_offpeak_next_start": (
+            next_start.isoformat(timespec="minutes") if next_start else None
+        ),
+    }
 
 
 def multi_user_notice_action(

@@ -105,6 +105,10 @@ def _scheduled_pipeline_check(
     grace_minutes = max(5, _env_int("PIPELINE_HEALTH_START_GRACE_MINUTES", 45))
     pending_limit = max(10, _env_int("PIPELINE_HEALTH_PENDING_MINUTES", 30))
     running_limit = max(60, _env_int("PIPELINE_HEALTH_RUNNING_MINUTES", 480))
+    if config_ok and config.get("deepseek_offpeak_enabled") is True:
+        # A healthy scheduled run may intentionally pause from the lunch
+        # window until 18:05 before issuing its next DeepSeek request.
+        running_limit = max(running_limit, 720)
     scheduled_at = effective_scheduled_time(current, config)
     start_deadline = scheduled_at.timestamp() + grace_minutes * 60
     start_due = current.timestamp() >= start_deadline

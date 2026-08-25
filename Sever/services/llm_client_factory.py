@@ -29,9 +29,12 @@ api_key 可为空）。
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 from typing import Any, Callable, Dict, Optional
+from urllib.parse import urlparse
 
 from openai import OpenAI
 
@@ -40,6 +43,71 @@ from services.network_target_guard import validate_user_llm_base_url
 _logger = logging.getLogger("llm_client_factory")
 
 _OPENROUTER_DEFAULT_BASE = "https://openrouter.ai/api/v1"
+_DEEPSEEK_OFFPEAK_ENV = "DEEPSEEK_OFFPEAK_ONLY"
+_DEEPSEEK_OFFPEAK_CONFIG_ENV = "DEEPSEEK_OFFPEAK_CONFIG_PATH"
+
+
+def _env_flag(name: str) -> bool:
+    return str(os.environ.get(name, "")).strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _saved_offpeak_switch_enabled() -> bool:
+    """Allow an admin toggle change to release a currently waiting process."""
+    path = str(os.environ.get(_DEEPSEEK_OFFPEAK_CONFIG_ENV, "")).strip()
+    if not path:
+        return True
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            saved = json.load(handle)
+    except (OSError, json.JSONDecodeError, TypeError):
+        return True
+    return bool(saved.get("deepseek_offpeak_enabled", True))
+
+
+def _is_direct_deepseek_base(base_url: str) -> bool:
+    try:
+        hostname = (urlparse(base_url).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return hostname == "api.deepseek.com"
+
+
+def _should_apply_deepseek_offpeak_gate(cfg: Dict[str, Any]) -> bool:
+    if not _env_flag(_DEEPSEEK_OFFPEAK_ENV):
+        return False
+    raw_base_url = (cfg.get("llm_base_url") or cfg.get("base_url") or "").strip()
+    return bool(
+        _is_direct_deepseek_base(raw_base_url)
+        and _saved_offpeak_switch_enabled()
+    )
+
+
+def _wait_for_deepseek_offpeak(cfg: Dict[str, Any]) -> None:
+    if not _should_apply_deepseek_offpeak_gate(cfg):
+        return
+
+    from services.pipeline_schedule_policy import (
+        next_deepseek_offpeak_start,
+        seconds_until_deepseek_offpeak,
+    )
+
+    announced_start = ""
+    while _should_apply_deepseek_offpeak_gate(cfg):
+        wait_seconds = seconds_until_deepseek_offpeak()
+        if wait_seconds <= 0:
+            return
+        next_start = next_deepseek_offpeak_start().isoformat(timespec="minutes")
+        if next_start != announced_start:
+            _logger.warning(
+                "Scheduled DeepSeek request is waiting for the off-peak window; next start=%s",
+                next_start,
+            )
+            announced_start = next_start
+        # Re-read the persisted admin switch frequently.  Turning the switch
+        # off releases an already-waiting scheduled request within 30 seconds.
+        time.sleep(min(wait_seconds, 30.0))
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +195,10 @@ def build_llm_client(cfg: Dict[str, Any]) -> OpenAI:
 
     api_key = (cfg.get("llm_api_key") or cfg.get("api_key") or "").strip()
     client = OpenAI(api_key=api_key, base_url=base_url)
-    if _should_apply_rate_limit(cfg, {}):
+    if (
+        _should_apply_rate_limit(cfg, {})
+        or _should_apply_deepseek_offpeak_gate(cfg)
+    ):
         return _DirectRateLimitedClient(client, cfg)
     return client
 
@@ -142,6 +213,7 @@ class _RateLimitedCompletions:
         self._invoke = invoke
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
+        _wait_for_deepseek_offpeak(self._cfg)
         return _create_with_rate_limit(
             self._cfg,
             kwargs,
@@ -156,7 +228,7 @@ class _RateLimitedChat:
 
 
 class _DirectRateLimitedClient:
-    """Wraps a real OpenAI client with free-tier RPM limiting."""
+    """Wrap a real client with request-time rate and off-peak policies."""
 
     def __init__(self, client: OpenAI, cfg: Dict[str, Any]) -> None:
         self._client = client

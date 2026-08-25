@@ -64,6 +64,11 @@ export interface ScheduleConfig {
   last_run_date?: string | null
   multi_user?: boolean
   max_concurrent_user_pipelines?: number
+  deepseek_offpeak_enabled?: boolean
+  deepseek_offpeak_timezone?: string
+  deepseek_offpeak_windows?: string[]
+  deepseek_offpeak_now?: boolean
+  deepseek_offpeak_next_start?: string | null
   scheduler_alive?: boolean
   source_ready_hour?: number
   source_ready_minute?: number

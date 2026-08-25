@@ -351,6 +351,7 @@ const schedule = ref<ScheduleConfig>({
   user_id: null,
   multi_user: true,
   max_concurrent_user_pipelines: 3,
+  deepseek_offpeak_enabled: true,
 })
 const scheduleLoading = ref(false)
 const scheduleSaving = ref(false)
@@ -383,6 +384,25 @@ const effectiveWeekdayScheduleClock = computed(() => formatScheduleClock(
     ? (schedule.value.source_ready_minute ?? 15)
     : schedule.value.minute,
 ))
+const deepseekOffpeakWindows = computed(() => (
+  schedule.value.deepseek_offpeak_windows?.length
+    ? schedule.value.deepseek_offpeak_windows.join('、')
+    : '00:00–08:55、12:05–13:50、18:05–24:00'
+))
+const deepseekNextOffpeakLabel = computed(() => {
+  const raw = schedule.value.deepseek_offpeak_next_start
+  if (!raw) return ''
+  const parsed = new Date(raw)
+  if (Number.isNaN(parsed.getTime())) return raw
+  return parsed.toLocaleString('zh-CN', {
+    timeZone: schedule.value.deepseek_offpeak_timezone || 'Asia/Shanghai',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+})
 
 async function loadScheduleHistory() {
   scheduleHistoryLoading.value = true
@@ -419,6 +439,7 @@ async function loadSchedule() {
       ...cfg,
       multi_user: cfg.multi_user !== undefined ? cfg.multi_user : true,
       max_concurrent_user_pipelines: cfg.max_concurrent_user_pipelines ?? 3,
+      deepseek_offpeak_enabled: cfg.deepseek_offpeak_enabled !== false,
     }
     // Load custom user count for display
     try {
@@ -504,6 +525,7 @@ async function handleSaveSchedule() {
       user_id: schedule.value.user_id ?? null,
       multi_user: schedule.value.multi_user ?? true,
       max_concurrent_user_pipelines: schedule.value.max_concurrent_user_pipelines ?? 3,
+      deepseek_offpeak_enabled: schedule.value.deepseek_offpeak_enabled !== false,
     })
     schedule.value = { ...schedule.value, ...res.schedule }
   } catch (e: any) {
@@ -2828,6 +2850,55 @@ watch(activeTab, (tab) => {
             系统会在工作日自动延后到 {{ effectiveWeekdayScheduleClock }} 执行，避免空跑后误判为成功；管理员设置的更晚时间仍会照常保留。
           </div>
 
+          <div class="mb-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+            <div class="flex items-start gap-3">
+              <label class="relative mt-0.5 inline-flex shrink-0 cursor-pointer items-center">
+                <input
+                  v-model="schedule.deepseek_offpeak_enabled"
+                  type="checkbox"
+                  class="sr-only peer"
+                />
+                <div class="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+              </label>
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-sm font-semibold text-text-primary">DeepSeek 闲时执行（省费模式）</span>
+                  <span
+                    v-if="schedule.deepseek_offpeak_enabled"
+                    class="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    :class="schedule.deepseek_offpeak_now
+                      ? 'bg-emerald-500/15 text-emerald-300'
+                      : 'bg-amber-500/15 text-amber-300'"
+                  >
+                    {{ schedule.deepseek_offpeak_now
+                      ? '当前可执行'
+                      : '当前高峰' + (deepseekNextOffpeakLabel ? ' · ' + deepseekNextOffpeakLabel + ' 继续' : '') }}
+                  </span>
+                  <span v-else class="rounded-full bg-gray-500/15 px-2 py-0.5 text-[10px] font-medium text-text-muted">
+                    已关闭 · 解析后立即请求
+                  </span>
+                </div>
+                <p class="mt-1.5 text-xs leading-relaxed text-text-muted">
+                  开启后，仅限制定时任务中直连 api.deepseek.com 的模型请求；arXiv 拉取、PDF 下载和 MinerU 解析照常进行，手动执行也不会等待。
+                </p>
+                <p v-if="schedule.deepseek_offpeak_enabled" class="mt-1 text-xs leading-relaxed text-emerald-300/90">
+                  工作日安全窗口：{{ deepseekOffpeakWindows }}；周末全天。窗口预留了 5–10 分钟边界缓冲，跨过窗口的后续请求会自动等到下一闲时。
+                </p>
+                <p v-else class="mt-1 text-xs leading-relaxed text-amber-300/90">
+                  关闭并保存后，正在等待的定时请求会在最多 30 秒内继续，可能按 DeepSeek 高峰价格计费。
+                </p>
+                <a
+                  href="https://api-docs.deepseek.com/zh-cn/quick_start/pricing/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="mt-2 inline-flex text-[11px] text-blue-400 hover:text-blue-300"
+                >
+                  查看 DeepSeek 官方价格时段 ↗
+                </a>
+              </div>
+            </div>
+          </div>
+
           <!-- Summary & Save -->
           <div class="flex items-center gap-3 flex-wrap pt-3 border-t border-border">
             <button
@@ -2870,6 +2941,7 @@ watch(activeTab, (tab) => {
             <li>• 自动执行期间仍可手动点击「脚本执行」运行，但不会同时执行两个</li>
             <li>• 调度配置会持久化保存，服务重启后自动恢复</li>
             <li>• 如果当天的 Pipeline 输出已存在，对应步骤会自动跳过</li>
+            <li>• 开启 DeepSeek 闲时执行后，定时任务会先完成共享采集与 MinerU；只有官方 DeepSeek 模型请求会等待低价窗口</li>
             <li class="text-green-400">• <strong>多用户并行模式</strong>（推荐）：调度时自动发现所有有个性化配置的用户，为每人单独运行一遍 per_user 管线，结果存储到 DB，按用户展示个性化内容</li>
             <li class="text-text-muted">• 共享阶段（arxiv抓取 / PDF下载 / MinerU解析）只运行一次，所有用户共享，避免重复调用</li>
           </ul>

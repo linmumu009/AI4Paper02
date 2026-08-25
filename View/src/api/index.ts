@@ -432,6 +432,7 @@ export async function updateScheduleConfig(config: {
   user_id?: number | null
   multi_user?: boolean
   max_concurrent_user_pipelines?: number
+  deepseek_offpeak_enabled?: boolean
 }): Promise<{ ok: boolean; schedule: ScheduleConfig }> {
   const { data } = await http.post<{ ok: boolean; schedule: ScheduleConfig }>('/admin/schedule', config)
   return data

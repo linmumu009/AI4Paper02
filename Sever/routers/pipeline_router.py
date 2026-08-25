@@ -28,6 +28,7 @@ from services.pipeline_schedule_policy import (
     DEFAULT_SCHEDULED_MAX_ATTEMPTS,
     SCHEDULED_SOURCE_EMPTY_EXIT_CODE,
     count_scheduled_attempts,
+    deepseek_offpeak_metadata,
     effective_weekday_schedule_clock,
     failure_cooldown_remaining,
     is_arxiv_release_day,
@@ -81,6 +82,10 @@ class ScheduleConfigBody(BaseModel):
     user_id: Optional[int] = Field(default=None)
     multi_user: bool = Field(default=True)
     max_concurrent_user_pipelines: int = Field(default=3, ge=1, le=20)
+    deepseek_offpeak_enabled: bool = Field(
+        default=True,
+        description="仅让定时任务中的官方 DeepSeek 请求在闲时价格窗口执行",
+    )
 
 
 class StepConfigBody(BaseModel):
@@ -133,6 +138,7 @@ _scheduler_state: dict = {
     "last_run_date": None,
     "multi_user": True,
     "max_concurrent_user_pipelines": 3,
+    "deepseek_offpeak_enabled": True,
 }
 _scheduler_thread: Optional[threading.Thread] = None
 _scheduler_stop_event = threading.Event()
@@ -434,6 +440,7 @@ def _schedule_timing_metadata(cfg: dict) -> dict:
             schedule_uses_daily_arxiv(cfg)
             and configured_minutes < effective_minutes
         ),
+        **deepseek_offpeak_metadata(),
     }
 
 
@@ -506,6 +513,7 @@ def _run_pipeline_thread(
     trigger: str = "manual",
     parent_run_id: int = 0,
     requested_by: Optional[int] = None,
+    deepseek_offpeak_enabled: bool = False,
     lease_token: Optional[str] = None,
 ):
     global _pipeline_state
@@ -548,6 +556,10 @@ def _run_pipeline_thread(
         cmd.extend(["--phase", phase])
 
     env = {**os.environ, "RUN_DATE": date_str, "PYTHONIOENCODING": "utf-8"}
+    env["DEEPSEEK_OFFPEAK_ONLY"] = (
+        "1" if trigger == "scheduled" and deepseek_offpeak_enabled else "0"
+    )
+    env["DEEPSEEK_OFFPEAK_CONFIG_PATH"] = _SCHEDULE_CONFIG_PATH
     if sllm is not None:
         env["SLLM"] = str(sllm)
     if user_id is not None:
@@ -577,6 +589,9 @@ def _run_pipeline_thread(
         "max_papers": max_papers,
         "anchor_tz": anchor_tz,
         "output_mode": output_mode_override or "file",
+        "deepseek_offpeak_enabled": bool(
+            trigger == "scheduled" and deepseek_offpeak_enabled
+        ),
     }
     started_at = datetime.now(timezone.utc).isoformat()
     init_log_line = f"[{datetime.now().strftime('%H:%M:%S')}] 启动 Pipeline: {pipeline}  日期: {date_str}"
@@ -816,12 +831,23 @@ def _run_multiuser_scheduler_thread(
     zo = cfg.get("zo", "F")
     max_concurrent = int(cfg.get("max_concurrent_user_pipelines") or 3)
     force = bool(cfg.get("force", False))
+    trigger = cfg.get("trigger", "scheduled")
+    deepseek_offpeak_enabled = bool(
+        trigger == "scheduled"
+        and cfg.get("deepseek_offpeak_enabled", True)
+    )
 
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_multi"
     os.makedirs(_ADMIN_LOG_DIR, exist_ok=True)
     orch_log_file = os.path.join(_ADMIN_LOG_DIR, f"{run_id}.log")
     started_at = datetime.now(timezone.utc).isoformat()
-    params = {"pipeline": "multi_user", "date": today, "sllm": sllm, "zo": zo}
+    params = {
+        "pipeline": "multi_user",
+        "date": today,
+        "sllm": sllm,
+        "zo": zo,
+        "deepseek_offpeak_enabled": deepseek_offpeak_enabled,
+    }
 
     def _orch_log(msg: str) -> None:
         msg = redact_sensitive_text(msg)
@@ -864,7 +890,6 @@ def _run_multiuser_scheduler_thread(
 
     exit_code = 0
     user_ids_to_run: list = []
-    trigger = cfg.get("trigger", "scheduled")
     arxiv_count: Optional[int] = None
     schedule_outcome = "completed"
     shared_stage_succeeded = False
@@ -1031,6 +1056,17 @@ def _run_multiuser_scheduler_thread(
             custom_user_ids = []
 
         user_ids_to_run = [0] + [uid for uid in custom_user_ids if uid != 0]
+        if deepseek_offpeak_enabled:
+            timing = deepseek_offpeak_metadata()
+            if timing["deepseek_offpeak_now"]:
+                _orch_log(
+                    "[SCHEDULER] DeepSeek 闲时执行已开启，当前处于安全闲时窗口"
+                )
+            else:
+                _orch_log(
+                    "[SCHEDULER] DeepSeek 闲时执行已开启；模型请求将等待至 "
+                    f"{timing['deepseek_offpeak_next_start']}，PDF/MinerU 不受影响"
+                )
         _orch_log(f"[SCHEDULER] 开始每用户阶段 (per_user)，用户列表={user_ids_to_run}")
         with _pipeline_lock:
             _pipeline_state["current_step"] = f"每用户阶段 ({len(user_ids_to_run)} 用户)..."
@@ -1076,6 +1112,8 @@ def _run_multiuser_scheduler_thread(
                 "PYTHONIOENCODING": "utf-8",
                 "PIPELINE_USER_ID": str(uid),
                 "PIPELINE_OUTPUT_MODE": "db",
+                "DEEPSEEK_OFFPEAK_ONLY": "1" if deepseek_offpeak_enabled else "0",
+                "DEEPSEEK_OFFPEAK_CONFIG_PATH": _SCHEDULE_CONFIG_PATH,
             }
             if sllm is not None:
                 per_user_env["SLLM"] = str(sllm)
@@ -1529,6 +1567,9 @@ def _scheduler_loop():
                             kwargs={
                                 "user_id": cfg.get("user_id"),
                                 "trigger": "scheduled",
+                                "deepseek_offpeak_enabled": cfg.get(
+                                    "deepseek_offpeak_enabled", True
+                                ),
                             },
                             daemon=True,
                         )
@@ -1874,6 +1915,7 @@ def api_admin_get_schedule(
         "last_run_date": cfg.get("last_run_date"),
         "multi_user": cfg.get("multi_user", True),
         "max_concurrent_user_pipelines": cfg.get("max_concurrent_user_pipelines", 3),
+        "deepseek_offpeak_enabled": cfg.get("deepseek_offpeak_enabled", True),
         "scheduler_alive": scheduler_alive,
         **_schedule_timing_metadata(cfg),
     }
@@ -1893,6 +1935,7 @@ def api_admin_update_schedule(
     _scheduler_state["user_id"] = body.user_id
     _scheduler_state["multi_user"] = body.multi_user
     _scheduler_state["max_concurrent_user_pipelines"] = body.max_concurrent_user_pipelines
+    _scheduler_state["deepseek_offpeak_enabled"] = body.deepseek_offpeak_enabled
 
     disk_cfg = _load_schedule_config()
     _save_schedule_config({
@@ -1906,6 +1949,7 @@ def api_admin_update_schedule(
         "last_run_date": disk_cfg.get("last_run_date") or _scheduler_state.get("last_run_date"),
         "multi_user": body.multi_user,
         "max_concurrent_user_pipelines": body.max_concurrent_user_pipelines,
+        "deepseek_offpeak_enabled": body.deepseek_offpeak_enabled,
     })
 
     if body.enabled:
@@ -1921,11 +1965,13 @@ def api_admin_update_schedule(
         "user_id": body.user_id,
         "multi_user": body.multi_user,
         "max_concurrent_user_pipelines": body.max_concurrent_user_pipelines,
+        "deepseek_offpeak_enabled": body.deepseek_offpeak_enabled,
         **_schedule_timing_metadata({
             "hour": body.hour,
             "minute": body.minute,
             "pipeline": body.pipeline,
             "multi_user": body.multi_user,
+            "deepseek_offpeak_enabled": body.deepseek_offpeak_enabled,
         }),
     }
     return {"ok": True, "schedule": response_schedule}
