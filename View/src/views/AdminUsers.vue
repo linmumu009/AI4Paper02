@@ -959,7 +959,7 @@ async function handleBatchSave(scope: 'recommend' | 'idea') {
   batchSaveScope.value = scope
   try {
     const res = await batchApplyConfigs(llmApplies, promptApplies)
-    await loadSystemConfig()
+    await Promise.all([loadSystemConfig(), loadLlmConfigs()])
     detectLlmSelections()
     detectPromptSelections()
     snapshotSelections()
@@ -977,6 +977,11 @@ async function handleBatchSave(scope: 'recommend' | 'idea') {
 function detectLlmSelections() {
   for (const mod of configModules) {
     if (!mod.llmPrefix) continue
+    const bound = llmConfigs.value.find(c => c.bound_prefixes?.includes(mod.llmPrefix!))
+    if (bound) {
+      selectedLlmConfigIds.value[mod.llmPrefix] = bound.id
+      continue
+    }
     const currentModel = configValues.value[prefixModelKey[mod.llmPrefix]]
     const currentUrl = configValues.value[prefixBaseUrlKey[mod.llmPrefix]]
     if (!currentModel && !currentUrl) {
@@ -1407,6 +1412,7 @@ const llmConfigEditing = ref<LlmConfig | null>(null)
 const llmConfigForm = ref<Partial<LlmConfig>>({})
 const llmConfigSaving = ref(false)
 const llmConfigApplying = ref<number | null>(null)
+const llmConfigSuccessMsg = ref('')
 
 const usagePrefixOptions = [
   { value: 'theme_select', label: '主题评分 (theme_select)' },
@@ -1423,6 +1429,10 @@ const usagePrefixOptions = [
   { value: 'idea_plan',      label: '灵感·实验计划 (idea_plan)' },
   { value: 'idea_eval',      label: '灵感·评测回放 (idea_eval)' },
 ]
+
+function usagePrefixLabel(prefix: string): string {
+  return usagePrefixOptions.find(option => option.value === prefix)?.label || prefix
+}
 
 async function loadLlmConfigs() {
   llmConfigLoading.value = true
@@ -1476,15 +1486,22 @@ async function saveLlmConfig() {
   }
   llmConfigSaving.value = true
   llmConfigError.value = ''
+  llmConfigSuccessMsg.value = ''
   try {
+    let successMessage = '模型配置已创建；选择“应用到…”后才会影响实际功能'
     if (llmConfigEditing.value?.id) {
-      await updateLlmConfig(llmConfigEditing.value.id, llmConfigForm.value)
+      const res = await updateLlmConfig(llmConfigEditing.value.id, llmConfigForm.value)
+      successMessage = res.message || (res.applied_prefixes?.length
+        ? `模型配置已保存，并同步到 ${res.applied_prefixes.map(usagePrefixLabel).join('、')}`
+        : '模型配置已保存；该配置尚未应用到任何功能')
     } else {
       await createLlmConfig(llmConfigForm.value as Omit<LlmConfig, 'id' | 'created_at' | 'updated_at'>)
     }
     await loadLlmConfigs()
     llmConfigEditing.value = null
     llmConfigForm.value = {}
+    llmConfigSuccessMsg.value = successMessage
+    setTimeout(() => { llmConfigSuccessMsg.value = '' }, 5000)
   } catch (e: any) {
     llmConfigError.value = e?.response?.data?.detail || '保存配置失败'
     window.alert(llmConfigError.value)
@@ -1504,10 +1521,15 @@ async function deleteLlmConfigHandler(id: number) {
 }
 
 async function applyLlmConfigHandler(id: number, usagePrefix: string) {
+  if (!usagePrefix) return
   llmConfigApplying.value = id
   try {
-    await applyLlmConfig(id, usagePrefix)
-    window.alert(`配置已成功应用到 ${usagePrefix} 前缀`)
+    const res = await applyLlmConfig(id, usagePrefix)
+    await Promise.all([loadLlmConfigs(), loadSystemConfig()])
+    detectLlmSelections()
+    snapshotSelections()
+    llmConfigSuccessMsg.value = res.message || `配置已应用到 ${usagePrefixLabel(usagePrefix)}`
+    setTimeout(() => { llmConfigSuccessMsg.value = '' }, 5000)
   } catch (e: any) {
     window.alert(e?.response?.data?.detail || '应用配置失败')
   } finally {
@@ -3923,6 +3945,7 @@ watch(activeTab, (tab) => {
             <p class="text-xs text-text-muted mt-0.5">管理大模型配置，支持应用到不同功能模块</p>
           </div>
           <div class="flex items-center gap-2">
+            <span v-if="llmConfigSuccessMsg" class="text-xs text-green-400">{{ llmConfigSuccessMsg }}</span>
             <button
               class="px-3 py-1.5 rounded-full border border-border text-xs text-text-secondary bg-transparent cursor-pointer hover:bg-bg-hover transition-colors"
               @click="loadLlmConfigs"
@@ -3936,6 +3959,10 @@ watch(activeTab, (tab) => {
               ➕ 新建配置
             </button>
           </div>
+        </div>
+
+        <div class="rounded-xl border border-blue-500/25 bg-blue-500/5 px-4 py-3 text-xs leading-relaxed text-blue-200">
+          模型配置应用到功能后会建立持续绑定。以后在这里修改 API Key、模型或参数并保存，系统会自动同步所有已绑定功能；“未应用”配置不会影响线上调用。
         </div>
 
         <!-- OpenRouter Key Pool Card -->
@@ -4011,6 +4038,12 @@ watch(activeTab, (tab) => {
         <!-- Edit Form -->
         <div v-if="llmConfigEditing !== null || Object.keys(llmConfigForm).length > 0" class="rounded-xl bg-bg-card border border-border p-5 shrink-0">
           <h2 class="text-sm font-semibold text-text-primary mb-4">{{ llmConfigEditing?.id ? '编辑配置' : '新建配置' }}</h2>
+          <div v-if="llmConfigEditing?.bound_prefixes?.length" class="mb-4 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-300">
+            已绑定：{{ llmConfigEditing.bound_prefixes.map(usagePrefixLabel).join('、') }}。本次保存将自动同步这些功能。
+          </div>
+          <div v-else-if="llmConfigEditing?.id" class="mb-4 rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
+            当前未应用到任何功能；修改只会保存在配置库中。
+          </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="block text-xs text-text-muted mb-1">配置名称 *</label>
@@ -4158,6 +4191,7 @@ watch(activeTab, (tab) => {
                 <th class="text-left px-4 py-3 font-medium text-text-muted">名称</th>
                 <th class="text-left px-4 py-3 font-medium text-text-muted">Base URL</th>
                 <th class="text-left px-4 py-3 font-medium text-text-muted">Model</th>
+                <th class="text-left px-4 py-3 font-medium text-text-muted">应用状态</th>
                 <th class="text-left px-4 py-3 font-medium text-text-muted">操作</th>
               </tr>
             </thead>
@@ -4173,6 +4207,16 @@ watch(activeTab, (tab) => {
                 </td>
                 <td class="px-4 py-3 text-text-secondary text-xs font-mono truncate max-w-[200px]">{{ config.base_url }}</td>
                 <td class="px-4 py-3 text-text-secondary text-xs">{{ config.model }}</td>
+                <td class="px-4 py-3 text-xs">
+                  <div v-if="config.bound_prefixes?.length" class="flex flex-wrap gap-1">
+                    <span
+                      v-for="prefix in config.bound_prefixes"
+                      :key="prefix"
+                      class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px]"
+                    >{{ usagePrefixLabel(prefix) }}</span>
+                  </div>
+                  <span v-else class="text-amber-400">未应用</span>
+                </td>
                 <td class="px-4 py-3">
                   <div class="flex items-center gap-2">
                     <select
@@ -4190,7 +4234,9 @@ watch(activeTab, (tab) => {
                       编辑
                     </button>
                     <button
-                      class="px-2 py-1 rounded bg-red-500/20 text-red-400 text-xs hover:bg-red-500/30"
+                      :disabled="!!config.bound_prefixes?.length"
+                      :title="config.bound_prefixes?.length ? '请先为已绑定功能选择其他模型配置' : '删除配置'"
+                      class="px-2 py-1 rounded bg-red-500/20 text-red-400 text-xs hover:bg-red-500/30 disabled:opacity-35 disabled:cursor-not-allowed"
                       @click="deleteLlmConfigHandler(config.id)"
                     >
                       删除
@@ -4199,7 +4245,7 @@ watch(activeTab, (tab) => {
                 </td>
               </tr>
               <tr v-if="llmConfigs.length === 0">
-                <td colspan="5" class="px-4 py-10 text-center text-text-muted">暂无配置</td>
+                <td colspan="6" class="px-4 py-10 text-center text-text-muted">暂无配置</td>
               </tr>
             </tbody>
           </table>

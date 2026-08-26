@@ -641,6 +641,7 @@ export interface LlmConfig {
   jsonl_root?: string
   enable_thinking?: boolean
   use_openrouter_free_pool?: boolean
+  bound_prefixes?: string[]
   created_at: string
   updated_at: string
 }
@@ -653,12 +654,15 @@ export interface LlmConfigsResponse {
 export interface LlmConfigResponse {
   ok: boolean
   config: LlmConfig
+  message?: string
+  applied_prefixes?: string[]
 }
 
 export interface ApplyLlmConfigResponse {
   ok: boolean
   message: string
   config: Record<string, any>
+  applied_prefixes: string[]
 }
 
 /** 获取所有模型配置 */
@@ -834,6 +838,7 @@ export interface BatchApplyConfigResponse {
   ok: boolean
   message: string
   applied_count: number
+  applied_prefixes: string[]
   errors: string[]
   config: Record<string, any>
 }

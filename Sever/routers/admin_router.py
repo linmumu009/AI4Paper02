@@ -460,6 +460,7 @@ def api_admin_batch_apply_configs(
             "ok": True,
             "message": f"批量应用完成，共更新 {result['applied_count']} 项配置",
             "applied_count": result["applied_count"],
+            "applied_prefixes": result["applied_prefixes"],
             "errors": result["errors"],
             "config": mask_secret_mapping(result["config"]),
         }
@@ -524,10 +525,23 @@ def api_admin_update_llm_config(
     _admin=Depends(auth_service.require_admin_user),
 ):
     try:
-        config = llm_config_service.update_config(config_id, body.dict(exclude_unset=True))
-        if not config:
+        if not llm_config_service.get_config(config_id):
             raise HTTPException(status_code=404, detail=f"模型配置 {config_id} 不存在")
-        return {"ok": True, "config": llm_config_service.to_public_llm_config(config)}
+        result = config_mapper.update_and_reapply_llm_config(
+            config_id,
+            body.dict(exclude_unset=True),
+        )
+        config = result["config"]
+        applied_prefixes = result["applied_prefixes"]
+        message = "模型配置已保存"
+        if applied_prefixes:
+            message += "，并已自动同步到 " + "、".join(applied_prefixes)
+        return {
+            "ok": True,
+            "message": message,
+            "applied_prefixes": applied_prefixes,
+            "config": llm_config_service.to_public_llm_config(config, applied_prefixes),
+        }
     except HTTPException:
         raise
     except ValueError as e:
@@ -548,6 +562,8 @@ def api_admin_delete_llm_config(
         return {"ok": True, "message": "配置已删除"}
     except HTTPException:
         raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise _admin_error_response("删除配置", e)
 
@@ -560,7 +576,12 @@ def api_admin_apply_llm_config(
 ):
     try:
         updated = config_mapper.apply_llm_config(config_id, body.usage_prefix)
-        return {"ok": True, "message": f"配置已应用到 {body.usage_prefix} 前缀", "config": mask_secret_mapping(updated)}
+        return {
+            "ok": True,
+            "message": f"配置已应用到 {body.usage_prefix}，后续编辑将自动同步",
+            "applied_prefixes": [body.usage_prefix],
+            "config": mask_secret_mapping(updated),
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

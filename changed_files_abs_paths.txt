@@ -414,3 +414,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\__tests_
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\FloatingActions.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\FloatingActions.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_deepseek_offpeak_policy.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\config_mapper.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_config_binding_sync.py

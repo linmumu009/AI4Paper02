@@ -144,6 +144,7 @@ export interface LlmConfig {
   jsonl_root?: string
   enable_thinking?: boolean
   use_openrouter_free_pool?: boolean
+  bound_prefixes?: string[]
   created_at: string
   updated_at: string
 }

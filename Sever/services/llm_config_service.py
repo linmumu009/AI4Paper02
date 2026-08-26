@@ -43,9 +43,15 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
     return data
 
 
-def to_public_llm_config(config: Dict[str, Any]) -> Dict[str, Any]:
+def to_public_llm_config(
+    config: Dict[str, Any],
+    bound_prefixes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     public = mask_secret_mapping(config)
     public["has_api_key"] = bool(config.get("api_key"))
+    if bound_prefixes is None and config.get("id") is not None:
+        bound_prefixes = get_bound_prefixes(int(config["id"]))
+    public["bound_prefixes"] = sorted(bound_prefixes or [])
     return public
 
 
@@ -76,6 +82,16 @@ def init_db() -> None:
                 created_at        TEXT    NOT NULL,
                 updated_at        TEXT    NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS llm_config_bindings (
+                usage_prefix TEXT PRIMARY KEY,
+                config_id    INTEGER NOT NULL,
+                created_at   TEXT    NOT NULL,
+                updated_at   TEXT    NOT NULL,
+                FOREIGN KEY (config_id) REFERENCES llm_config(id) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS idx_llm_config_bindings_config_id
+                ON llm_config_bindings(config_id);
             """
         )
         # 迁移：为已存在的旧表补充 username 列
@@ -241,6 +257,72 @@ def get_config(config_id: int) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
+def get_binding_map() -> Dict[str, int]:
+    """Return the persisted usage-prefix -> model-config binding map."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT usage_prefix, config_id FROM llm_config_bindings "
+            "ORDER BY usage_prefix"
+        ).fetchall()
+        return {str(row["usage_prefix"]): int(row["config_id"]) for row in rows}
+    finally:
+        conn.close()
+
+
+def get_bound_prefixes(config_id: int) -> List[str]:
+    """Return all global pipeline prefixes bound to *config_id*."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT usage_prefix FROM llm_config_bindings "
+            "WHERE config_id = ? ORDER BY usage_prefix",
+            (config_id,),
+        ).fetchall()
+        return [str(row["usage_prefix"]) for row in rows]
+    finally:
+        conn.close()
+
+
+def set_bindings(bindings: Dict[str, int]) -> None:
+    """Persist one or more prefix bindings atomically.
+
+    Each prefix has exactly one active model configuration. Reapplying another
+    configuration to the same prefix replaces the previous binding.
+    """
+    if not bindings:
+        return
+    now = _now_iso()
+    conn = _connect()
+    try:
+        for usage_prefix, config_id in bindings.items():
+            prefix = str(usage_prefix or "").strip()
+            if not prefix:
+                raise ValueError("usage_prefix 不能为空")
+            conn.execute(
+                """
+                INSERT INTO llm_config_bindings
+                    (usage_prefix, config_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(usage_prefix) DO UPDATE SET
+                    config_id = excluded.config_id,
+                    updated_at = excluded.updated_at
+                """,
+                (prefix, int(config_id), now, now),
+            )
+        conn.commit()
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        raise ValueError("绑定的模型配置不存在") from exc
+    finally:
+        conn.close()
+
+
+def set_binding(usage_prefix: str, config_id: int) -> None:
+    """Persist one prefix binding."""
+    set_bindings({usage_prefix: config_id})
+
+
 def create_config(data: Dict[str, Any]) -> Dict[str, Any]:
     """创建新的模型配置。
     
@@ -369,6 +451,13 @@ def delete_config(config_id: int) -> bool:
     Returns:
         如果配置存在且已删除返回True，否则返回False
     """
+    bound_prefixes = get_bound_prefixes(config_id)
+    if bound_prefixes:
+        raise ValueError(
+            "该模型配置仍应用于：" + "、".join(bound_prefixes) +
+            "。请先为这些功能选择其他模型配置。"
+        )
+
     conn = _connect()
     try:
         cursor = conn.execute("DELETE FROM llm_config WHERE id = ?", (config_id,))
