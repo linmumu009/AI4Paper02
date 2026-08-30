@@ -7,6 +7,7 @@ import json
 import re
 import time
 import traceback
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, date, time as dtime, timedelta, timezone
 from email.utils import parsedate_to_datetime
@@ -59,19 +60,22 @@ except Exception:
 
 ARXIV_API = API_URL
 ARXIV_RSS_BASE_URL = "https://export.arxiv.org/rss"
+ARXIV_OAI_URL = "https://oaipmh.arxiv.org/oai"
 ARXIV_EXIT_BATCH_NOT_READY = 4
 _RSS_INCLUDED_ANNOUNCE_TYPES = {"new", "cross"}
+_OAI_NAMESPACE = "http://www.openarchives.org/OAI/2.0/"
+_ARXIV_OAI_NAMESPACE = "http://arxiv.org/OAI/arXiv/"
 
 
 class AnnouncementBatchNotReady(RuntimeError):
-    """The official RSS feed has not advanced to the requested batch yet."""
+    """The official listing has not advanced to the requested batch yet."""
 
     def __init__(self, requested: date, available: date, category: str):
         self.requested = requested
         self.available = available
         self.category = category
         super().__init__(
-            f"official RSS batch for {category} is {available.isoformat()}, "
+            f"official listing batch for {category} is {available.isoformat()}, "
             f"requested {requested.isoformat()}"
         )
 
@@ -548,10 +552,438 @@ class Paper:
     authors: List[str]
     summary: str
     paper_categories: List[str] = None
+    comments: str = ""
+    journal_ref: str = ""
+    report_no: str = ""
+    created_date: str = ""
+    updated_date: str = ""
+    affiliations: List[str] = None
 
     def __post_init__(self):
         if self.paper_categories is None:
             self.paper_categories = []
+        if self.affiliations is None:
+            self.affiliations = []
+
+
+_LOCAL_QUERY_TOKEN_RE = re.compile(
+    r'''\s*(?:(ANDNOT|AND|OR)\b|([()])|'''
+    r'''(?:([A-Za-z][A-Za-z0-9_-]*)\s*:)?("(?:\\.|[^"])*"|[^\s()]+))''',
+    re.IGNORECASE,
+)
+_LOCAL_QUERY_FIELDS = {
+    "all": "all",
+    "ti": "title",
+    "title": "title",
+    "abs": "abstract",
+    "abstract": "abstract",
+    "au": "author",
+    "author": "author",
+    "cat": "category",
+    "category": "category",
+    "id": "id",
+    "co": "comments",
+    "jr": "journal_ref",
+    "rn": "report_no",
+}
+
+
+def _tokenize_local_arxiv_query(user_query: str) -> List[tuple]:
+    query = build_text_clause(user_query)
+    if not query:
+        return []
+
+    tokens: List[tuple] = []
+    position = 0
+    while position < len(query):
+        match = _LOCAL_QUERY_TOKEN_RE.match(query, position)
+        if match is None:
+            if not query[position:].strip():
+                break
+            raise ValueError(
+                f"unsupported local arXiv query syntax near {query[position:position + 24]!r}"
+            )
+        operator, parenthesis, raw_field, raw_value = match.groups()
+        position = match.end()
+        if operator:
+            tokens.append((operator.upper(), None))
+            continue
+        if parenthesis:
+            tokens.append(("LPAREN" if parenthesis == "(" else "RPAREN", None))
+            continue
+
+        field = (raw_field or "all").lower()
+        if field not in _LOCAL_QUERY_FIELDS:
+            raise ValueError(
+                f"arXiv query field {field!r} cannot be evaluated from OAI metadata"
+            )
+        value = raw_value or ""
+        if len(value) >= 2 and value.startswith('"') and value.endswith('"'):
+            value = value[1:-1].replace(r'\"', '"').replace(r"\\", "\\")
+        value = normalize_text(value)
+        if not value:
+            raise ValueError("arXiv query terms cannot be empty")
+        tokens.append(("TERM", (_LOCAL_QUERY_FIELDS[field], value)))
+
+    with_implicit_and: List[tuple] = []
+    for token in tokens:
+        if with_implicit_and:
+            previous = with_implicit_and[-1][0]
+            current = token[0]
+            if previous in {"TERM", "RPAREN"} and current in {"TERM", "LPAREN"}:
+                with_implicit_and.append(("AND", None))
+        with_implicit_and.append(token)
+    return with_implicit_and
+
+
+def _compile_local_arxiv_query(user_query: str):
+    tokens = _tokenize_local_arxiv_query(user_query)
+    if not tokens:
+        return None
+    position = 0
+
+    def parse_factor():
+        nonlocal position
+        if position >= len(tokens):
+            raise ValueError("arXiv query ended before a term")
+        token_type, value = tokens[position]
+        if token_type == "TERM":
+            position += 1
+            return ("TERM", value)
+        if token_type == "LPAREN":
+            position += 1
+            node = parse_or()
+            if position >= len(tokens) or tokens[position][0] != "RPAREN":
+                raise ValueError("arXiv query contains an unmatched '('")
+            position += 1
+            return node
+        raise ValueError(f"unexpected {token_type} in arXiv query")
+
+    def parse_and():
+        nonlocal position
+        node = parse_factor()
+        while position < len(tokens) and tokens[position][0] in {"AND", "ANDNOT"}:
+            operator = tokens[position][0]
+            position += 1
+            node = (operator, node, parse_factor())
+        return node
+
+    def parse_or():
+        nonlocal position
+        node = parse_and()
+        while position < len(tokens) and tokens[position][0] == "OR":
+            position += 1
+            node = ("OR", node, parse_and())
+        return node
+
+    compiled = parse_or()
+    if position != len(tokens):
+        raise ValueError(f"unexpected {tokens[position][0]} in arXiv query")
+    return compiled
+
+
+def _local_term_matches(haystack: str, needle: str) -> bool:
+    normalized_haystack = normalize_text(haystack).casefold()
+    normalized_needle = normalize_text(needle).casefold()
+    if "*" not in normalized_needle and "?" not in normalized_needle:
+        return normalized_needle in normalized_haystack
+    wildcard = re.escape(normalized_needle)
+    wildcard = wildcard.replace(r"\*", ".*").replace(r"\?", ".")
+    return re.search(wildcard, normalized_haystack, re.DOTALL) is not None
+
+
+def _paper_matches_local_query_node(paper: Paper, node) -> bool:
+    operator = node[0]
+    if operator == "AND":
+        return _paper_matches_local_query_node(
+            paper, node[1]
+        ) and _paper_matches_local_query_node(paper, node[2])
+    if operator == "ANDNOT":
+        return _paper_matches_local_query_node(
+            paper, node[1]
+        ) and not _paper_matches_local_query_node(paper, node[2])
+    if operator == "OR":
+        return _paper_matches_local_query_node(
+            paper, node[1]
+        ) or _paper_matches_local_query_node(paper, node[2])
+
+    field, value = node[1]
+    if field == "title":
+        return _local_term_matches(paper.title, value)
+    if field == "abstract":
+        return _local_term_matches(paper.summary, value)
+    if field == "author":
+        return _local_term_matches(" ".join(paper.authors), value)
+    if field == "category":
+        return any(_local_term_matches(category, value) for category in paper.paper_categories)
+    if field == "id":
+        return _local_term_matches(paper.arxiv_id, value)
+    if field == "comments":
+        return _local_term_matches(paper.comments, value)
+    if field == "journal_ref":
+        return _local_term_matches(paper.journal_ref, value)
+    if field == "report_no":
+        return _local_term_matches(paper.report_no, value)
+    searchable = " ".join(
+        [
+            paper.title,
+            paper.summary,
+            " ".join(paper.authors),
+            " ".join(paper.paper_categories),
+            paper.arxiv_id,
+            paper.comments,
+            paper.journal_ref,
+            paper.report_no,
+        ]
+    )
+    return _local_term_matches(searchable, value)
+
+
+def filter_papers_by_local_arxiv_query(
+    papers: List[Paper], user_query: str
+) -> List[Paper]:
+    """Evaluate common arXiv query syntax over complete OAI metadata."""
+    compiled = _compile_local_arxiv_query(user_query)
+    if compiled is None:
+        return papers
+    return [
+        paper
+        for paper in papers
+        if _paper_matches_local_query_node(paper, compiled)
+    ]
+
+
+def oai_set_spec_for_category(category: str) -> str:
+    """Map ``cs.AI`` to arXiv OAI's official ``cs:cs:AI`` hierarchy."""
+    value = (category or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+", value):
+        raise ValueError(f"invalid arXiv category for OAI set: {category!r}")
+    archive = value.split(".", 1)[0]
+    return f"{archive}:{value.replace('.', ':')}"
+
+
+def _oai_child_text(element, namespace: str, name: str) -> str:
+    child = element.find(f"{{{namespace}}}{name}")
+    return normalize_text(child.text if child is not None else "")
+
+
+def paper_from_oai_record(record, announcement_date: date) -> Optional[Paper]:
+    header = record.find(f"{{{_OAI_NAMESPACE}}}header")
+    if header is None or header.attrib.get("status") == "deleted":
+        return None
+    metadata = record.find(f"{{{_OAI_NAMESPACE}}}metadata")
+    if metadata is None:
+        return None
+    arxiv = metadata.find(f"{{{_ARXIV_OAI_NAMESPACE}}}arXiv")
+    if arxiv is None:
+        return None
+
+    paper_id = arxiv_id_from_entry_url(
+        _oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "id")
+        or _oai_child_text(header, _OAI_NAMESPACE, "identifier")
+    )
+    if not paper_id:
+        return None
+
+    authors: List[str] = []
+    affiliations: List[str] = []
+    authors_node = arxiv.find(f"{{{_ARXIV_OAI_NAMESPACE}}}authors")
+    if authors_node is not None:
+        for author in authors_node.findall(f"{{{_ARXIV_OAI_NAMESPACE}}}author"):
+            forenames = _oai_child_text(
+                author, _ARXIV_OAI_NAMESPACE, "forenames"
+            )
+            keyname = _oai_child_text(author, _ARXIV_OAI_NAMESPACE, "keyname")
+            suffix = _oai_child_text(author, _ARXIV_OAI_NAMESPACE, "suffix")
+            name = normalize_text(" ".join(part for part in (forenames, keyname, suffix) if part))
+            if name:
+                authors.append(name)
+            for affiliation in author.findall(
+                f"{{{_ARXIV_OAI_NAMESPACE}}}affiliation"
+            ):
+                value = normalize_text(affiliation.text or "")
+                if value and value not in affiliations:
+                    affiliations.append(value)
+
+    categories = _oai_child_text(
+        arxiv, _ARXIV_OAI_NAMESPACE, "categories"
+    ).split()
+    return Paper(
+        title=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "title"),
+        published_utc=datetime.combine(
+            announcement_date,
+            dtime(0, 0),
+            tzinfo=timezone.utc,
+        ),
+        arxiv_id=paper_id,
+        link=f"https://arxiv.org/abs/{paper_id}",
+        authors=authors,
+        summary=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "abstract"),
+        paper_categories=categories,
+        comments=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "comments"),
+        journal_ref=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "journal-ref"),
+        report_no=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "report-no"),
+        created_date=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "created"),
+        updated_date=_oai_child_text(arxiv, _ARXIV_OAI_NAMESPACE, "updated"),
+        affiliations=affiliations,
+    )
+
+
+def parse_oai_records(
+    payload: bytes | str, announcement_date: date
+) -> Tuple[List[Paper], str]:
+    root = ET.fromstring(payload)
+    for error in root.findall(f"{{{_OAI_NAMESPACE}}}error"):
+        code = (error.attrib.get("code") or "").strip()
+        if code in {"noRecordsMatch", "idDoesNotExist"}:
+            return [], ""
+        detail = normalize_text(error.text or "")
+        raise ValueError(f"arXiv OAI error {code or 'unknown'}: {detail}")
+
+    papers: List[Paper] = []
+    for record in root.findall(f".//{{{_OAI_NAMESPACE}}}record"):
+        paper = paper_from_oai_record(record, announcement_date)
+        if paper is not None:
+            papers.append(paper)
+    token_node = root.find(f".//{{{_OAI_NAMESPACE}}}resumptionToken")
+    token = normalize_text(token_node.text if token_node is not None else "")
+    return papers, token
+
+
+def fetch_oai_xml_with_retry(
+    session: requests.Session,
+    params: dict,
+    logger,
+    retries: int = 5,
+    *,
+    base_429_wait: float = ARXIV_429_BASE_WAIT,
+    max_429_wait: float = ARXIV_429_MAX_WAIT,
+) -> bytes:
+    backoff = 1.0
+    last_exc = None
+    for attempt in range(1, retries + 1):
+        try:
+            wait_before_request()
+            response = session.get(ARXIV_OAI_URL, params=params, timeout=60)
+            response.raise_for_status()
+            ET.fromstring(response.content)
+            return response.content
+        except requests.exceptions.HTTPError as exc:
+            last_exc = exc
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code == 429:
+                if attempt >= retries:
+                    raise RateLimitExhausted(
+                        f"arXiv OAI rate limit (429) after {retries} attempts"
+                    ) from exc
+                retry_after = (
+                    parse_retry_after(exc.response.headers.get("Retry-After"))
+                    if exc.response is not None
+                    else None
+                )
+                wait = compute_429_wait(
+                    attempt,
+                    retry_after,
+                    base_wait=base_429_wait,
+                    max_wait=max_429_wait,
+                )
+                logger.warning(
+                    "OAI rate limited (attempt %d/%d); waiting %.0fs.",
+                    attempt,
+                    retries,
+                    wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.warning(
+                    "OAI request failed (attempt %d/%d): %s",
+                    attempt,
+                    retries,
+                    repr(exc),
+                )
+                if attempt < retries:
+                    time.sleep(backoff)
+                    backoff *= 2
+        except RateLimitExhausted:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            logger.warning(
+                "OAI request failed (attempt %d/%d): %s",
+                attempt,
+                retries,
+                repr(exc),
+            )
+            if attempt < retries:
+                time.sleep(backoff)
+                backoff *= 2
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("fetch_oai_xml_with_retry ended without result")
+
+
+def fetch_oai_category_records(
+    session: requests.Session,
+    category: str,
+    announcement_date: date,
+    logger,
+    *,
+    retries: int,
+    base_429_wait: float,
+    max_429_wait: float,
+) -> List[Paper]:
+    date_string = announcement_date.isoformat()
+    params = {
+        "verb": "ListRecords",
+        "from": date_string,
+        "until": date_string,
+        "set": oai_set_spec_for_category(category),
+        "metadataPrefix": "arXiv",
+    }
+    by_id: dict[str, Paper] = {}
+    for page_index in range(100):
+        payload = fetch_oai_xml_with_retry(
+            session,
+            params,
+            logger,
+            retries=retries,
+            base_429_wait=base_429_wait,
+            max_429_wait=max_429_wait,
+        )
+        papers, token = parse_oai_records(payload, announcement_date)
+        by_id.update((paper.arxiv_id, paper) for paper in papers)
+        if not token:
+            return list(by_id.values())
+        params = {"verb": "ListRecords", "resumptionToken": token}
+    raise AnnouncementMetadataIncomplete(
+        f"arXiv OAI pagination exceeded 100 pages for {category}"
+    )
+
+
+def fetch_oai_record(
+    session: requests.Session,
+    paper_id: str,
+    announcement_date: date,
+    logger,
+    *,
+    retries: int,
+    base_429_wait: float,
+    max_429_wait: float,
+) -> Optional[Paper]:
+    payload = fetch_oai_xml_with_retry(
+        session,
+        {
+            "verb": "GetRecord",
+            "identifier": f"oai:arXiv.org:{paper_id}",
+            "metadataPrefix": "arXiv",
+        },
+        logger,
+        retries=retries,
+        base_429_wait=base_429_wait,
+        max_429_wait=max_429_wait,
+    )
+    papers, _ = parse_oai_records(payload, announcement_date)
+    return papers[0] if papers else None
 
 
 def parse_new_listing_page(page_html: str) -> Tuple[date, List[str]]:
@@ -607,17 +1039,83 @@ def parse_new_listing_page(page_html: str) -> Tuple[date, List[str]]:
     return parsed_date.date(), list(dict.fromkeys(paper_ids))
 
 
-def fetch_new_listing_with_retry(
+def parse_pastweek_listing_page(
+    page_html: str,
+    requested_date: date,
+    category: str,
+) -> List[str]:
+    """Extract one exact new+cross day from an official ``pastweek`` page."""
+    heading_matches = list(
+        re.finditer(r"<h3[^>]*>(.*?)</h3>", page_html or "", re.IGNORECASE | re.DOTALL)
+    )
+    available_dates: List[date] = []
+    for index, match in enumerate(heading_matches):
+        heading_text = normalize_text(unescape(re.sub(r"<[^>]+>", " ", match.group(1))))
+        date_match = re.match(
+            r"^([A-Z][a-z]{2},\s+\d{1,2}\s+[A-Z][a-z]{2}\s+\d{4})\s+"
+            r"\(showing(?:\s+first)?\s+(\d+)\s+of\s+(\d+)\s+entries\s*\)$",
+            heading_text,
+        )
+        if not date_match:
+            continue
+        parsed = parsedate_to_datetime(f"{date_match.group(1)} 00:00:00 GMT")
+        if parsed is None:
+            continue
+        heading_date = parsed.date()
+        available_dates.append(heading_date)
+        if heading_date != requested_date:
+            continue
+        shown_count = int(date_match.group(2))
+        total_count = int(date_match.group(3))
+        if shown_count < total_count:
+            raise AnnouncementMetadataIncomplete(
+                f"arXiv pastweek section was truncated: {heading_text}"
+            )
+        block_end = (
+            heading_matches[index + 1].start()
+            if index + 1 < len(heading_matches)
+            else len(page_html)
+        )
+        block = page_html[match.end():block_end]
+        paper_ids = [
+            arxiv_id_from_entry_url(f"/abs/{raw_id.strip()}")
+            for raw_id in re.findall(
+                r"href\s*=\s*[\"']\s*/abs/([^\"'?#]+)",
+                block,
+                re.IGNORECASE,
+            )
+        ]
+        paper_ids = list(dict.fromkeys(paper_id for paper_id in paper_ids if paper_id))
+        if len(paper_ids) != shown_count:
+            raise AnnouncementMetadataIncomplete(
+                f"arXiv pastweek count mismatch for {category} on "
+                f"{requested_date.isoformat()}: expected {shown_count}, parsed {len(paper_ids)}"
+            )
+        return paper_ids
+
+    if available_dates:
+        raise AnnouncementBatchNotReady(
+            requested_date,
+            max(available_dates),
+            category,
+        )
+    raise ValueError(f"arXiv pastweek page contained no dated sections for {category}")
+
+
+def _fetch_listing_page_with_retry(
     session: requests.Session,
     category: str,
+    period: str,
     logger,
     retries: int = 5,
     *,
     base_429_wait: float = ARXIV_429_BASE_WAIT,
     max_429_wait: float = ARXIV_429_MAX_WAIT,
 ) -> str:
-    """Fetch a complete official ``/new`` listing page for one category."""
-    url = f"https://arxiv.org/list/{quote(category, safe='.')}/new"
+    """Fetch one complete official category listing page."""
+    if period not in {"new", "pastweek"}:
+        raise ValueError(f"unsupported arXiv listing period: {period!r}")
+    url = f"https://arxiv.org/list/{quote(category, safe='.')}/{period}"
     params = {"skip": 0, "show": 2000}
     backoff = 1.0
     last_exc = None
@@ -626,8 +1124,13 @@ def fetch_new_listing_with_retry(
             wait_before_request()
             response = session.get(url, params=params, timeout=60)
             response.raise_for_status()
-            if "Showing new listings for " not in response.text:
-                raise ValueError(f"invalid arXiv new-listing HTML for {category}")
+            required_marker = (
+                "Showing new listings for " if period == "new" else "entries per page"
+            )
+            if required_marker not in response.text:
+                raise ValueError(
+                    f"invalid arXiv {period} listing HTML for {category}"
+                )
             return response.text
         except requests.exceptions.HTTPError as exc:
             last_exc = exc
@@ -649,7 +1152,8 @@ def fetch_new_listing_with_retry(
                     max_wait=max_429_wait,
                 )
                 logger.warning(
-                    "Listing rate limited for %s (attempt %d/%d); waiting %.0fs.",
+                    "%s listing rate limited for %s (attempt %d/%d); waiting %.0fs.",
+                    period,
                     category,
                     attempt,
                     retries,
@@ -658,7 +1162,8 @@ def fetch_new_listing_with_retry(
                 time.sleep(wait)
             else:
                 logger.warning(
-                    "Listing request failed for %s (attempt %d/%d): %s",
+                    "%s listing request failed for %s (attempt %d/%d): %s",
+                    period,
                     category,
                     attempt,
                     retries,
@@ -672,7 +1177,8 @@ def fetch_new_listing_with_retry(
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "Listing request failed for %s (attempt %d/%d): %s",
+                "%s listing request failed for %s (attempt %d/%d): %s",
+                period,
                 category,
                 attempt,
                 retries,
@@ -683,12 +1189,53 @@ def fetch_new_listing_with_retry(
                 backoff *= 2
     if last_exc is not None:
         raise last_exc
-    raise RuntimeError("fetch_new_listing_with_retry ended without result")
+    raise RuntimeError("_fetch_listing_page_with_retry ended without result")
+
+
+def fetch_new_listing_with_retry(
+    session: requests.Session,
+    category: str,
+    logger,
+    retries: int = 5,
+    *,
+    base_429_wait: float = ARXIV_429_BASE_WAIT,
+    max_429_wait: float = ARXIV_429_MAX_WAIT,
+) -> str:
+    return _fetch_listing_page_with_retry(
+        session,
+        category,
+        "new",
+        logger,
+        retries=retries,
+        base_429_wait=base_429_wait,
+        max_429_wait=max_429_wait,
+    )
+
+
+def fetch_pastweek_listing_with_retry(
+    session: requests.Session,
+    category: str,
+    logger,
+    retries: int = 5,
+    *,
+    base_429_wait: float = ARXIV_429_BASE_WAIT,
+    max_429_wait: float = ARXIV_429_MAX_WAIT,
+) -> str:
+    return _fetch_listing_page_with_retry(
+        session,
+        category,
+        "pastweek",
+        logger,
+        retries=retries,
+        base_429_wait=base_429_wait,
+        max_429_wait=max_429_wait,
+    )
 
 
 def fetch_metadata_for_announcement_ids(
     session: requests.Session,
     paper_ids: List[str],
+    categories: List[str],
     announcement_date: date,
     user_query: str,
     logger,
@@ -698,55 +1245,68 @@ def fetch_metadata_for_announcement_ids(
     base_429_wait: float,
     max_429_wait: float,
 ) -> List[Paper]:
-    """Hydrate listing IDs through the Atom API while preserving batch identity."""
-    text_clause = build_text_clause(user_query)
+    """Hydrate exact listing IDs from OAI, then apply the query locally."""
+    if not paper_ids:
+        return []
+
     by_id: dict[str, Paper] = {}
-    chunk_size = 100
-    for offset in range(0, len(paper_ids), chunk_size):
-        chunk = paper_ids[offset:offset + chunk_size]
-        params = {
-            "id_list": ",".join(chunk),
-            "start": 0,
-            "max_results": len(chunk),
-        }
-        if text_clause:
-            params["search_query"] = text_clause
-        feed, _ = fetch_page_with_retry(
+    unique_categories = list(dict.fromkeys(
+        category.strip() for category in categories if category.strip()
+    ))
+    for index, category in enumerate(unique_categories):
+        records = fetch_oai_category_records(
             session,
-            params,
+            category,
+            announcement_date,
             logger,
             retries=retries,
             base_429_wait=base_429_wait,
             max_429_wait=max_429_wait,
         )
-        for entry in feed.entries:
-            paper_id = arxiv_id_from_entry_url(str(_feed_value(entry, "id", "")))
-            if not paper_id:
-                continue
-            by_id[paper_id] = Paper(
-                title=normalize_text(str(_feed_value(entry, "title", ""))),
-                published_utc=datetime.combine(
-                    announcement_date,
-                    dtime(0, 0),
-                    tzinfo=timezone.utc,
-                ),
-                arxiv_id=paper_id,
-                link=f"https://arxiv.org/abs/{paper_id}",
-                authors=parse_entry_authors(entry),
-                summary=parse_entry_summary(entry),
-                paper_categories=parse_entry_categories(entry),
-            )
-        if offset + chunk_size < len(paper_ids):
+        by_id.update((paper.arxiv_id, paper) for paper in records)
+        if index + 1 < len(unique_categories):
             time.sleep(sleep_seconds)
 
-    if not text_clause:
-        missing = [paper_id for paper_id in paper_ids if paper_id not in by_id]
-        if missing:
-            raise AnnouncementMetadataIncomplete(
-                f"arXiv metadata missing for {len(missing)} listed papers "
-                f"(sample: {', '.join(missing[:3])})"
-            )
-    return [by_id[paper_id] for paper_id in paper_ids if paper_id in by_id]
+    missing = [paper_id for paper_id in paper_ids if paper_id not in by_id]
+    logger.info(
+        "OAI daily metadata covered %d/%d listed papers; %d cross-list gap(s) "
+        "need GetRecord.",
+        len(paper_ids) - len(missing),
+        len(paper_ids),
+        len(missing),
+    )
+    acceptable_gap = max(8, int(len(paper_ids) * 0.10))
+    if len(missing) > acceptable_gap:
+        raise AnnouncementMetadataIncomplete(
+            f"arXiv OAI daily metadata is not ready: {len(missing)} of "
+            f"{len(paper_ids)} listed papers are absent"
+        )
+
+    # Cross-lists can be older papers whose OAI datestamp is not today's date.
+    # GetRecord fills only that small, bounded gap without reverting to the
+    # currently unreachable export Atom API.
+    for paper_id in missing:
+        paper = fetch_oai_record(
+            session,
+            paper_id,
+            announcement_date,
+            logger,
+            retries=retries,
+            base_429_wait=base_429_wait,
+            max_429_wait=max_429_wait,
+        )
+        if paper is not None:
+            by_id[paper.arxiv_id] = paper
+
+    still_missing = [paper_id for paper_id in paper_ids if paper_id not in by_id]
+    if still_missing:
+        raise AnnouncementMetadataIncomplete(
+            f"arXiv OAI metadata missing for {len(still_missing)} listed papers "
+            f"(sample: {', '.join(still_missing[:3])})"
+        )
+
+    ordered = [by_id[paper_id] for paper_id in paper_ids]
+    return filter_papers_by_local_arxiv_query(ordered, user_query)
 
 
 def fetch_official_new_listing_batch(
@@ -762,25 +1322,54 @@ def fetch_official_new_listing_batch(
     base_429_wait: float,
     max_429_wait: float,
 ) -> Tuple[List[Paper], int, dict]:
-    """Fetch today's exact new/cross announcement IDs from official listings."""
+    """Fetch exact new/cross IDs from official new/pastweek listings plus OAI."""
     if requested_date.weekday() >= 5:
         return [], 0, {}
 
     all_ids = set()
     listing_dates: dict[str, str] = {}
+    use_pastweek = False
     for index, category in enumerate(categories):
-        page_html = fetch_new_listing_with_retry(
-            session,
-            category,
-            logger,
-            retries=retries,
-            base_429_wait=base_429_wait,
-            max_429_wait=max_429_wait,
-        )
-        available_date, category_ids = parse_new_listing_page(page_html)
-        listing_dates[category] = available_date.isoformat()
-        if available_date != requested_date:
-            raise AnnouncementBatchNotReady(requested_date, available_date, category)
+        if use_pastweek:
+            pastweek_html = fetch_pastweek_listing_with_retry(
+                session,
+                category,
+                logger,
+                retries=retries,
+                base_429_wait=base_429_wait,
+                max_429_wait=max_429_wait,
+            )
+            category_ids = parse_pastweek_listing_page(
+                pastweek_html,
+                requested_date,
+                category,
+            )
+        else:
+            page_html = fetch_new_listing_with_retry(
+                session,
+                category,
+                logger,
+                retries=retries,
+                base_429_wait=base_429_wait,
+                max_429_wait=max_429_wait,
+            )
+            available_date, category_ids = parse_new_listing_page(page_html)
+            if available_date != requested_date:
+                use_pastweek = True
+                pastweek_html = fetch_pastweek_listing_with_retry(
+                    session,
+                    category,
+                    logger,
+                    retries=retries,
+                    base_429_wait=base_429_wait,
+                    max_429_wait=max_429_wait,
+                )
+                category_ids = parse_pastweek_listing_page(
+                    pastweek_html,
+                    requested_date,
+                    category,
+                )
+        listing_dates[category] = requested_date.isoformat()
         all_ids.update(category_ids)
         if index + 1 < len(categories):
             time.sleep(sleep_seconds)
@@ -792,6 +1381,7 @@ def fetch_official_new_listing_batch(
     papers = fetch_metadata_for_announcement_ids(
         session,
         sorted_ids,
+        categories,
         requested_date,
         user_query,
         logger,
@@ -1103,45 +1693,21 @@ def run():
     )
     if use_announcement_source:
         try:
-            try:
-                results, candidates, announcement_source_dates = (
-                    fetch_official_new_listing_batch(
-                        session,
-                        categories,
-                        anchor_date_for_name,
-                        args.query,
-                        logger,
-                        max_papers=int(args.max_papers),
-                        retries=int(args.retries),
-                        sleep_seconds=float(args.sleep),
-                        base_429_wait=float(args.base_429_wait),
-                        max_429_wait=float(args.max_429_wait),
-                    )
+            results, candidates, announcement_source_dates = (
+                fetch_official_new_listing_batch(
+                    session,
+                    categories,
+                    anchor_date_for_name,
+                    args.query,
+                    logger,
+                    max_papers=int(args.max_papers),
+                    retries=int(args.retries),
+                    sleep_seconds=float(args.sleep),
+                    base_429_wait=float(args.base_429_wait),
+                    max_429_wait=float(args.max_429_wait),
                 )
-                source_mode = "official_new_listing_api"
-            except (
-                requests.exceptions.RequestException,
-                ValueError,
-                AnnouncementMetadataIncomplete,
-            ) as listing_exc:
-                logger.warning(
-                    "Official new-listing source unavailable (%s); falling back to RSS.",
-                    listing_exc,
-                )
-                results, candidates, announcement_source_dates = (
-                    fetch_official_announcement_batch(
-                        session,
-                        categories,
-                        anchor_date_for_name,
-                        args.query,
-                        logger,
-                        retries=int(args.retries),
-                        sleep_seconds=float(args.sleep),
-                        base_429_wait=float(args.base_429_wait),
-                        max_429_wait=float(args.max_429_wait),
-                    )
-                )
-                source_mode = "official_announcement_rss"
+            )
+            source_mode = "official_listing_oai"
             announcement_loaded = True
             results = results[:max(0, int(args.max_papers))]
             logger.info(
@@ -1155,32 +1721,30 @@ def run():
                 local_today = datetime.now().date()
             else:
                 local_today = datetime.now(ZoneInfo(str(args.anchor_tz))).date()
-            if anchor_date_for_name >= local_today:
-                logger.warning(
-                    "Official arXiv batch is not ready yet (%s). "
-                    "Exiting with code %d so the scheduler retries.",
-                    exc,
-                    ARXIV_EXIT_BATCH_NOT_READY,
-                )
-                raise SystemExit(ARXIV_EXIT_BATCH_NOT_READY) from exc
-            source_mode = "submitted_date_api_announcement_window_fallback"
-            start_utc, end_utc = compute_submission_window_for_announcement_date(
-                anchor_date_for_name
-            )
-            search_query = build_search_query(
-                categories=categories,
-                user_query=args.query,
-                start_utc=start_utc,
-                end_utc=end_utc,
+            state = (
+                "has not been published yet"
+                if anchor_date_for_name >= local_today
+                else "is outside the official recent-listing window"
             )
             logger.warning(
-                "Official current listings expose batch %s; using the "
-                "submitted-date cutoff window for historical date %s (%s -> %s).",
-                exc.available.isoformat(),
+                "Exact arXiv batch %s (%s; %s). Exiting with code %d so it "
+                "remains retryable instead of substituting an approximate "
+                "submitted-date query.",
+                state,
+                exc,
                 anchor_date_for_name.isoformat(),
-                start_utc.isoformat(),
-                end_utc.isoformat(),
+                ARXIV_EXIT_BATCH_NOT_READY,
             )
+            raise SystemExit(ARXIV_EXIT_BATCH_NOT_READY) from exc
+        except AnnouncementMetadataIncomplete as exc:
+            logger.warning(
+                "Official listing is available but OAI metadata is incomplete (%s). "
+                "Exiting with code %d so the scheduler retries instead of "
+                "publishing a partial or empty day.",
+                exc,
+                ARXIV_EXIT_BATCH_NOT_READY,
+            )
+            raise SystemExit(ARXIV_EXIT_BATCH_NOT_READY) from exc
         except RateLimitExhausted as exc:
             logger.warning("arXiv rate limit exhausted: %s", exc)
             raise SystemExit(2) from exc
@@ -1270,12 +1834,12 @@ def run():
     print("============结束获取初始可下载列表==============", flush=True)
     results.sort(key=lambda p: p.published_utc, reverse=True)
     is_official_announcement = source_mode in {
-        "official_new_listing_api",
+        "official_listing_oai",
         "official_announcement_rss",
     }
     reported_search_query = search_query
     if is_official_announcement:
-        reported_search_query = f"RSS categories: {','.join(categories)}"
+        reported_search_query = f"official listing + OAI categories: {','.join(categories)}"
         if args.query.strip():
             reported_search_query += f"; query: {build_text_clause(args.query)}"
 

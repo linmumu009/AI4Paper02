@@ -407,6 +407,11 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinemen
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_results.md
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\recommend_card_refinement_detailed_ab_ledger.json
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_arxiv_announcement_batch.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\http_session.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\pdf_download.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\arxiv_metadata_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_arxiv_metadata_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_arxiv_resilient_transport.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\SummaryDensityToggle.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\composables\useSummaryDensity.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\PaperCard.test.ts

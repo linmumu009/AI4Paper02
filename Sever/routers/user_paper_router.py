@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from services import auth_service, engagement_service, entitlement_service, translate_service, user_paper_pipeline_service, user_paper_service
+from services import arxiv_metadata_service
 from services.private_file_access_service import build_signed_kb_file_url
 from services.safe_logging_service import safe_failure_detail, safe_stored_error
 from services.user_paper_public_response import normalize_public_user_paper_state
@@ -267,8 +268,8 @@ def api_user_paper_import_arxiv(
         return _enrich_user_paper(existing)
 
     try:
-        meta = user_paper_service.fetch_arxiv_metadata(clean_id)
-    except user_paper_service.ArxivMetadataError as exc:
+        meta = arxiv_metadata_service.fetch_arxiv_metadata(clean_id)
+    except arxiv_metadata_service.ArxivMetadataLookupError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     except Exception as exc:
         public_error = safe_failure_detail(

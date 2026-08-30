@@ -26,7 +26,6 @@ import shutil
 import sys
 import tempfile
 import threading
-import urllib.request
 import zipfile
 from concurrent.futures import ThreadPoolExecutor as _TPE, as_completed as _ac
 from pathlib import Path
@@ -414,18 +413,33 @@ def _download_arxiv_pdf(
     max_bytes: int = 50 * 1024 * 1024,
 ) -> Optional[bytes]:
     """Download at most ``max_bytes`` from arXiv and return the response bytes."""
+    from Controller.http_session import build_session
+    from services.arxiv_rate_limit import wait_before_request
+
     url = f"https://arxiv.org/pdf/{arxiv_id}"
     try:
-        req = urllib.request.Request(
-            url,
-            headers={"User-Agent": "Mozilla/5.0 ArxivPaperBot/1.0"},
-        )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            data = resp.read(max_bytes + 1)
-        if len(data) > max_bytes:
-            logger.warning("arXiv PDF exceeds the %d-byte limit for %s", max_bytes, arxiv_id)
-            return None
-        return data
+        with build_session() as session:
+            wait_before_request()
+            with session.get(
+                url,
+                headers={"Accept": "application/pdf"},
+                stream=True,
+                timeout=60,
+            ) as response:
+                response.raise_for_status()
+                data = bytearray()
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    if len(data) + len(chunk) > max_bytes:
+                        logger.warning(
+                            "arXiv PDF exceeds the %d-byte limit for %s",
+                            max_bytes,
+                            arxiv_id,
+                        )
+                        return None
+                    data.extend(chunk)
+        return bytes(data)
     except Exception as exc:
         logger.warning("arXiv PDF download failed for %s: %s", arxiv_id, exc)
         return None

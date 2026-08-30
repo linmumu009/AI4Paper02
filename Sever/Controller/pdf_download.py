@@ -152,7 +152,7 @@ def download_one_pdf(
 ) -> DownloadResult:
     urls = [
         f"https://arxiv.org/pdf/{arxiv_id}.pdf?download=1",
-        f"https://export.arxiv.org/pdf/{arxiv_id}.pdf",
+        f"https://arxiv.org/pdf/{arxiv_id}",
     ]
     tmp_path = out_path + ".part"
 

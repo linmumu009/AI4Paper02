@@ -17,7 +17,7 @@ from services import user_paper_pipeline_service, user_paper_service  # noqa: E4
 class _Response:
     def __init__(self, payload: bytes):
         self.payload = payload
-        self.read_size: int | None = None
+        self.chunk_size: int | None = None
 
     def __enter__(self):
         return self
@@ -25,9 +25,27 @@ class _Response:
     def __exit__(self, exc_type, exc, traceback):
         return False
 
-    def read(self, size: int = -1) -> bytes:
-        self.read_size = size
-        return self.payload[:size] if size >= 0 else self.payload
+    def raise_for_status(self) -> None:
+        return None
+
+    def iter_content(self, chunk_size: int):
+        self.chunk_size = chunk_size
+        for offset in range(0, len(self.payload), chunk_size):
+            yield self.payload[offset:offset + chunk_size]
+
+
+class _Session:
+    def __init__(self, response: _Response):
+        self.response = response
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def get(self, *_args, **_kwargs):
+        return self.response
 
 
 class UserPaperArxivPdfPersistenceTests(unittest.TestCase):
@@ -69,10 +87,12 @@ class UserPaperArxivPdfPersistenceTests(unittest.TestCase):
 
     def test_download_read_is_bounded_and_oversize_is_rejected(self) -> None:
         response = _Response(b"123456")
-        with patch.object(
-            user_paper_pipeline_service.urllib.request,
-            "urlopen",
-            return_value=response,
+        with (
+            patch(
+                "Controller.http_session.build_session",
+                return_value=_Session(response),
+            ),
+            patch("services.arxiv_rate_limit.wait_before_request"),
         ):
             result = user_paper_pipeline_service._download_arxiv_pdf(
                 "2608.00001",
@@ -80,7 +100,7 @@ class UserPaperArxivPdfPersistenceTests(unittest.TestCase):
             )
 
         self.assertIsNone(result)
-        self.assertEqual(response.read_size, 6)
+        self.assertEqual(response.chunk_size, 64 * 1024)
 
     def test_invalid_response_is_never_persisted(self) -> None:
         with (
