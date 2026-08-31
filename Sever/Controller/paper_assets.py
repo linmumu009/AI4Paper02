@@ -271,7 +271,10 @@ def _norm_str(v: Any) -> str:
 
 def _norm_str_list(v: Any) -> List[str]:
     """Coerce a value to a list of non-empty strings."""
-    if not isinstance(v, list):
+    if isinstance(v, str):
+        value = v.strip()
+        return [value] if value else []
+    if not isinstance(v, (list, tuple)):
         return []
     out: List[str] = []
     for item in v:
@@ -386,7 +389,15 @@ def _normalize_block(raw: Any, extra_schema: Dict[str, Any]) -> Dict[str, Any]:
     Always produces "text" and "bullets".  Extra fields from *extra_schema*
     are included with type-appropriate defaults when absent in *raw*.
     """
-    if not isinstance(raw, dict):
+    # Models occasionally use a compact but still meaningful shorthand such
+    # as ``"summary": "..."`` or ``"objective": ["..."]``.  Preserve that
+    # information instead of normalising the whole block to empty values and
+    # then treating the response as unusable.
+    if isinstance(raw, str):
+        raw = {"text": raw}
+    elif isinstance(raw, (list, tuple)):
+        raw = {"bullets": list(raw)}
+    elif not isinstance(raw, dict):
         raw = {}
 
     out: Dict[str, Any] = {
@@ -399,7 +410,7 @@ def _normalize_block(raw: Any, extra_schema: Dict[str, Any]) -> Dict[str, Any]:
         if default == "" or isinstance(default, str):
             out[field] = _norm_str(raw_val) if raw_val is not None else ""
         elif default == [] or isinstance(default, list):
-            out[field] = _norm_str_list(raw_val) if isinstance(raw_val, list) else []
+            out[field] = _norm_str_list(raw_val)
         else:
             # nullable field (default is None): pass through as-is
             out[field] = raw_val
@@ -432,19 +443,167 @@ def ensure_blocks_structure(blocks: Any) -> Dict[str, Any]:
 
 
 def parse_json_from_text(text: str) -> Any:
-    """从模型回复中尽量抠出 JSON 对象。"""
+    """Extract the most schema-like JSON object from a model response.
+
+    ``s[first { : last }]`` is fragile when a valid object is followed by an
+    explanation containing braces.  ``raw_decode`` lets us recover complete
+    objects while ignoring surrounding Markdown/prose.  When several objects
+    exist, prefer the one containing the most recognised paper-assets blocks.
+    """
     if not text:
         return {}
     s = text.strip()
-    start = s.find("{")
-    end = s.rfind("}")
-    if start == -1 or end == -1 or end <= start:
-        return {}
-    snippet = s[start : end + 1]
+
     try:
-        return json.loads(snippet)
+        direct = json.loads(s)
+        if isinstance(direct, dict):
+            return direct
     except json.JSONDecodeError:
+        pass
+
+    decoder = json.JSONDecoder()
+    candidates: List[Tuple[Tuple[int, int, int], Dict[str, Any]]] = []
+    for start, char in enumerate(s):
+        if char != "{":
+            continue
+        try:
+            obj, _ = decoder.raw_decode(s[start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        payload = obj.get("blocks") if isinstance(obj.get("blocks"), dict) else obj
+        recognised = sum(1 for key in _BLOCK_EXTRA if key in payload)
+        wrapped = 1 if isinstance(obj.get("blocks"), dict) else 0
+        size = len(json.dumps(obj, ensure_ascii=False))
+        candidates.append(((recognised, wrapped, size), obj))
+
+    if not candidates:
         return {}
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+_PAPER_ASSETS_RETRY_INSTRUCTION = """
+
+【结构化输出重试约束】
+上一次响应未通过程序校验。请重新独立生成，并严格遵守：
+- 只输出一个完整、合法的 JSON 对象，以 { 开头、以 } 结尾；
+- 不要输出 Markdown 代码围栏、解释、前言或后记；
+- 顶层使用 blocks；每个区块必须是对象，text 必须是字符串，bullets 必须是字符串数组；
+- 无法确认的字段使用空字符串、空数组或 null，但 summary.one_sentence_summary 必须有论文事实支撑的内容。
+""".strip()
+
+
+_PAPER_ASSETS_COMPACT_RECOVERY_PROMPT = """
+你是论文结构化分析恢复器。请根据论文内容生成简洁、可靠的结构化结果。
+只输出一个合法 JSON 对象，不要 Markdown、解释或前后缀。格式如下：
+{
+  "blocks": {
+    "paper_profile": {"text": "", "bullets": []},
+    "background": {"text": "", "bullets": []},
+    "objective": {"text": "", "bullets": []},
+    "method": {"text": "", "bullets": []},
+    "data": {"text": "", "bullets": []},
+    "experiment_or_argumentation": {"text": "", "bullets": []},
+    "metrics": {"text": "", "bullets": []},
+    "results": {"text": "", "bullets": []},
+    "evidence_chain": {"text": "", "bullets": []},
+    "figures_tables_appendix": {"text": "", "bullets": []},
+    "limitations": {"text": "", "bullets": []},
+    "critical_analysis": {"text": "", "bullets": []},
+    "summary": {"text": "", "bullets": [], "one_sentence_summary": ""}
+  }
+}
+优先填写 objective、method、results、limitations、critical_analysis 和 summary；只写论文中有依据的信息，
+无法确认的内容保持为空。summary.one_sentence_summary 必须非空。
+""".strip()
+
+
+def _is_official_deepseek_api(cfg: Dict[str, Any]) -> bool:
+    base_url = str(cfg.get("llm_base_url") or "").strip().lower().rstrip("/")
+    return base_url == "https://api.deepseek.com" or base_url.startswith(
+        "https://api.deepseek.com/"
+    )
+
+
+def build_summary_fallback_blocks(
+    summary_text: str,
+    *,
+    title: str = "",
+) -> Dict[str, Any]:
+    """Build grounded core assets from the already-generated card summary.
+
+    This is the last-resort path for a model response that remains empty or
+    structurally invalid after all retries.  It deliberately reuses only text
+    already present in ``summary_raw``; it never invents missing evidence.
+    """
+    from services.recommend_card_prompt_eval import parse_card
+
+    card = parse_card(summary_text)
+    profile_title = (title or card.original_title or card.short_title or "").strip()
+    summary_sentence = (
+        card.memory_sentence
+        or card.main_contribution
+        or card.research_question
+        or card.recommendation_reason
+        or card.short_title
+        or profile_title
+    ).strip()
+
+    if not summary_sentence:
+        for raw_line in (summary_text or "").splitlines():
+            line = re.sub(r"^[\s#>*\-•🔸🔹]+", "", raw_line).strip()
+            if line:
+                summary_sentence = line
+                break
+
+    takeaways = (card.key_ideas + card.analysis_summary)[:3]
+    blocks = ensure_blocks_structure(
+        {
+            "paper_profile": {
+                "text": card.recommendation_reason,
+                "title": profile_title,
+                "problem_gap": card.research_question,
+            },
+            "background": {"text": card.recommendation_reason},
+            "objective": {
+                "text": card.research_question,
+                "research_questions": [card.research_question]
+                if card.research_question
+                else [],
+                "claimed_contributions": [card.main_contribution]
+                if card.main_contribution
+                else [],
+            },
+            "method": {
+                "text": "\n".join(card.key_ideas),
+                "bullets": card.key_ideas,
+                "key_mechanisms": card.key_ideas,
+            },
+            "results": {
+                "text": "\n".join(card.analysis_summary),
+                "bullets": card.analysis_summary,
+                "main_findings": card.analysis_summary,
+            },
+            "critical_analysis": {
+                "text": card.personal_opinion,
+                "bullets": [card.personal_opinion]
+                if card.personal_opinion
+                else [],
+            },
+            "summary": {
+                "text": summary_sentence,
+                "one_sentence_summary": summary_sentence,
+                "three_takeaways": takeaways,
+                "literature_review_comment": card.recommendation_reason,
+            },
+        }
+    )
+    return require_meaningful_structure(
+        blocks,
+        operation="paper_assets_summary_fallback",
+    )
 
 
 def extract_blocks_with_llm(
@@ -452,7 +611,7 @@ def extract_blocks_with_llm(
     md_text: str,
     effective_cfg: Optional[Dict[str, Any]] = None,
     *,
-    max_attempts: int = 3,
+    max_attempts: int = 4,
     sleep: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Dict[str, List[str]]]:
     content = (md_text or "").strip()
@@ -474,7 +633,10 @@ def extract_blocks_with_llm(
     temp = cfg.get("temperature") if cfg else summary_temperature
     max_tok = cfg.get("max_tokens") if cfg else summary_max_tokens
     if temp is not None:
-        kwargs["temperature"] = float(temp)
+        # paper_assets is factual schema extraction, not creative writing.
+        # The summary model's shared temperature can be much higher, so cap it
+        # here to reduce malformed JSON and unsupported embellishment.
+        kwargs["temperature"] = min(max(float(temp), 0.0), 0.2)
     if max_tok is not None:
         kwargs["max_tokens"] = int(max_tok)
     if cfg:
@@ -485,18 +647,47 @@ def extract_blocks_with_llm(
     attempts = max(1, int(max_attempts))
     last_error: Optional[BaseException] = None
 
+    user_prompt = (
+        "请根据系统提示词对下面这篇论文进行结构化分析，严格以 JSON 对象输出：\n\n"
+        + user_content
+    )
+    use_json_object_mode = _is_official_deepseek_api(cfg)
+
     for attempt in range(1, attempts + 1):
+        compact_recovery = attempts >= 3 and attempt == attempts
+        attempt_kwargs = dict(kwargs)
+        if compact_recovery:
+            attempt_system_prompt = _PAPER_ASSETS_COMPACT_RECOVERY_PROMPT
+            if "temperature" in attempt_kwargs:
+                attempt_kwargs["temperature"] = 0.0
+            print(
+                f"[PAPER_ASSETS] using compact recovery prompt "
+                f"attempt={attempt}/{attempts}",
+                flush=True,
+            )
+        elif attempt > 1:
+            attempt_system_prompt = sys_prompt + "\n\n" + _PAPER_ASSETS_RETRY_INSTRUCTION
+            if "temperature" in attempt_kwargs:
+                attempt_kwargs["temperature"] = min(
+                    float(attempt_kwargs["temperature"]), 0.2
+                )
+        else:
+            attempt_system_prompt = sys_prompt
+
+        # DeepSeek's official Chat Completions API supports JSON Output.  Keep
+        # this provider-specific so OpenAI-compatible third-party endpoints
+        # that do not implement response_format continue to work unchanged.
+        if use_json_object_mode:
+            attempt_kwargs["response_format"] = {"type": "json_object"}
+
         resp = client.chat.completions.create(
             model=model_name,
             messages=[
-                {"role": "system", "content": sys_prompt},
-                {
-                    "role": "user",
-                    "content": "请根据系统提示词对下面这篇论文进行结构化分析：\n\n" + user_content,
-                },
+                {"role": "system", "content": attempt_system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             stream=False,
-            **kwargs,
+            **attempt_kwargs,
         )
         choice = resp.choices[0] if resp.choices else None
         try:
@@ -530,11 +721,15 @@ def extract_blocks_with_llm(
             if finish_reason == "length" and kwargs.get("max_tokens"):
                 current_max = int(kwargs["max_tokens"])
                 kwargs["max_tokens"] = min(32768, max(current_max + 4096, current_max * 2))
+            next_temperature = kwargs.get("temperature")
+            if next_temperature is not None:
+                next_temperature = min(float(next_temperature), 0.2)
             delay = float(2 ** (attempt - 1))
             print(
                 f"[PAPER_ASSETS] retry invalid structured response "
                 f"attempt={attempt}/{attempts} reason={type(exc).__name__} "
                 f"finish_reason={finish_reason} next_max_tokens={kwargs.get('max_tokens')} "
+                f"next_temperature={next_temperature} "
                 f"delay={delay:.1f}s",
                 flush=True,
             )
@@ -598,7 +793,15 @@ def process_one(
     published = str(meta.get("published", "") or "").strip() if meta else ""
     year = parse_year(published) if published else None
 
-    blocks = extract_blocks_with_llm(client, text, effective_cfg)
+    try:
+        blocks = extract_blocks_with_llm(client, text, effective_cfg)
+    except (EmptyLlmResponseError, InvalidLlmResponseError) as exc:
+        blocks = build_summary_fallback_blocks(text, title=title)
+        print(
+            f"[PAPER_ASSETS] fallback=summary_blocks paper_id={paper_id} "
+            f"reason={type(exc).__name__}",
+            flush=True,
+        )
 
     return {
         "paper_id": paper_id,
