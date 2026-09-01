@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 
 _SEVER = Path(__file__).resolve().parents[1]
@@ -22,6 +23,7 @@ from services.pipeline_schedule_policy import (  # noqa: E402
     multi_user_notice_action,
     rate_limit_cooldown_remaining,
     scheduled_attempt_is_due,
+    scheduled_failure_retry_metadata,
     source_empty_result_needs_retry,
 )
 
@@ -60,6 +62,50 @@ class ArxivStartupResilienceTests(unittest.TestCase):
             with self.assertRaises(SystemExit) as caught:
                 app.cli()
         self.assertEqual(caught.exception.code, 2)
+
+    def test_source_not_ready_step_is_recorded_as_waiting_not_failed(self) -> None:
+        recorder = Mock()
+        with patch.object(
+            app.subprocess,
+            "run",
+            return_value=SimpleNamespace(returncode=app.ARXIV_EXIT_BATCH_NOT_READY),
+        ):
+            with self.assertRaises(app.ArxivBatchNotReadyError):
+                app.run_step("arxiv_search", recorder=recorder)
+
+        recorder.finish_step.assert_called_once_with(
+            "arxiv_search",
+            status="pending",
+            exit_code=None,
+            skip_reason="arXiv 当日批次尚未发布，等待自动重试",
+            metrics={"retryable_exit_code": app.ARXIV_EXIT_BATCH_NOT_READY},
+        )
+        recorder.emit.assert_called_once()
+        self.assertEqual(recorder.emit.call_args.kwargs["level"], "warning")
+
+    def test_source_not_ready_run_is_recorded_as_waiting_not_failed(self) -> None:
+        error = app.ArxivBatchNotReadyError(
+            app.ARXIV_EXIT_BATCH_NOT_READY,
+            ["arxiv_search"],
+        )
+        with (
+            patch.dict(app.PIPELINES, {"wait_probe": ["arxiv_search"]}),
+            patch.object(app, "step_output_exists", return_value=False),
+            patch.object(app, "run_step", side_effect=error),
+            patch.object(app.PipelineRecorder, "end_run") as end_run,
+        ):
+            with self.assertRaises(app.ArxivBatchNotReadyError):
+                app.main([
+                    "wait_probe",
+                    "--date",
+                    "2026-08-17",
+                    "--run-id",
+                    "42",
+                ])
+
+        self.assertEqual(end_run.call_args.args[:2], (42,))
+        self.assertFalse(end_run.call_args.kwargs["success"])
+        self.assertEqual(end_run.call_args.kwargs["status"], "pending")
 
     def test_pipeline_date_is_forwarded_to_arxiv_announcement_anchor(self) -> None:
         captured_args = []
@@ -402,6 +448,44 @@ class SchedulerCatchUpTests(unittest.TestCase):
             ),
             0.0,
         )
+
+    def test_retry_metadata_exposes_next_attempt_and_exhaustion(self) -> None:
+        records = [
+            {
+                "date_str": "2026-08-06",
+                "trigger": "scheduled",
+                "exit_code": 4,
+                "finished_at": timestamp,
+            }
+            for timestamp in (
+                "2026-08-06T02:00:00+00:00",
+                "2026-08-06T02:10:00+00:00",
+            )
+        ]
+        metadata = scheduled_failure_retry_metadata(
+            records,
+            "2026-08-06",
+            datetime(2026, 8, 6, 2, 10, tzinfo=timezone.utc),
+            cooldown_seconds=300,
+            max_cooldown_seconds=7200,
+            max_attempts=8,
+        )
+
+        self.assertEqual(metadata["attempt"], 2)
+        self.assertEqual(metadata["retry_cooldown_seconds"], 600)
+        self.assertEqual(metadata["next_retry_at"], "2026-08-06T02:20:00+00:00")
+        self.assertFalse(metadata["retry_budget_exhausted"])
+
+        exhausted = scheduled_failure_retry_metadata(
+            records * 4,
+            "2026-08-06",
+            datetime(2026, 8, 6, 2, 10, tzinfo=timezone.utc),
+            cooldown_seconds=300,
+            max_cooldown_seconds=7200,
+            max_attempts=8,
+        )
+        self.assertTrue(exhausted["retry_budget_exhausted"])
+        self.assertIsNone(exhausted["next_retry_at"])
 
     def test_success_resets_generic_failure_cooldown(self) -> None:
         history = [

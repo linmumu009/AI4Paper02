@@ -8,6 +8,8 @@ from zoneinfo import ZoneInfo
 
 
 DEFAULT_SCHEDULED_MAX_ATTEMPTS = 8
+DEFAULT_SCHEDULED_FAILURE_COOLDOWN_SECONDS = 300
+DEFAULT_SCHEDULED_FAILURE_MAX_COOLDOWN_SECONDS = 7200
 DEFAULT_ARXIV_READY_HOUR = 9
 DEFAULT_ARXIV_READY_MINUTE = 15
 SCHEDULED_SOURCE_EMPTY_EXIT_CODE = 4
@@ -394,3 +396,72 @@ def failure_cooldown_remaining(
     delay = min(cap, base * (2 ** max(0, consecutive_failures - 1)))
     elapsed = (now - attempts[0][0]).total_seconds()
     return max(0.0, delay - elapsed)
+
+
+def scheduled_failure_retry_metadata(
+    records: Iterable[Mapping[str, object]],
+    date_str: str,
+    now: datetime,
+    *,
+    cooldown_seconds: int,
+    max_cooldown_seconds: int,
+    max_attempts: int = DEFAULT_SCHEDULED_MAX_ATTEMPTS,
+) -> dict[str, object]:
+    """Describe the next automatic retry after a non-successful attempt.
+
+    This is presentation metadata only; ``scheduled_attempt_is_due`` remains
+    the source of truth for whether the scheduler may launch another attempt.
+    Keeping the calculation beside the cooldown policy ensures the admin status
+    and the actual scheduler cannot disagree about the earliest retry time.
+    """
+    if now.tzinfo is None:
+        current = now.replace(tzinfo=timezone.utc)
+    else:
+        current = now.astimezone(timezone.utc)
+
+    attempts: list[Mapping[str, object]] = [
+        record
+        for record in records
+        if record.get("date_str") == date_str
+        and record.get("trigger") == "scheduled"
+    ]
+    attempt_count = len(attempts)
+    exhausted = attempt_count >= max(1, int(max_attempts))
+    parsed_attempts: list[tuple[datetime, int]] = []
+    for record in attempts:
+        try:
+            exit_code = int(record.get("exit_code"))
+            finished = datetime.fromisoformat(
+                str(record.get("finished_at") or "").strip().replace("Z", "+00:00")
+            )
+        except (TypeError, ValueError):
+            continue
+        if finished.tzinfo is None:
+            finished = finished.replace(tzinfo=timezone.utc)
+        else:
+            finished = finished.astimezone(timezone.utc)
+        parsed_attempts.append((finished, exit_code))
+    parsed_attempts.sort(key=lambda item: item[0], reverse=True)
+
+    next_retry: datetime | None = None
+    remaining = 0.0
+    if parsed_attempts and parsed_attempts[0][1] != 0 and not exhausted:
+        consecutive_failures = 0
+        for _, exit_code in parsed_attempts:
+            if exit_code == 0:
+                break
+            consecutive_failures += 1
+        base = max(1.0, float(cooldown_seconds))
+        cap = max(base, float(max_cooldown_seconds))
+        delay = min(cap, base * (2 ** max(0, consecutive_failures - 1)))
+        next_retry = parsed_attempts[0][0] + timedelta(seconds=delay)
+        remaining = max(0.0, (next_retry - current).total_seconds())
+    return {
+        "attempt": attempt_count,
+        "retry_limit": max(1, int(max_attempts)),
+        "retry_budget_exhausted": exhausted,
+        "retry_cooldown_seconds": int(round(remaining)),
+        "next_retry_at": (
+            next_retry.isoformat(timespec="seconds") if next_retry else None
+        ),
+    }

@@ -17,6 +17,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -25,6 +26,8 @@ from services import auth_service
 from services.pipeline_schedule_policy import (
     DEFAULT_ARXIV_READY_HOUR,
     DEFAULT_ARXIV_READY_MINUTE,
+    DEFAULT_SCHEDULED_FAILURE_COOLDOWN_SECONDS,
+    DEFAULT_SCHEDULED_FAILURE_MAX_COOLDOWN_SECONDS,
     DEFAULT_SCHEDULED_MAX_ATTEMPTS,
     SCHEDULED_SOURCE_EMPTY_EXIT_CODE,
     count_scheduled_attempts,
@@ -36,6 +39,7 @@ from services.pipeline_schedule_policy import (
     rate_limit_cooldown_remaining,
     schedule_uses_daily_arxiv,
     scheduled_attempt_is_due,
+    scheduled_failure_retry_metadata,
     source_empty_result_needs_retry,
 )
 from services.safe_logging_service import redact_sensitive_data, redact_sensitive_text
@@ -145,8 +149,12 @@ _scheduler_stop_event = threading.Event()
 
 _scheduler_retry_counts: dict = {}
 _SCHEDULER_MAX_RETRIES = DEFAULT_SCHEDULED_MAX_ATTEMPTS
-_SCHEDULER_FAILURE_COOLDOWN_SECONDS = 300
-_SCHEDULER_FAILURE_MAX_COOLDOWN_SECONDS = 7200
+_SCHEDULER_FAILURE_COOLDOWN_SECONDS = (
+    DEFAULT_SCHEDULED_FAILURE_COOLDOWN_SECONDS
+)
+_SCHEDULER_FAILURE_MAX_COOLDOWN_SECONDS = (
+    DEFAULT_SCHEDULED_FAILURE_MAX_COOLDOWN_SECONDS
+)
 _SCHEDULER_RATE_LIMIT_COOLDOWN_SECONDS = 1800
 _SCHEDULER_RATE_LIMIT_MAX_COOLDOWN_SECONDS = 14400
 _TRANSIENT_DATE_NOTICE_TYPES = (
@@ -154,6 +162,7 @@ _TRANSIENT_DATE_NOTICE_TYPES = (
     "source_temporarily_unavailable",
     "pipeline_temporarily_unavailable",
 )
+_SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def _write_pipeline_processing_notices(date_str: str) -> None:
@@ -444,6 +453,60 @@ def _schedule_timing_metadata(cfg: dict) -> dict:
     }
 
 
+def _source_retry_presentation(
+    history_record: dict,
+) -> tuple[str, dict[str, object]]:
+    """Return a truthful waiting label and retry metadata for exit code 4."""
+    raw_finished = history_record.get("finished_at")
+    try:
+        finished_at = datetime.fromisoformat(str(raw_finished).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        finished_at = datetime.now(timezone.utc)
+    if finished_at.tzinfo is None:
+        finished_at = finished_at.replace(tzinfo=timezone.utc)
+
+    if history_record.get("trigger") != "scheduled":
+        return (
+            "等待 arXiv 当日批次；本次为手动执行，请稍后重新运行",
+            {
+                "attempt": 0,
+                "retry_limit": _SCHEDULER_MAX_RETRIES,
+                "retry_budget_exhausted": False,
+                "retry_cooldown_seconds": 0,
+                "next_retry_at": None,
+            },
+        )
+
+    metadata = scheduled_failure_retry_metadata(
+        [history_record, *_load_schedule_history(limit=200)],
+        str(history_record.get("date_str") or ""),
+        finished_at,
+        cooldown_seconds=_SCHEDULER_FAILURE_COOLDOWN_SECONDS,
+        max_cooldown_seconds=_SCHEDULER_FAILURE_MAX_COOLDOWN_SECONDS,
+        max_attempts=_SCHEDULER_MAX_RETRIES,
+    )
+    attempt = int(metadata["attempt"])
+    retry_limit = int(metadata["retry_limit"])
+    if metadata["retry_budget_exhausted"]:
+        return (
+            f"等待 arXiv 当日批次；今日已尝试 {attempt}/{retry_limit} 次，"
+            "自动重试额度已用完，请管理员检查",
+            metadata,
+        )
+
+    next_retry_raw = metadata.get("next_retry_at")
+    try:
+        next_retry = datetime.fromisoformat(str(next_retry_raw)).astimezone(_SHANGHAI_TZ)
+        next_retry_label = next_retry.strftime("%H:%M")
+    except (TypeError, ValueError):
+        next_retry_label = "稍后"
+    return (
+        f"等待 arXiv 当日批次，预计不早于 {next_retry_label} 自动重试"
+        f"（第 {attempt}/{retry_limit} 次尝试）",
+        metadata,
+    )
+
+
 def _get_log_tail(log_file: str, n: int = 300) -> list:
     if not log_file or not os.path.isfile(log_file):
         return []
@@ -722,10 +785,28 @@ def _run_pipeline_thread(
             except OSError:
                 pass
         finished_at = datetime.now(timezone.utc).isoformat()
+        history_record = {
+            "run_id": run_id,
+            "trigger": trigger,
+            "date_str": date_str,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "user_count": 1,
+            "user_ids": [user_id] if user_id is not None else [0],
+            "exit_code": exit_code,
+            "success": exit_code == 0,
+            "pipeline": pipeline,
+            "outcome": (
+                "source_empty_retry"
+                if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                else "completed" if exit_code == 0 else "failed"
+            ),
+        }
         if exit_code == 0:
             final_step = "已完成"
         elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
-            final_step = "等待 arXiv 当日批次，稍后自动重试"
+            final_step, retry_metadata = _source_retry_presentation(history_record)
+            history_record.update(retry_metadata)
         else:
             final_step = f"异常退出 (code={exit_code})"
         with _pipeline_lock:
@@ -747,18 +828,7 @@ def _run_pipeline_thread(
             })
         except OSError:
             pass
-        _append_schedule_history({
-            "run_id": run_id,
-            "trigger": trigger,
-            "date_str": date_str,
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "user_count": 1,
-            "user_ids": [user_id] if user_id is not None else [0],
-            "exit_code": exit_code,
-            "success": exit_code == 0,
-            "pipeline": pipeline,
-        })
+        _append_schedule_history(history_record)
         if trigger == "scheduled":
             lock_path = f"{_SCHEDULER_LOCK_PATH}.{date_str}"
             if exit_code == 0:
@@ -771,6 +841,11 @@ def _run_pipeline_thread(
             else:
                 try:
                     os.remove(lock_path)
+                    if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+                        print(
+                            f"[SCHEDULER] {final_step}；已释放 lock 文件",
+                            flush=True,
+                        )
                 except OSError:
                     pass
         _release_execution_lease(lease_token)
@@ -987,6 +1062,8 @@ def _run_multiuser_scheduler_thread(
                     status = "completed"
                 elif shared_exit == 3:
                     status = "partial"
+                elif shared_exit == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+                    status = "pending"
                 else:
                     status = "failed"
                 _pdb.update_run_status(shared_db_run_id, status)
@@ -1004,6 +1081,14 @@ def _run_multiuser_scheduler_thread(
             )
             shared_exit = 0
 
+        if shared_exit == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+            schedule_outcome = "source_empty_retry"
+            _orch_log(
+                "[SCHEDULER] arXiv 当日批次尚未发布 (exit=4)，"
+                "结束本次等待并保留自动重试"
+            )
+            exit_code = shared_exit
+            return
         if shared_exit != 0:
             _orch_log(f"[SCHEDULER] 共享阶段失败 (exit={shared_exit})，终止多用户编排")
             exit_code = shared_exit
@@ -1215,15 +1300,39 @@ def _run_multiuser_scheduler_thread(
         try:
             if db_parent_run_id:
                 from services import pipeline_db_service as _pdb
-                _pdb.update_run_status(db_parent_run_id, "completed" if exit_code == 0 else "failed")
+                parent_status = (
+                    "completed" if exit_code == 0
+                    else "pending"
+                    if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                    else "failed"
+                )
+                _pdb.update_run_status(db_parent_run_id, parent_status)
         except Exception:
             pass
 
         finished_at = datetime.now(timezone.utc).isoformat()
+        history_record = {
+            "run_id": run_id,
+            "trigger": trigger,
+            "date_str": today,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "user_count": len(user_ids_to_run),
+            "user_ids": user_ids_to_run,
+            "exit_code": exit_code,
+            "success": exit_code == 0,
+            "arxiv_count": arxiv_count,
+            "outcome": schedule_outcome if exit_code == 0 else (
+                "source_empty_retry"
+                if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                else "failed"
+            ),
+        }
         if exit_code == 0:
             final_step = "已完成"
         elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
-            final_step = "等待 arXiv 当日批次，稍后自动重试"
+            final_step, retry_metadata = _source_retry_presentation(history_record)
+            history_record.update(retry_metadata)
         else:
             final_step = f"异常退出 (code={exit_code})"
         with _pipeline_lock:
@@ -1246,23 +1355,7 @@ def _run_multiuser_scheduler_thread(
             })
         except OSError:
             pass
-        _append_schedule_history({
-            "run_id": run_id,
-            "trigger": trigger,
-            "date_str": today,
-            "started_at": started_at,
-            "finished_at": finished_at,
-            "user_count": len(user_ids_to_run),
-            "user_ids": user_ids_to_run,
-            "exit_code": exit_code,
-            "success": exit_code == 0,
-            "arxiv_count": arxiv_count,
-            "outcome": schedule_outcome if exit_code == 0 else (
-                "source_empty_retry"
-                if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
-                else "failed"
-            ),
-        })
+        _append_schedule_history(history_record)
 
         _lock_path = f"{_SCHEDULER_LOCK_PATH}.{today}"
         if trigger == "scheduled":
@@ -1280,11 +1373,17 @@ def _run_multiuser_scheduler_thread(
             else:
                 try:
                     os.remove(_lock_path)
-                    print(
-                        f"[SCHEDULER] 定时 Pipeline 失败 (exit={exit_code})，"
-                        "已释放 lock 文件，将在今日稍后重新尝试",
-                        flush=True,
-                    )
+                    if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
+                        print(
+                            f"[SCHEDULER] {final_step}；已释放 lock 文件",
+                            flush=True,
+                        )
+                    else:
+                        print(
+                            f"[SCHEDULER] 定时 Pipeline 失败 (exit={exit_code})，"
+                            "已释放 lock 文件，将在今日稍后重新尝试",
+                            flush=True,
+                        )
                 except OSError:
                     pass
         _release_execution_lease(lease_token)

@@ -4,6 +4,7 @@ import {
   formatChinaTimestamp,
   formatScheduleClock,
   formatScheduleDuration,
+  getPipelineRuntimeStatus,
   getScheduleStatus,
 } from './scheduleStatus'
 
@@ -23,6 +24,10 @@ describe('schedule status presentation', () => {
       arxiv_count: 0,
       outcome: 'source_empty_retry',
     })).toEqual({ label: '等待重试', tone: 'warning' })
+    expect(getPipelineRuntimeStatus({ running: false, exit_code: 4 })).toEqual({
+      label: '等待自动重试',
+      tone: 'warning',
+    })
   })
 
   it('converts UTC history timestamps to China time', () => {

@@ -69,6 +69,7 @@ import {
   formatChinaTimestamp,
   formatScheduleClock,
   formatScheduleDuration,
+  getPipelineRuntimeStatus,
   getScheduleStatus,
 } from '../utils/scheduleStatus'
 
@@ -561,19 +562,17 @@ const formattedFinishedAt = computed(() => {
   }
 })
 
-const statusLabel = computed(() => {
-  if (!pipelineStatus.value) return '未知'
-  if (pipelineStatus.value.running) return '运行中'
-  if (pipelineStatus.value.exit_code === 0) return '已完成'
-  if (pipelineStatus.value.exit_code !== null) return '异常退出'
-  return '空闲'
-})
+const runtimeStatusPresentation = computed(() => (
+  getPipelineRuntimeStatus(pipelineStatus.value)
+))
+
+const statusLabel = computed(() => runtimeStatusPresentation.value.label)
 
 const statusColor = computed(() => {
-  if (!pipelineStatus.value) return 'text-text-muted'
-  if (pipelineStatus.value.running) return 'text-blue-400'
-  if (pipelineStatus.value.exit_code === 0) return 'text-green-400'
-  if (pipelineStatus.value.exit_code !== null) return 'text-red-400'
+  if (runtimeStatusPresentation.value.tone === 'success') return 'text-green-400'
+  if (runtimeStatusPresentation.value.tone === 'warning') return 'text-yellow-400'
+  if (runtimeStatusPresentation.value.tone === 'error') return 'text-red-400'
+  if (pipelineStatus.value?.running) return 'text-blue-400'
   return 'text-text-muted'
 })
 

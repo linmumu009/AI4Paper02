@@ -15,8 +15,11 @@ from zoneinfo import ZoneInfo
 
 from services import pipeline_db_service
 from services.pipeline_schedule_policy import (
+    DEFAULT_SCHEDULED_FAILURE_COOLDOWN_SECONDS,
+    DEFAULT_SCHEDULED_FAILURE_MAX_COOLDOWN_SECONDS,
     DEFAULT_SCHEDULED_MAX_ATTEMPTS,
     effective_scheduled_time,
+    scheduled_failure_retry_metadata,
 )
 from services.storage_health_service import get_storage_health
 
@@ -119,15 +122,31 @@ def _scheduled_pipeline_check(
         if run.get("trigger") == "scheduled"
         and not _safe_int(run.get("parent_run_id"))
     ]
+    active_pending_attempts = [
+        run
+        for run in root_attempts
+        if run.get("status") == "pending" and not run.get("finished_at")
+    ]
+    waiting_retry_attempts = [
+        run
+        for run in root_attempts
+        if run.get("status") == "pending" and bool(run.get("finished_at"))
+    ]
     status_counts = {
         status: sum(1 for run in root_attempts if run.get("status") == status)
-        for status in ("pending", "running", "completed", "failed")
+        for status in ("running", "completed", "failed")
     }
+    status_counts["pending"] = len(active_pending_attempts)
     now_utc = current.astimezone(timezone.utc)
     stale_count = 0
     for run in root_attempts:
         status = run.get("status")
         if status not in {"pending", "running"}:
+            continue
+        # ``pending`` with a finish timestamp means the attempt ended cleanly
+        # and is waiting for the scheduler's next retry window.  It is neither
+        # an active process nor a stalled queued run.
+        if status == "pending" and run.get("finished_at"):
             continue
         anchor = _parse_timestamp(run.get("started_at") or run.get("created_at"))
         if anchor is None:
@@ -147,24 +166,72 @@ def _scheduled_pipeline_check(
         issues.append("scheduled_pipeline_not_started")
     if stale_count:
         issues.append("scheduled_pipeline_stalled")
+    latest_attempt = root_attempts[0] if root_attempts else {}
+    latest_failed = latest_attempt.get("status") == "failed"
+    latest_waiting_retry = bool(
+        latest_attempt.get("status") == "pending"
+        and latest_attempt.get("finished_at")
+    )
+    no_active_attempt = not status_counts["running"] and not status_counts["pending"]
     if (
         start_due
-        and status_counts["failed"]
+        and latest_failed
         and not status_counts["completed"]
-        and not status_counts["running"]
-        and not status_counts["pending"]
+        and no_active_attempt
     ):
         issues.append("scheduled_pipeline_failed")
     retry_budget_exhausted = bool(
         start_due
         and len(root_attempts) >= DEFAULT_SCHEDULED_MAX_ATTEMPTS
-        and status_counts["failed"]
         and not status_counts["completed"]
-        and not status_counts["running"]
-        and not status_counts["pending"]
+        and no_active_attempt
+        and (latest_failed or bool(waiting_retry_attempts))
     )
     if retry_budget_exhausted:
         issues.append("scheduled_pipeline_retry_exhausted")
+
+    next_retry_at: str | None = None
+    retry_overdue = False
+    if (
+        start_due
+        and latest_waiting_retry
+        and no_active_attempt
+        and not retry_budget_exhausted
+    ):
+        retry_records = [
+            {
+                "date_str": current.date().isoformat(),
+                "trigger": "scheduled",
+                "exit_code": 4 if run.get("status") == "pending" else 1,
+                "finished_at": run.get("finished_at"),
+            }
+            for run in root_attempts
+            if run.get("status") in {"pending", "failed"}
+            and run.get("finished_at")
+        ]
+        retry_metadata = scheduled_failure_retry_metadata(
+            retry_records,
+            current.date().isoformat(),
+            now_utc,
+            cooldown_seconds=DEFAULT_SCHEDULED_FAILURE_COOLDOWN_SECONDS,
+            max_cooldown_seconds=DEFAULT_SCHEDULED_FAILURE_MAX_COOLDOWN_SECONDS,
+            max_attempts=DEFAULT_SCHEDULED_MAX_ATTEMPTS,
+        )
+        raw_next_retry_at = retry_metadata.get("next_retry_at")
+        next_retry_at = (
+            raw_next_retry_at if isinstance(raw_next_retry_at, str) else None
+        )
+        retry_at = _parse_timestamp(next_retry_at)
+        retry_grace_minutes = max(
+            2,
+            _env_int("PIPELINE_HEALTH_RETRY_GRACE_MINUTES", 5),
+        )
+        retry_overdue = bool(
+            retry_at is not None
+            and now_utc.timestamp() > retry_at.timestamp() + retry_grace_minutes * 60
+        )
+        if retry_overdue:
+            issues.append("scheduled_pipeline_retry_overdue")
 
     return {
         "ok": not issues,
@@ -176,11 +243,14 @@ def _scheduled_pipeline_check(
         "start_due": start_due,
         "attempts": len(root_attempts),
         "pending": status_counts["pending"],
+        "waiting_retry": len(waiting_retry_attempts),
         "running": status_counts["running"],
         "completed": status_counts["completed"],
         "failed": status_counts["failed"],
         "retry_limit": DEFAULT_SCHEDULED_MAX_ATTEMPTS,
         "retry_budget_exhausted": retry_budget_exhausted,
+        "next_retry_at": next_retry_at,
+        "retry_overdue": retry_overdue,
         "stale": stale_count,
         "last_run_date": config.get("last_run_date") if config_ok else None,
     }, issues

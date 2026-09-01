@@ -8,6 +8,22 @@ export interface ScheduleHistoryLike {
   outcome?: 'completed' | 'no_new_papers' | 'source_empty_retry' | 'failed'
 }
 
+export interface PipelineRuntimeStatusLike {
+  running: boolean
+  exit_code: number | null
+}
+
+export function getPipelineRuntimeStatus(
+  record: PipelineRuntimeStatusLike | null | undefined,
+): { label: string; tone: ScheduleStatusTone } {
+  if (!record) return { label: '未知', tone: 'neutral' }
+  if (record.running) return { label: '运行中', tone: 'neutral' }
+  if (record.exit_code === 0) return { label: '已完成', tone: 'success' }
+  if (record.exit_code === 4) return { label: '等待自动重试', tone: 'warning' }
+  if (record.exit_code !== null) return { label: '异常退出', tone: 'error' }
+  return { label: '空闲', tone: 'neutral' }
+}
+
 export function getScheduleStatus(record: ScheduleHistoryLike): {
   label: string
   tone: ScheduleStatusTone

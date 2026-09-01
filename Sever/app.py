@@ -74,12 +74,22 @@ class PipelineRecorder:
             return 0
 
     @staticmethod
-    def end_run(run_id: int, success: bool, error: str = "") -> None:
+    def end_run(
+        run_id: int,
+        success: bool,
+        error: str = "",
+        status: Optional[str] = None,
+    ) -> None:
         if not run_id:
             return
         try:
             from services import pipeline_db_service as _pdb
-            _pdb.update_run_status(run_id, "completed" if success else "failed", error=error or None)
+            resolved_status = status or ("completed" if success else "failed")
+            _pdb.update_run_status(
+                run_id,
+                resolved_status,
+                error=None if resolved_status == "pending" else error or None,
+            )
         except Exception:
             pass
 
@@ -484,6 +494,14 @@ SOFT_FAIL_STEPS: set = set()
 # arxiv_search exit code when partial pages were saved after rate limit (see arxiv_rate_limit.py)
 ARXIV_EXIT_RATE_LIMIT_PARTIAL = 3
 
+# arxiv_search exit code when today's official batch has not been published yet.
+# The scheduler owns the retry; this is a waiting state rather than a failure.
+ARXIV_EXIT_BATCH_NOT_READY = 4
+
+
+class ArxivBatchNotReadyError(subprocess.CalledProcessError):
+    """Signal a retryable wait without losing the CLI exit-code contract."""
+
 # Cleanup modes to pass depending on which pipeline is running.
 #
 # shared pipeline:
@@ -590,24 +608,45 @@ def run_step(name, extra_args=None, env=None, recorder: Optional["PipelineRecord
                         error_message="partial fetch after 429",
                     )
             elif r.returncode != 0:
-                raise subprocess.CalledProcessError(r.returncode, cmd)
+                error_type = (
+                    ArxivBatchNotReadyError
+                    if name == "arxiv_search"
+                    and r.returncode == ARXIV_EXIT_BATCH_NOT_READY
+                    else subprocess.CalledProcessError
+                )
+                raise error_type(r.returncode, cmd)
             else:
                 if recorder:
                     recorder.finish_step(name, status="completed", exit_code=0)
     except subprocess.CalledProcessError as exc:
         if recorder:
-            recorder.finish_step(
-                name,
-                status="failed",
-                exit_code=exc.returncode,
-                error_type="subprocess_error",
-                error_message=f"step '{name}' exited with code {exc.returncode}",
-            )
-            recorder.emit(
-                f"FAIL {name}: exit code {exc.returncode}",
-                level="error",
-                event_type="custom",
-            )
+            if name == "arxiv_search" and exc.returncode == ARXIV_EXIT_BATCH_NOT_READY:
+                recorder.finish_step(
+                    name,
+                    status="pending",
+                    exit_code=None,
+                    skip_reason="arXiv 当日批次尚未发布，等待自动重试",
+                    metrics={"retryable_exit_code": exc.returncode},
+                )
+                recorder.emit(
+                    "WAIT arxiv_search: today's official batch is not ready; automatic retry remains enabled",
+                    level="warning",
+                    event_type="custom",
+                    payload={"retryable_exit_code": exc.returncode},
+                )
+            else:
+                recorder.finish_step(
+                    name,
+                    status="failed",
+                    exit_code=exc.returncode,
+                    error_type="subprocess_error",
+                    error_message=f"step '{name}' exited with code {exc.returncode}",
+                )
+                recorder.emit(
+                    f"FAIL {name}: exit code {exc.returncode}",
+                    level="error",
+                    event_type="custom",
+                )
         raise
     except Exception as exc:
         if recorder:
@@ -874,6 +913,7 @@ def main(argv=None):
             )
 
     pipeline_error: Optional[str] = None
+    pipeline_waiting_for_arxiv = False
     try:
         for i, step in enumerate(steps):
             if i == 0:
@@ -1000,6 +1040,10 @@ def main(argv=None):
                         print(f"[PIPELINE] Could not write date notice: {_ne!r}", flush=True)
                     return
 
+    except subprocess.CalledProcessError as exc:
+        pipeline_error = str(exc)
+        pipeline_waiting_for_arxiv = isinstance(exc, ArxivBatchNotReadyError)
+        raise
     except Exception as exc:
         pipeline_error = str(exc)
         raise
@@ -1009,6 +1053,7 @@ def main(argv=None):
                 run_id_int,
                 success=(pipeline_error is None),
                 error=pipeline_error or "",
+                status="pending" if pipeline_waiting_for_arxiv else None,
             )
 
 
