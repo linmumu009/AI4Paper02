@@ -21,6 +21,7 @@ import PresetSelector from '../PresetSelector.vue'
 
 describe('AutoClassifyPanel', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     api.fetchUserSettings.mockResolvedValue({
       settings: {
         enabled: false,
@@ -57,6 +58,42 @@ describe('AutoClassifyPanel', () => {
     expect(modelSelector.props('onGoToCreate')).toBeTypeOf('function')
     modelSelector.props('onGoToCreate')()
     expect(wrapper.emitted('navigate-settings')).toEqual([['llm_presets']])
+
+    wrapper.unmount()
+  })
+
+  it('persists the automatic-classification switch immediately', async () => {
+    const wrapper = mount(AutoClassifyPanel)
+    await flushPromises()
+
+    expect(api.saveUserSettings).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="auto-classify-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(api.saveUserSettings).toHaveBeenCalledTimes(1)
+    expect(api.saveUserSettings).toHaveBeenCalledWith(
+      'auto_classify',
+      expect.objectContaining({ enabled: true }),
+    )
+    expect(wrapper.text()).toContain('已启用')
+    expect(wrapper.text()).toContain('已保存')
+
+    wrapper.unmount()
+  })
+
+  it('reverts the switch and shows the server error when saving fails', async () => {
+    api.saveUserSettings.mockRejectedValueOnce({
+      response: { data: { detail: '设置没有保存，请稍后重试' } },
+    })
+    const wrapper = mount(AutoClassifyPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="auto-classify-toggle"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="auto-classify-toggle"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.text()).toContain('已停用')
+    expect(wrapper.text()).toContain('设置没有保存，请稍后重试')
 
     wrapper.unmount()
   })

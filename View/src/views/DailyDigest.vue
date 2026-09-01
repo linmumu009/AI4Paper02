@@ -57,6 +57,8 @@ const { showError, showToast } = useToast()
 // Data
 const dates = ref<string[]>([])
 const selectedDate = ref('')
+let suppressSelectedDateLoad = false
+let initialMountComplete = false
 const papers = ref<PaperSummary[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -389,9 +391,16 @@ async function loadDates() {
     dates.value = res.dates
     allDatesExhausted.value = false
     if (dates.value.length > 0) {
-      selectedDate.value = dates.value[0]
+      const initialDate = dates.value[0]
+      suppressSelectedDateLoad = true
+      selectedDate.value = initialDate
+      await nextTick()
+      suppressSelectedDateLoad = false
+      await loadDigestForDate(initialDate)
+      void loadRadar(initialDate)
     }
   } catch (e: any) {
+    suppressSelectedDateLoad = false
     errorType.value = e?.errorType || 'unknown'
     error.value = e?.message || '获取日期失败'
   }
@@ -491,15 +500,32 @@ onMounted(async () => {
   await ensureAuthInitialized()
   await loadDates()
 
+  initialMountComplete = true
+  let secondaryDataReady: Promise<unknown> | null = null
   if (isAuthenticated.value) {
-    await loadKbTree()
-    await loadCompareTree()
-    await engagement.loadStatus(true)
+    // The recommendation card is the primary content.  Load the large KB tree
+    // and secondary panels only after the first digest has rendered so they do
+    // not compete with it for network, SQLite or main-thread time.
+    secondaryDataReady = Promise.allSettled([
+      loadKbTree(),
+      loadCompareTree(),
+      engagement.loadStatus(true),
+    ])
+    void secondaryDataReady
     // Show onboarding hint once for new authenticated users
     if (!localStorage.getItem('ai4p-recommend-hint-dismissed')) {
       showRecommendHint.value = true
     }
   }
+
+  const needsKnowledgeData = Boolean(
+    route.query.tool
+    || route.query.paper
+    || route.query.result
+    || route.query.session
+    || route.query.tab === 'mypapers',
+  )
+  if (needsKnowledgeData && secondaryDataReady) await secondaryDataReady
 
   // Handle ?tab=mypapers redirect from /my-papers
   if (route.query.tab === 'mypapers' && isAuthenticated.value) {
@@ -672,6 +698,7 @@ async function loadDigestForDate(date: string, fallbackAuthed = isAuthenticated.
 // 当 loadDigestForDate 因 fallback 同步 selectedDate 时，跳过重复请求。
 watch(selectedDate, async (date) => {
   if (!date) return
+  if (suppressSelectedDateLoad) return
   if (researchPaperIds.value !== null) return
   // Skip reload triggered by our own programmatic sync of selectedDate to effectiveDate
   if (isFallback.value && date === effectiveDate.value) return
@@ -728,6 +755,9 @@ const quotaExceededMessage = computed(() => {
 watch(
   () => isAuthenticated.value,
   async (authed) => {
+    // ensureAuthInitialized() may update auth while the initial digest is still
+    // loading.  onMounted owns that first load and schedules the secondary data.
+    if (!initialMountComplete) return
     if (authed) {
       await loadKbTree()
       await loadCompareTree()
@@ -778,6 +808,49 @@ function next(direction: 'left' | 'right') {
 
 const collectedPaperIds = ref<Set<string>>(new Set())
 const batchCollecting = ref(false)
+let knowledgeTreeRefreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function removePaperFromFolders(folders: typeof kbTree.value.folders, paperId: string) {
+  for (const folder of folders) {
+    folder.papers = (folder.papers || []).filter(item => item.paper_id !== paperId)
+    if (folder.children?.length) removePaperFromFolders(folder.children, paperId)
+  }
+}
+
+function findFolder(folders: typeof kbTree.value.folders, folderId: number): typeof folders[number] | null {
+  for (const folder of folders) {
+    if (folder.id === folderId) return folder
+    const nested = findFolder(folder.children || [], folderId)
+    if (nested) return nested
+  }
+  return null
+}
+
+function addSavedPaperToLocalTree(savedPaper: KbPaper) {
+  const folders = kbTree.value.folders
+  removePaperFromFolders(folders, savedPaper.paper_id)
+  const rootPapers = kbTree.value.papers.filter(item => item.paper_id !== savedPaper.paper_id)
+  const localPaper: KbPaper = {
+    ...savedPaper,
+    note_count: savedPaper.note_count ?? 0,
+  }
+  const target = savedPaper.folder_id ? findFolder(folders, savedPaper.folder_id) : null
+  if (target) target.papers = [localPaper, ...(target.papers || [])]
+  else rootPapers.unshift(localPaper)
+  kbTree.value = { folders, papers: rootPapers }
+}
+
+function scheduleKnowledgeTreeRefresh() {
+  if (knowledgeTreeRefreshTimer) clearTimeout(knowledgeTreeRefreshTimer)
+  knowledgeTreeRefreshTimer = setTimeout(() => {
+    knowledgeTreeRefreshTimer = null
+    void loadKbTree()
+  }, 3500)
+}
+
+onBeforeUnmount(() => {
+  if (knowledgeTreeRefreshTimer) clearTimeout(knowledgeTreeRefreshTimer)
+})
 
 watch(kbTree, (tree) => {
   const ids = new Set(tree.papers.map(paper => paper.paper_id))
@@ -802,11 +875,10 @@ async function savePaperToKnowledgeBase(paper: PaperSummary) {
   if (ent.loaded.value && storage.limit !== null && (storage.remaining ?? 0) <= 0) {
     throw new Error(kbStorageLimitMessage())
   }
-  await addKbPaper(paper.paper_id, paper, null)
-  await Promise.all([
-    loadKbTree(),
-    ent.refreshEntitlements(true),
-  ])
+  const savedPaper = await addKbPaper(paper.paper_id, paper, null)
+  addSavedPaperToLocalTree(savedPaper)
+  void ent.refreshEntitlements(true)
+  scheduleKnowledgeTreeRefresh()
 }
 
 function handleCollectError(error: unknown) {
@@ -851,7 +923,7 @@ const {
     collectedPaperIds.value = new Set([...collectedPaperIds.value, paper.paper_id])
     trackKbAction('save', paper.paper_id)
     void engagement.record('collect', 'daily-digest-like', paper.paper_id)
-    if (!batchCollecting.value) showToast('已收藏到知识库，AI 正在自动分类。', 'success')
+    if (!batchCollecting.value) showToast('已收藏到知识库。', 'success')
   },
   onCollectError: handleCollectError,
 })

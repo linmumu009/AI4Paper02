@@ -8,7 +8,7 @@ All routes are prefixed with /api/kb and registered in api.py via
 import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -333,8 +333,48 @@ def api_kb_delete_folder(folder_id: int, scope: str = Query("kb"), _user=Depends
     return {"ok": True}
 
 
+def _prepare_saved_paper_resources(user_id: int, paper_id: str, scope: str) -> None:
+    """Attach durable paper resources after the save response has been sent."""
+    try:
+        kb_service.auto_attach_pdf(user_id, paper_id, scope=scope)
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "auto_attach_pdf failed for %s: %s", paper_id, exc
+        )
+
+    # A recommendation's shared PDF/MinerU cache may already have expired by
+    # the time the user saves it. Start the durable KB pipeline anyway; it can
+    # re-download a valid arXiv PDF before re-running MinerU.
+    try:
+        if (
+            kb_service.get_kb_pdf_path(user_id, paper_id) is None
+            and paper_resource_service.is_recoverable_arxiv_id(paper_id)
+        ):
+            kb_pipeline_service.start_kb_paper_process(
+                user_id, paper_id, scope=scope
+            )
+    except Exception as exc:
+        # Saving the metadata is still successful even if the supplementary
+        # recovery task cannot be launched. The detail page exposes retry.
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "expired resource recovery launch failed for %s: %s",
+            paper_id,
+            exc,
+        )
+    finally:
+        # A client may have cached the metadata-only row immediately after the
+        # save. Make the next tree refresh observe newly attached resources.
+        _invalidate_tree_cache(user_id, scope)
+
+
 @router.post("/papers", summary="Add paper to KB")
-def api_kb_add_paper(body: AddPaperBody, _user=Depends(auth_service.require_user)):
+def api_kb_add_paper(
+    body: AddPaperBody,
+    background_tasks: BackgroundTasks,
+    _user=Depends(auth_service.require_user),
+):
     # Only enforce KB paper limit for the default "kb" scope
     if body.scope == "kb":
         limit_check = entitlement_service.check_kb_paper_limit(_user["id"])
@@ -345,31 +385,12 @@ def api_kb_add_paper(body: AddPaperBody, _user=Depends(auth_service.require_user
             )
     paper = kb_service.add_paper(_user["id"], body.paper_id, body.paper_data, body.folder_id, scope=body.scope)
     _invalidate_tree_cache(_user["id"], body.scope)
-    try:
-        kb_service.auto_attach_pdf(_user["id"], body.paper_id, scope=body.scope)
-    except Exception as _exc:
-        import logging as _logging
-        _logging.getLogger(__name__).warning("auto_attach_pdf failed for %s: %s", body.paper_id, _exc)
-    # A recommendation's shared PDF/MinerU cache may already have expired by
-    # the time the user saves it. Start the durable KB pipeline anyway; it can
-    # re-download a valid arXiv PDF before re-running MinerU.
-    try:
-        if (
-            kb_service.get_kb_pdf_path(_user["id"], body.paper_id) is None
-            and paper_resource_service.is_recoverable_arxiv_id(body.paper_id)
-        ):
-            kb_pipeline_service.start_kb_paper_process(
-                _user["id"], body.paper_id, scope=body.scope
-            )
-    except Exception as _exc:
-        # Saving the metadata is still successful even if the supplementary
-        # recovery task cannot be launched. The detail page exposes retry.
-        import logging as _logging
-        _logging.getLogger(__name__).warning(
-            "expired resource recovery launch failed for %s: %s",
-            body.paper_id,
-            _exc,
-        )
+    background_tasks.add_task(
+        _prepare_saved_paper_resources,
+        _user["id"],
+        body.paper_id,
+        body.scope,
+    )
     # Trigger auto-classification when no explicit folder was given
     if body.folder_id is None and body.scope == "kb":
         try:

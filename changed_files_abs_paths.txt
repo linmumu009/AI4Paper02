@@ -421,3 +421,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_deepseek_offpeak_policy.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\config_mapper.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_config_binding_sync.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\kb_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_kb_save_fast_path.py

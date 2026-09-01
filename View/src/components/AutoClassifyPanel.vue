@@ -46,6 +46,7 @@ function newKey(): string { return String(++_keyCounter) }
 
 const loading = ref(false)
 const saving = ref(false)
+const autoSaving = ref(false)
 const saveSuccess = ref(false)
 const saveError = ref('')
 const syncingFolders = ref(false)
@@ -127,6 +128,7 @@ const displayList = computed<DisplayItem[]>(() => {
 
 async function loadAll() {
   loading.value = true
+  settingsHydrated = false
   saveError.value = ''
   try {
     const [settingsRes, presetsRes, pendingRes, kbTreeRes, unclassifiedRes, promptPresetsRes] = await Promise.all([
@@ -148,8 +150,12 @@ async function loadAll() {
     promptPresets.value = promptPresetsRes.presets || []
     pendingCount.value = pendingRes.pending
     unclassifiedCount.value = unclassifiedRes.unclassified
+    // Let the watchers created below observe the hydrated values while the
+    // guard is still down. Loading server state must never write it back.
+    await nextTick()
+    settingsHydrated = true
   } catch (e: any) {
-    saveError.value = e?.message || '加载设置失败'
+    saveError.value = getApiErrorMessage(e, '加载设置失败')
   } finally {
     loading.value = false
   }
@@ -161,51 +167,98 @@ onMounted(loadAll)
 // Auto-save toggle / threshold / preset (debounced)
 // ---------------------------------------------------------------------------
 
+let settingsHydrated = false
 let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+let _successTimer: ReturnType<typeof setTimeout> | null = null
+
+function settingsPayload() {
+  return {
+    enabled: form.enabled,
+    llm_preset_id: form.llm_preset_id || '',
+    prompt_preset_id: form.prompt_preset_id || '',
+    confidence_threshold: form.confidence_threshold,
+    folders: flattenAutoClassifyTree(folderTree.value),
+  }
+}
+
+function showSaved(duration = 2500) {
+  if (_successTimer) clearTimeout(_successTimer)
+  saveSuccess.value = true
+  _successTimer = setTimeout(() => {
+    saveSuccess.value = false
+    _successTimer = null
+  }, duration)
+}
 
 function _scheduleAutoSave() {
+  if (!settingsHydrated) return
   if (_autoSaveTimer) clearTimeout(_autoSaveTimer)
   _autoSaveTimer = setTimeout(async () => {
     _autoSaveTimer = null
+    autoSaving.value = true
+    saveError.value = ''
+    saveSuccess.value = false
     try {
-      await saveUserSettings('auto_classify', {
-        enabled: form.enabled,
-        llm_preset_id: form.llm_preset_id || '',
-        prompt_preset_id: form.prompt_preset_id || '',
-        confidence_threshold: form.confidence_threshold,
-        folders: flattenAutoClassifyTree(folderTree.value),
-      })
-      saveSuccess.value = true
-      setTimeout(() => { saveSuccess.value = false }, 2000)
-    } catch { /* silently ignore; user can still use explicit save */ }
+      await saveUserSettings('auto_classify', settingsPayload())
+      showSaved(2000)
+    } catch (e: unknown) {
+      saveError.value = getApiErrorMessage(e, '自动保存失败，请重试')
+    } finally {
+      autoSaving.value = false
+    }
   }, 600)
 }
 
-watch(() => form.enabled, _scheduleAutoSave)
 watch(() => form.confidence_threshold, _scheduleAutoSave)
 watch(() => form.llm_preset_id, _scheduleAutoSave)
 watch(() => form.prompt_preset_id, _scheduleAutoSave)
+
+async function handleToggleEnabled() {
+  if (!settingsHydrated || saving.value || autoSaving.value) return
+  if (_autoSaveTimer) {
+    clearTimeout(_autoSaveTimer)
+    _autoSaveTimer = null
+  }
+  const previous = form.enabled
+  form.enabled = !previous
+  autoSaving.value = true
+  saveError.value = ''
+  saveSuccess.value = false
+  try {
+    await saveUserSettings('auto_classify', settingsPayload())
+    showSaved()
+  } catch (e: unknown) {
+    // A switch is a statement of server state, not an optimistic decoration.
+    // Revert it when persistence fails so the UI cannot falsely say enabled.
+    form.enabled = previous
+    saveError.value = getApiErrorMessage(e, '开关保存失败，请重试')
+  } finally {
+    autoSaving.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  if (_autoSaveTimer) clearTimeout(_autoSaveTimer)
+  if (_successTimer) clearTimeout(_successTimer)
+})
 
 // ---------------------------------------------------------------------------
 // Save (explicit, used as fallback)
 // ---------------------------------------------------------------------------
 
 async function handleSave() {
+  if (_autoSaveTimer) {
+    clearTimeout(_autoSaveTimer)
+    _autoSaveTimer = null
+  }
   saving.value = true
   saveError.value = ''
   saveSuccess.value = false
   try {
-    await saveUserSettings('auto_classify', {
-      enabled: form.enabled,
-      llm_preset_id: form.llm_preset_id || '',
-      prompt_preset_id: form.prompt_preset_id || '',
-      confidence_threshold: form.confidence_threshold,
-      folders: flattenAutoClassifyTree(folderTree.value),
-    })
-    saveSuccess.value = true
-    setTimeout(() => { saveSuccess.value = false }, 2500)
-  } catch (e: any) {
-    saveError.value = e?.message || '保存失败'
+    await saveUserSettings('auto_classify', settingsPayload())
+    showSaved()
+  } catch (e: unknown) {
+    saveError.value = getApiErrorMessage(e, '保存失败')
   } finally {
     saving.value = false
   }
@@ -263,15 +316,8 @@ async function handleSyncFolders(): Promise<boolean> {
     const flat = flattenAutoClassifyTree(folderTree.value)
     const res = await syncAutoClassifyFolders(flat, 'kb')
     folderTree.value = buildAutoClassifyTree(res.folders, newKey)
-    await saveUserSettings('auto_classify', {
-      enabled: form.enabled,
-      llm_preset_id: form.llm_preset_id || '',
-      prompt_preset_id: form.prompt_preset_id || '',
-      confidence_threshold: form.confidence_threshold,
-      folders: flattenAutoClassifyTree(folderTree.value),
-    })
-    saveSuccess.value = true
-    setTimeout(() => { saveSuccess.value = false }, 2500)
+    await saveUserSettings('auto_classify', settingsPayload())
+    showSaved()
     return true
   } catch (e: any) {
     saveError.value = e?.message || '同步目录失败'
@@ -438,11 +484,13 @@ const selectedLlmPreset = computed(() =>
               <span
                 :class="[
                   'text-[10px] font-semibold px-2 py-0.5 rounded-full',
-                  form.enabled
+                  autoSaving
+                    ? 'bg-amber-500/10 text-amber-400'
+                    : form.enabled
                     ? 'bg-tinder-green/15 text-tinder-green'
                     : 'bg-bg-elevated text-text-muted'
                 ]"
-              >{{ form.enabled ? '已启用' : '已停用' }}</span>
+              >{{ autoSaving ? '保存中…' : (form.enabled ? '已启用' : '已停用') }}</span>
             </div>
             <p class="text-xs text-text-muted leading-relaxed">
               收藏论文后自动调用 AI 判断应归入哪个文件夹，无需手动整理
@@ -451,12 +499,17 @@ const selectedLlmPreset = computed(() =>
 
           <!-- Toggle switch -->
           <button
+            data-testid="auto-classify-toggle"
             type="button"
+            :disabled="saving || autoSaving || !settingsHydrated"
+            :aria-checked="form.enabled"
+            :aria-busy="autoSaving"
+            role="switch"
             :class="[
-              'relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none shrink-0',
+              'relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none shrink-0 disabled:cursor-wait disabled:opacity-60',
               form.enabled ? 'bg-tinder-green' : 'bg-bg-elevated border border-border'
             ]"
-            @click="form.enabled = !form.enabled"
+            @click="handleToggleEnabled"
           >
             <span
               :class="[
@@ -530,7 +583,7 @@ const selectedLlmPreset = computed(() =>
         <svg class="w-4 h-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
         </svg>
-        收藏后的自动分类已停用；模型设置、目录编辑和「AI 拓展目录」仍可单独使用。
+        收藏后的自动分类已停用；模型设置、目录编辑和「AI 拓展目录」仍可单独使用。重新启用后，新收藏会自动分类，已有未分类论文可点击「全部重新分类」补处理。
       </div>
 
       <!-- ══════════════════════════════════════════════════════════════
@@ -1030,15 +1083,15 @@ const selectedLlmPreset = computed(() =>
             <!-- Save button -->
             <button
               type="button"
-              :disabled="saving"
+              :disabled="saving || autoSaving"
               class="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold text-white bg-tinder-green hover:bg-tinder-green/90 transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
               @click="handleSave"
             >
-              <svg v-if="saving" class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <svg v-if="saving || autoSaving" class="w-3.5 h-3.5 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
               </svg>
-              {{ saving ? '保存中…' : '保存设置' }}
+              {{ saving || autoSaving ? '保存中…' : '保存设置' }}
             </button>
 
             <!-- Save feedback -->
@@ -1055,7 +1108,7 @@ const selectedLlmPreset = computed(() =>
 
       <!-- Auto-save hint -->
       <p class="text-[11px] text-text-muted/40 text-right mt-2 px-1">
-        开关、阈值和模型的变更会自动保存
+        开关、阈值和模型的变更会自动保存；服务器确认后才会显示“已保存”
       </p>
 
     </template>

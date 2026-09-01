@@ -1788,16 +1788,28 @@ def get_read_status(user_id: int, paper_id: str, scope: str = _DEFAULT_SCOPE) ->
 
 def count_unclassified_papers(user_id: int, scope: str = _DEFAULT_SCOPE) -> int:
     """
-    Return the count of papers inside folders named '未分类' for this user+scope.
-    Used to surface the 'inbox overflowing' nudge in the UI.
+    Return papers that still need a classification decision.
+
+    This includes papers in a system ``未分类`` folder and root-level papers
+    whose classifier never ran, was skipped while disabled, or failed. Papers
+    intentionally placed in another folder are not treated as unclassified.
     """
     conn = _connect()
     try:
         row = conn.execute(
             """
-            SELECT COUNT(*) as cnt FROM kb_papers kp
-            JOIN kb_folders kf ON kp.folder_id = kf.id
-            WHERE kp.user_id = ? AND kp.scope = ? AND kf.name = '未分类'
+            SELECT COUNT(*) AS cnt
+            FROM kb_papers kp
+            LEFT JOIN kb_folders kf ON kp.folder_id = kf.id
+            WHERE kp.user_id = ?
+              AND kp.scope = ?
+              AND (
+                kf.name = '未分类'
+                OR (
+                  kp.folder_id IS NULL
+                  AND kp.classify_status IN ('none', 'skipped', 'failed')
+                )
+              )
             """,
             (user_id, scope),
         ).fetchone()
