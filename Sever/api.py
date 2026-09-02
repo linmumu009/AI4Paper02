@@ -300,11 +300,14 @@ async def startup_event():
     except Exception as exc:
         _logger.error("auto_classify recovery failed: %s", exc, exc_info=True)
 
-    # Start PDF cleanup auto-scheduler if enabled
+    # Start the cleanup scheduler for either fixed-time cleanup or disk-pressure protection.
     try:
         from services import pdf_cleanup_service as _pcs
         import config.config as _cfg
-        if getattr(_cfg, "PDF_CLEANUP_AUTO_ENABLED", False):
+        if (
+            getattr(_cfg, "PDF_CLEANUP_AUTO_ENABLED", False)
+            or getattr(_cfg, "PDF_CLEANUP_PRESSURE_ENABLED", True)
+        ):
             _pcs.start_auto_scheduler()
             _logger.info("PDF 清理自动调度线程已启动")
     except Exception as exc:

@@ -21,6 +21,9 @@ const form = ref({
   auto_enabled: false,
   auto_hour: 3,
   auto_minute: 0,
+  pressure_enabled: true,
+  min_free_gb: 10,
+  pressure_retention_days: 1,
 })
 let successTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -68,6 +71,9 @@ async function load() {
       auto_enabled: response.auto_enabled,
       auto_hour: response.auto_hour,
       auto_minute: response.auto_minute,
+      pressure_enabled: response.pressure_enabled,
+      min_free_gb: response.min_free_gb,
+      pressure_retention_days: response.pressure_retention_days,
     }
     if (response.last_result) {
       lastResult.value = normalizeResult({ ok: true, ...response.last_result })
@@ -187,6 +193,30 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div class="rounded-lg border border-border bg-bg-elevated/50 p-3 space-y-3">
+          <label class="flex items-start gap-3 cursor-pointer">
+            <span class="relative inline-flex items-center mt-0.5">
+              <input v-model="form.pressure_enabled" type="checkbox" class="sr-only peer" />
+              <span class="w-10 h-5 bg-bg-elevated rounded-full peer peer-checked:bg-amber-500 peer-focus:outline-none transition-colors"></span>
+              <span class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-5"></span>
+            </span>
+            <span>
+              <span class="block text-sm text-text-secondary">启用磁盘低空间保护</span>
+              <span class="block text-[11px] text-text-muted mt-0.5">空间不足时无需等待固定时刻，自动缩短未收藏公共缓存的保留期；收藏、知识库和用户上传文件不会删除</span>
+            </span>
+          </label>
+          <div v-if="form.pressure_enabled" class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="pdf-cleanup-min-free" class="text-xs text-text-muted block mb-1">至少保留空间（GB）</label>
+              <input id="pdf-cleanup-min-free" v-model.number="form.min_free_gb" type="number" min="1" max="1000" step="0.5" class="w-full px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
+            </div>
+            <div>
+              <label for="pdf-pressure-retention" class="text-xs text-text-muted block mb-1">保护触发时保留天数</label>
+              <input id="pdf-pressure-retention" v-model.number="form.pressure_retention_days" type="number" min="1" max="3650" class="w-full px-3 py-1.5 rounded-lg bg-bg-elevated border border-border text-text-primary text-sm" />
+            </div>
+          </div>
+        </div>
+
         <button type="button" :disabled="saving" class="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-500 hover:bg-blue-600 text-white disabled:opacity-50" @click="saveConfig">
           {{ saving ? '保存中...' : '💾 保存配置' }}
         </button>
@@ -211,12 +241,27 @@ onBeforeUnmount(() => {
           <span :class="status.scheduler_alive ? 'bg-green-500' : 'bg-gray-500'" class="w-2 h-2 rounded-full"></span>
           <span class="text-xs text-text-secondary">{{ status.scheduler_alive ? '运行中' : '未运行' }}</span>
         </div>
+        <div v-if="status.disk?.available" class="rounded-lg bg-bg-elevated px-3 py-2.5 text-xs">
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-text-muted">服务器磁盘</span>
+            <span :class="status.disk.pressure_active ? 'text-amber-400' : 'text-green-400'" class="font-medium">
+              剩余 {{ formatBytes(status.disk.free_bytes ?? 0) }} · 已用 {{ status.disk.used_percent ?? 0 }}%
+            </span>
+          </div>
+          <p class="mt-1 text-[11px] text-text-muted">
+            低于 {{ status.min_free_gb }} GB 时{{ status.pressure_enabled ? `自动按 ${status.pressure_retention_days} 天保留期清理` : '不会自动处理（保护已关闭）' }}
+          </p>
+        </div>
+        <div v-if="status.disk?.pressure_active" role="alert" class="rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-300">
+          当前已进入低空间保护区间，调度器会优先回收未收藏公共缓存。
+        </div>
       </div>
 
       <div v-if="lastResult" class="rounded-xl bg-bg-card border border-border p-5 space-y-3">
         <div class="flex items-center justify-between">
           <h3 class="text-sm font-semibold text-text-primary">最近一次结果</h3>
           <span v-if="lastResult.dry_run" class="text-[11px] text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">预览模式</span>
+          <span v-else-if="lastResult.trigger === 'disk_pressure'" class="text-[11px] text-amber-400 border border-amber-500/30 rounded px-1.5 py-0.5">低空间保护</span>
           <span v-else class="text-[11px] text-green-400 border border-green-500/30 rounded px-1.5 py-0.5">实际清理</span>
         </div>
         <div class="grid grid-cols-3 gap-3 text-center">

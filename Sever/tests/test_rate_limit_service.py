@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 _SEVER = Path(__file__).resolve().parents[1]
@@ -15,6 +16,7 @@ from services.rate_limit_service import (  # noqa: E402
     PersistentRateLimiter,
     RateLimitExceeded,
 )
+from services import rate_limit_service  # noqa: E402
 
 
 class RateLimitServiceTests(unittest.TestCase):
@@ -70,6 +72,32 @@ class RateLimitServiceTests(unittest.TestCase):
         self.assertIsNotNone(row)
         self.assertNotEqual(row[0], raw_key)
         self.assertEqual(len(row[0]), 64)
+
+    def test_sqlite_failure_uses_bounded_memory_fallback(self) -> None:
+        limiter = self._limiter()
+        with patch.object(
+            rate_limit_service,
+            "_connect",
+            side_effect=sqlite3.OperationalError("disk I/O error"),
+        ):
+            limiter.check("same-client")
+            limiter.check("same-client")
+            with self.assertRaises(RateLimitExceeded) as caught:
+                limiter.check("same-client")
+
+        self.assertEqual(caught.exception.retry_after_seconds, 60)
+
+    def test_memory_fallback_expires_with_the_window(self) -> None:
+        limiter = self._limiter()
+        with patch.object(
+            rate_limit_service,
+            "_connect",
+            side_effect=sqlite3.OperationalError("database is full"),
+        ):
+            limiter.check("same-client")
+            limiter.check("same-client")
+            self.now += 61
+            limiter.check("same-client")
 
 
 if __name__ == "__main__":

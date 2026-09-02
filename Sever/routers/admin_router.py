@@ -842,6 +842,9 @@ class PdfCleanupConfigBody(BaseModel):
     auto_enabled: bool = Field(False, description="是否启用自动定时清理")
     auto_hour: int = Field(3, ge=0, le=23, description="自动清理触发时间（小时）")
     auto_minute: int = Field(0, ge=0, le=59, description="自动清理触发时间（分钟）")
+    pressure_enabled: bool = Field(True, description="是否启用磁盘低空间保护")
+    min_free_gb: float = Field(10.0, ge=1, le=1000, description="低空间保护触发阈值（GB）")
+    pressure_retention_days: int = Field(1, ge=1, le=3650, description="低空间保护临时保留天数")
 
 
 class PdfCleanupRunBody(BaseModel):
@@ -890,9 +893,12 @@ def api_admin_pdf_cleanup_config(
             "PDF_CLEANUP_AUTO_ENABLED": body.auto_enabled,
             "PDF_CLEANUP_HOUR": body.auto_hour,
             "PDF_CLEANUP_MINUTE": body.auto_minute,
+            "PDF_CLEANUP_PRESSURE_ENABLED": body.pressure_enabled,
+            "PDF_CLEANUP_MIN_FREE_GB": body.min_free_gb,
+            "PDF_CLEANUP_PRESSURE_RETENTION_DAYS": body.pressure_retention_days,
         })
         from services import pdf_cleanup_service
-        if body.auto_enabled:
+        if body.auto_enabled or body.pressure_enabled:
             pdf_cleanup_service.start_auto_scheduler()
         return {
             "ok": True,
@@ -902,6 +908,9 @@ def api_admin_pdf_cleanup_config(
                 "auto_enabled": body.auto_enabled,
                 "auto_hour": body.auto_hour,
                 "auto_minute": body.auto_minute,
+                "pressure_enabled": body.pressure_enabled,
+                "min_free_gb": body.min_free_gb,
+                "pressure_retention_days": body.pressure_retention_days,
             },
         }
     except ValueError as e:

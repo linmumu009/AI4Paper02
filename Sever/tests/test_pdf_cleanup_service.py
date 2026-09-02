@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 
@@ -12,6 +13,7 @@ if str(_SEVER) not in sys.path:
     sys.path.insert(0, str(_SEVER))
 
 from services import pdf_cleanup_service  # noqa: E402
+import config.config as config  # noqa: E402
 
 
 class PdfCleanupServiceTests(unittest.TestCase):
@@ -127,6 +129,57 @@ class PdfCleanupServiceTests(unittest.TestCase):
         self.assertEqual(len(result["errors"]), 1)
         self.assertTrue(target.exists())
         self.assertNotIn("last_success_date", pdf_cleanup_service._load_state())
+
+    def test_disk_status_reports_pressure_against_configured_reserve(self) -> None:
+        gib = 1024 ** 3
+        with (
+            patch.object(config, "PDF_CLEANUP_MIN_FREE_GB", 10.0),
+            patch.object(
+                pdf_cleanup_service.shutil,
+                "disk_usage",
+                return_value=SimpleNamespace(
+                    total=40 * gib,
+                    used=32 * gib,
+                    free=8 * gib,
+                ),
+            ),
+        ):
+            status = pdf_cleanup_service._get_disk_status()
+
+        self.assertTrue(status["available"])
+        self.assertTrue(status["pressure_active"])
+        self.assertEqual(status["used_percent"], 80.0)
+        self.assertEqual(status["min_free_gb"], 10.0)
+
+    def test_pressure_loop_uses_stricter_retention_without_waiting_for_hour(self) -> None:
+        with (
+            patch.object(config, "PDF_CLEANUP_AUTO_ENABLED", False),
+            patch.object(config, "PDF_CLEANUP_PRESSURE_ENABLED", True),
+            patch.object(config, "PDF_CLEANUP_RETENTION_DAYS", 14),
+            patch.object(config, "PDF_CLEANUP_PRESSURE_RETENTION_DAYS", 1),
+            patch.object(
+                pdf_cleanup_service,
+                "_get_disk_status",
+                return_value={
+                    "available": True,
+                    "free_bytes": 8 * 1024 ** 3,
+                    "min_free_gb": 10.0,
+                    "pressure_active": True,
+                },
+            ),
+            patch.object(pdf_cleanup_service.time, "monotonic", return_value=1000),
+            patch.object(pdf_cleanup_service._auto_stop, "is_set", side_effect=[False, True]),
+            patch.object(pdf_cleanup_service._auto_stop, "wait", return_value=False),
+            patch.object(pdf_cleanup_service, "run_cleanup") as run_cleanup,
+            patch.object(pdf_cleanup_service, "_last_pressure_attempt_monotonic", 0.0),
+        ):
+            pdf_cleanup_service._auto_loop()
+
+        run_cleanup.assert_called_once_with(
+            retention_days=1,
+            dry_run=False,
+            trigger="disk_pressure",
+        )
 
 
 if __name__ == "__main__":

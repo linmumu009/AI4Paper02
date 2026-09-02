@@ -19,6 +19,7 @@ import os
 import shutil
 import sqlite3
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
@@ -38,6 +39,7 @@ _MANAGED_DIRECTORY_SOURCES = (
     "selectedpaper_to_mineru",
 )
 _MANAGED_SOURCES = ("raw_pdf", *_MANAGED_DIRECTORY_SOURCES)
+_PRESSURE_COOLDOWN_SECONDS = 15 * 60
 
 
 class CleanupSafetyError(RuntimeError):
@@ -144,12 +146,45 @@ def _delete_target(path: Path) -> None:
         path.unlink()
 
 
+def _get_disk_status() -> dict[str, Any]:
+    """Return cache-volume capacity and the configured low-space threshold."""
+    import config.config as config
+
+    min_free_gb = max(
+        1.0,
+        float(getattr(config, "PDF_CLEANUP_MIN_FREE_GB", 10.0)),
+    )
+    min_free_bytes = int(min_free_gb * 1024 ** 3)
+    try:
+        usage = shutil.disk_usage(_DATA_ROOT)
+    except OSError as exc:
+        return {
+            "available": False,
+            "error": redact_sensitive_text(str(exc)),
+            "min_free_gb": min_free_gb,
+            "min_free_bytes": min_free_bytes,
+            "pressure_active": False,
+        }
+    return {
+        "available": True,
+        "total_bytes": usage.total,
+        "used_bytes": usage.used,
+        "free_bytes": usage.free,
+        "used_percent": round(usage.used / usage.total * 100, 1) if usage.total else 0.0,
+        "min_free_gb": min_free_gb,
+        "min_free_bytes": min_free_bytes,
+        "pressure_active": usage.free < min_free_bytes,
+    }
+
+
 def run_cleanup(
     retention_days: int | None = None,
     dry_run: bool = False,
+    trigger: str = "manual",
 ) -> dict[str, Any]:
     """Preview or remove expired, unsaved shared recommendation resources."""
     started_at = datetime.now(timezone.utc).isoformat()
+    disk_before = _get_disk_status()
 
     if retention_days is None:
         try:
@@ -222,6 +257,7 @@ def run_cleanup(
     finished_at = datetime.now(timezone.utc).isoformat()
     result: dict[str, Any] = {
         "dry_run": dry_run,
+        "trigger": trigger,
         "retention_days": retention_days,
         "managed_sources": list(_MANAGED_SOURCES),
         "sources": source_stats,
@@ -236,6 +272,8 @@ def run_cleanup(
         "errors": errors[:50],
         "started_at": started_at,
         "finished_at": finished_at,
+        "disk_before": disk_before,
+        "disk_after": _get_disk_status(),
     }
 
     if not dry_run:
@@ -267,18 +305,77 @@ def run_cleanup(
 
 _auto_thread: threading.Thread | None = None
 _auto_stop = threading.Event()
+_last_pressure_attempt_monotonic = 0.0
 
 
 def _auto_loop() -> None:
     """Run at or after the configured time, retrying failures the same day."""
+    global _last_pressure_attempt_monotonic
     while not _auto_stop.is_set():
         try:
             import config.config as config
-            if not getattr(config, "PDF_CLEANUP_AUTO_ENABLED", False):
+            auto_enabled = bool(getattr(config, "PDF_CLEANUP_AUTO_ENABLED", False))
+            pressure_enabled = bool(
+                getattr(config, "PDF_CLEANUP_PRESSURE_ENABLED", True)
+            )
+            if not auto_enabled and not pressure_enabled:
                 _auto_stop.wait(60)
                 continue
 
             now = datetime.now()
+            monotonic_now = time.monotonic()
+
+            if (
+                pressure_enabled
+                and monotonic_now - _last_pressure_attempt_monotonic
+                >= _PRESSURE_COOLDOWN_SECONDS
+            ):
+                disk_status = _get_disk_status()
+                if disk_status.get("pressure_active"):
+                    _last_pressure_attempt_monotonic = monotonic_now
+                    regular_retention = max(
+                        1,
+                        int(getattr(config, "PDF_CLEANUP_RETENTION_DAYS", 14)),
+                    )
+                    pressure_retention = max(
+                        1,
+                        int(
+                            getattr(
+                                config,
+                                "PDF_CLEANUP_PRESSURE_RETENTION_DAYS",
+                                1,
+                            )
+                        ),
+                    )
+                    effective_retention = min(
+                        regular_retention,
+                        pressure_retention,
+                    )
+                    logger.warning(
+                        "pdf_cleanup_service: 磁盘低空间保护触发 free=%.2f GB "
+                        "threshold=%.2f GB retention=%d days",
+                        int(disk_status.get("free_bytes", 0)) / 1024 ** 3,
+                        float(disk_status.get("min_free_gb", 0)),
+                        effective_retention,
+                    )
+                    try:
+                        run_cleanup(
+                            retention_days=effective_retention,
+                            dry_run=False,
+                            trigger="disk_pressure",
+                        )
+                    except Exception as exc:
+                        logger.error(
+                            "pdf_cleanup_service: 磁盘低空间保护清理失败: %r",
+                            exc,
+                        )
+                    _auto_stop.wait(60)
+                    continue
+
+            if not auto_enabled:
+                _auto_stop.wait(60)
+                continue
+
             today = now.date().isoformat()
             scheduled = now.replace(
                 hour=int(getattr(config, "PDF_CLEANUP_HOUR", 3)),
@@ -291,7 +388,7 @@ def _auto_loop() -> None:
             if now >= scheduled and last_success_date != today:
                 logger.info("pdf_cleanup_service: 自动资源清理开始 date=%s", today)
                 try:
-                    run_cleanup(dry_run=False)
+                    run_cleanup(dry_run=False, trigger="scheduled")
                 except Exception as exc:
                     # The day remains incomplete, so the next tick retries.
                     logger.error("pdf_cleanup_service: 自动资源清理失败: %r", exc)
@@ -329,6 +426,18 @@ def get_status() -> dict[str, Any]:
         "retention_days": getattr(config, "PDF_CLEANUP_RETENTION_DAYS", 14),
         "auto_hour": getattr(config, "PDF_CLEANUP_HOUR", 3),
         "auto_minute": getattr(config, "PDF_CLEANUP_MINUTE", 0),
+        "pressure_enabled": getattr(
+            config,
+            "PDF_CLEANUP_PRESSURE_ENABLED",
+            True,
+        ),
+        "min_free_gb": getattr(config, "PDF_CLEANUP_MIN_FREE_GB", 10.0),
+        "pressure_retention_days": getattr(
+            config,
+            "PDF_CLEANUP_PRESSURE_RETENTION_DAYS",
+            1,
+        ),
+        "disk": _get_disk_status(),
         "scheduler_alive": scheduler_alive,
         "managed_sources": list(_MANAGED_SOURCES),
         "last_run_at": state.get("last_run_at"),

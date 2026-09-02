@@ -2677,6 +2677,7 @@ export async function fetchCalibrationStatus(): Promise<CalibrationStatus> {
 
 export interface PdfCleanupResult {
   dry_run: boolean
+  trigger?: 'manual' | 'scheduled' | 'disk_pressure' | string
   retention_days: number
   managed_sources?: string[]
   sources?: Record<string, {
@@ -2697,6 +2698,20 @@ export interface PdfCleanupResult {
   errors: string[]
   started_at: string
   finished_at: string
+  disk_before?: PdfCleanupDiskStatus
+  disk_after?: PdfCleanupDiskStatus
+}
+
+export interface PdfCleanupDiskStatus {
+  available: boolean
+  total_bytes?: number
+  used_bytes?: number
+  free_bytes?: number
+  used_percent?: number
+  min_free_gb: number
+  min_free_bytes: number
+  pressure_active: boolean
+  error?: string
 }
 
 export interface PdfCleanupStatus {
@@ -2705,6 +2720,10 @@ export interface PdfCleanupStatus {
   retention_days: number
   auto_hour: number
   auto_minute: number
+  pressure_enabled: boolean
+  min_free_gb: number
+  pressure_retention_days: number
+  disk: PdfCleanupDiskStatus
   scheduler_alive: boolean
   managed_sources?: string[]
   last_run_at: string | null
@@ -2740,6 +2759,9 @@ export async function savePdfCleanupConfig(config: {
   auto_enabled: boolean
   auto_hour: number
   auto_minute: number
+  pressure_enabled: boolean
+  min_free_gb: number
+  pressure_retention_days: number
 }): Promise<{ ok: boolean; message: string }> {
   const { data } = await http.post<{ ok: boolean; message: string }>('/admin/pdf-cleanup/config', config)
   return data

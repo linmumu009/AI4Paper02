@@ -68,6 +68,11 @@ PDF_CLEANUP_AUTO_ENABLED: bool = False
 # 自动清理触发时间（本地时区，小时/分钟）
 PDF_CLEANUP_HOUR: int = 3
 PDF_CLEANUP_MINUTE: int = 0
+# 磁盘空间不足时，不等待固定时刻，自动缩短未收藏公共缓存的保留期。
+# 已收藏论文、知识库副本和用户上传文件仍受清理服务保护。
+PDF_CLEANUP_PRESSURE_ENABLED: bool = True
+PDF_CLEANUP_MIN_FREE_GB: float = 10.0
+PDF_CLEANUP_PRESSURE_RETENTION_DAYS: int = 1
 
 # [Controller/arxiv_search.py] 分页与筛选参数
 PAGE_SIZE_DEFAULT = 200

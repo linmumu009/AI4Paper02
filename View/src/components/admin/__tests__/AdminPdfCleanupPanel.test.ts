@@ -20,6 +20,19 @@ const statusResponse = {
   retention_days: 14,
   auto_hour: 3,
   auto_minute: 0,
+  pressure_enabled: true,
+  min_free_gb: 10,
+  pressure_retention_days: 1,
+  disk: {
+    available: true,
+    total_bytes: 40 * 1024 ** 3,
+    used_bytes: 32 * 1024 ** 3,
+    free_bytes: 8 * 1024 ** 3,
+    used_percent: 80,
+    min_free_gb: 10,
+    min_free_bytes: 10 * 1024 ** 3,
+    pressure_active: true,
+  },
   scheduler_alive: true,
   last_run_at: null,
   last_result: null,
@@ -39,6 +52,9 @@ describe('AdminPdfCleanupPanel', () => {
     expect(wrapper.text()).toContain('调度线程状态')
     expect(wrapper.text()).toContain('运行中')
     expect(wrapper.text()).toContain('PDF、MinerU 解析')
+    expect(wrapper.text()).toContain('磁盘低空间保护')
+    expect(wrapper.text()).toContain('剩余 8.0 GB')
+    expect(wrapper.text()).toContain('当前已进入低空间保护区间')
   })
 
   it('runs a dry-run preview and renders normalized results', async () => {

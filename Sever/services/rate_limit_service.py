@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import os
 import sqlite3
+import threading
 import time
+from collections import deque
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -17,6 +20,7 @@ _DB_PATH = os.environ.get(
     str(_SEVER_ROOT / "database" / "security_rate_limits.db"),
 )
 _KEY_PEPPER = os.environ.get("AI4PAPERS_RATE_LIMIT_PEPPER", "ai4papers-rate-limit-v1")
+logger = logging.getLogger(__name__)
 
 
 class RateLimitExceeded(Exception):
@@ -71,14 +75,42 @@ class PersistentRateLimiter:
         self.window_seconds = int(window_seconds)
         self.db_path = str(db_path or _DB_PATH)
         self.clock = clock
+        self._fallback_events: dict[str, deque[float]] = {}
+        self._fallback_lock = threading.Lock()
+        self._last_storage_warning = float("-inf")
+
+    def _check_memory_fallback(self, key_hash: str, now: float) -> None:
+        """Keep rate limiting effective when the durable store is temporarily unwritable."""
+        cutoff = now - self.window_seconds
+        with self._fallback_lock:
+            events = self._fallback_events.setdefault(key_hash, deque())
+            while events and events[0] <= cutoff:
+                events.popleft()
+            if len(events) >= self.max_attempts:
+                retry_after = math.ceil(events[0] + self.window_seconds - now)
+                raise RateLimitExceeded(retry_after)
+            events.append(now)
+
+    def _warn_storage_fallback(self, exc: sqlite3.Error) -> None:
+        monotonic_now = time.monotonic()
+        if monotonic_now - self._last_storage_warning < 60:
+            return
+        self._last_storage_warning = monotonic_now
+        logger.warning(
+            "rate_limit_service: durable store unavailable for bucket=%s; "
+            "using process-local fallback (%s)",
+            self.bucket,
+            type(exc).__name__,
+        )
 
     def check(self, key: str) -> None:
         normalized = str(key or "unknown").strip().lower() or "unknown"
         key_hash = _hash_key(self.bucket, normalized)
         now = float(self.clock())
         cutoff = now - self.window_seconds
-        conn = _connect(self.db_path)
+        conn: sqlite3.Connection | None = None
         try:
+            conn = _connect(self.db_path)
             conn.execute("BEGIN IMMEDIATE")
             conn.execute(
                 "DELETE FROM rate_limit_events WHERE bucket = ? AND occurred_at <= ?",
@@ -105,9 +137,15 @@ class PersistentRateLimiter:
                 (self.bucket, key_hash, now),
             )
             conn.commit()
+        except sqlite3.Error as exc:
+            if conn is not None and conn.in_transaction:
+                conn.rollback()
+            self._warn_storage_fallback(exc)
+            self._check_memory_fallback(key_hash, now)
         except Exception:
-            if conn.in_transaction:
+            if conn is not None and conn.in_transaction:
                 conn.rollback()
             raise
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
