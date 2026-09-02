@@ -36,9 +36,26 @@ def load_existing() -> List[Dict[str, Any]]:
     return []
 
 
-def build_seen_keys(items: List[Dict[str, Any]]) -> set:
+def _history_batch_date(item: Dict[str, Any]) -> str:
+    explicit = str(item.get("batch_date", "")).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", explicit):
+        return explicit
+    written_at = str(item.get("writing_datetime", "")).strip()
+    match = re.match(r"\d{4}-\d{2}-\d{2}", written_at)
+    return match.group(0) if match else ""
+
+
+def build_seen_keys(
+    items: List[Dict[str, Any]],
+    *,
+    exclude_batch_date: str | None = None,
+) -> set:
     seen = set()
     for item in items:
+        if exclude_batch_date and _history_batch_date(item) == exclude_batch_date:
+            # A retry of the same acquisition batch must not filter out the
+            # papers that its first attempt already recorded in history.
+            continue
         title = str(item.get("title", "")).strip()
         source = str(item.get("source", "")).strip()
         if title or source:
@@ -152,7 +169,12 @@ def extract_date_from_name(name: str) -> str:
     return m.group(0) if m else datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def append_to_config(existing: List[Dict[str, Any]], new_items: List[Dict[str, str]]) -> None:
+def append_to_config(
+    existing: List[Dict[str, Any]],
+    new_items: List[Dict[str, str]],
+    *,
+    batch_date: str,
+) -> None:
     if not new_items:
         return
     now = datetime.now(timezone.utc).isoformat()
@@ -161,6 +183,7 @@ def append_to_config(existing: List[Dict[str, Any]], new_items: List[Dict[str, s
             "title": str(item.get("title", "")).strip(),
             "source": str(item.get("source", "")).strip(),
             "writing_datetime": now,
+            "batch_date": batch_date,
         }
         existing.append(rec)
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -269,8 +292,9 @@ def run() -> None:
 
     json_path = find_latest_json(args.json if args.json else None)
     json_obj, papers = load_json_papers(json_path)
+    date_str = extract_date_from_name(json_path.name)
     existing = load_existing()
-    seen = build_seen_keys(existing)
+    seen = build_seen_keys(existing, exclude_batch_date=date_str)
 
     today_items = []
     for p in papers:
@@ -279,7 +303,17 @@ def run() -> None:
         if title or arxiv_id:
             today_items.append({"title": title, "source": arxiv_id})
     new_items = filter_new_items(today_items, seen)
-    append_to_config(existing, new_items)
+    full_history_keys = build_seen_keys(existing)
+    history_items = [
+        item
+        for item in new_items
+        if (
+            str(item.get("title", "")).strip(),
+            str(item.get("source", "")).strip(),
+        )
+        not in full_history_keys
+    ]
+    append_to_config(existing, history_items, batch_date=date_str)
 
     keep_keys = {(it["title"], it["source"]) for it in new_items}
     kept_papers = []
@@ -296,7 +330,6 @@ def run() -> None:
     if args.out_json:
         out_json_path = Path(args.out_json)
     else:
-        date_str = extract_date_from_name(json_path.name)
         out_json_path = DEDUP_DIR / datetime.strptime(date_str, "%Y-%m-%d").strftime(JSON_FILENAME_FMT)
     out_json_path.parent.mkdir(parents=True, exist_ok=True)
     out_json_path.write_text(json.dumps(out_obj, ensure_ascii=False, indent=2), encoding="utf-8")

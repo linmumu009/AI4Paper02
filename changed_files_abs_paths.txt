@@ -423,3 +423,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\config_mapper.
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_llm_config_binding_sync.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\kb_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_kb_save_fast_path.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paperList_remove_duplications.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_paper_dedup_retry_idempotency.py
