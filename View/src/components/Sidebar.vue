@@ -1586,6 +1586,11 @@ function toggleMyPaperAddMenu(paperId: string) {
   myPaperAddMenuPaperId.value = myPaperAddMenuPaperId.value === paperId ? null : paperId
 }
 
+function showNoteActionError(error: any, fallback: string) {
+  const detail = error?.response?.data?.detail
+  showError(typeof detail === 'string' ? detail : fallback)
+}
+
 async function handleMyPaperCreateNote(paperId: string) {
   myPaperAddMenuPaperId.value = null
   try {
@@ -1595,7 +1600,9 @@ async function handleMyPaperCreateNote(paperId: string) {
     myPaperExpandedPaperLinks.value = next
     await loadMyPaperNotes(paperId)
     emit('openNote', { id: note.id, paperId })
-  } catch {}
+  } catch (error) {
+    showNoteActionError(error, '新建笔记失败，请稍后重试')
+  }
 }
 
 const myPaperFileInputRef = ref<HTMLInputElement | null>(null)
@@ -1621,7 +1628,9 @@ async function onMyPaperFileSelected(e: Event) {
     next.add(myPaperUploadTargetPaperId.value)
     myPaperExpandedPaperLinks.value = next
     await loadMyPaperNotes(myPaperUploadTargetPaperId.value)
-  } catch {}
+  } catch (error) {
+    showNoteActionError(error, '上传笔记附件失败，请稍后重试')
+  }
   input.value = ''
 }
 
@@ -1636,7 +1645,9 @@ async function handleMyPaperAddLink(paperId: string) {
     next.add(paperId)
     myPaperExpandedPaperLinks.value = next
     await loadMyPaperNotes(paperId)
-  } catch {}
+  } catch (error) {
+    showNoteActionError(error, '添加链接失败，请稍后重试')
+  }
 }
 
 async function handleDeleteMyPaperNote(noteId: number, paperId: string) {

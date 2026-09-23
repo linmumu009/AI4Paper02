@@ -62,7 +62,7 @@ class RenamePaperBody(BaseModel):
 class CreateNoteBody(BaseModel):
     title: str = Field(default="未命名笔记", max_length=256)
     content: str = Field(default="", max_length=500000)
-    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
+    scope: str = Field(default="kb", pattern="^(kb|idea_library|mypapers)$")
 
 
 class UpdateNoteBody(BaseModel):
@@ -73,7 +73,7 @@ class UpdateNoteBody(BaseModel):
 class AddLinkBody(BaseModel):
     title: str = Field(..., min_length=1, max_length=256)
     url: str = Field(..., min_length=1, max_length=2048)
-    scope: str = Field(default="kb", pattern="^(kb|idea_library)$")
+    scope: str = Field(default="kb", pattern="^(kb|idea_library|mypapers)$")
 
 
 class ComparePapersBody(BaseModel):
@@ -437,6 +437,19 @@ def api_kb_move_papers(body: MovePapersBody, _user=Depends(auth_service.require_
 # Notes / files / links
 # ---------------------------------------------------------------------------
 
+def _require_note_paper(user_id: int, paper_id: str, scope: str) -> None:
+    if scope == "mypapers":
+        from services import user_paper_service
+
+        exists = user_paper_service.get_paper(user_id, paper_id) is not None
+    elif scope in ("kb", "idea_library"):
+        exists = kb_service.is_paper_in_kb(user_id, paper_id, scope=scope)
+    else:
+        raise HTTPException(status_code=422, detail="Unsupported note scope")
+    if not exists:
+        raise HTTPException(status_code=404, detail="Paper not found")
+
+
 @router.get("/papers/{paper_id}/notes", summary="List notes for a paper")
 def api_kb_list_notes(paper_id: str, scope: str = Query("kb"), _user=Depends(auth_service.require_user)):
     notes = kb_service.list_notes(_user["id"], paper_id, scope=scope)
@@ -448,8 +461,7 @@ def api_kb_list_notes(paper_id: str, scope: str = Query("kb"), _user=Depends(aut
 
 @router.post("/papers/{paper_id}/notes", summary="Create markdown note")
 def api_kb_create_note(paper_id: str, body: CreateNoteBody, _user=Depends(auth_service.require_user)):
-    if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=body.scope):
-        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    _require_note_paper(_user["id"], paper_id, body.scope)
     # Limit check: only enforce for the default "kb" scope
     if body.scope == "kb":
         limit_check = entitlement_service.check_kb_note_limit(_user["id"])
@@ -496,8 +508,7 @@ async def api_kb_upload_file(
     # Gate check: note file attachment upload is Pro/Pro+ only
     if not entitlement_service.check_boolean_gate(_user["id"], "note_file_upload"):
         raise HTTPException(status_code=403, detail="笔记附件上传仅 Pro 及以上套餐可用，请升级以继续使用")
-    if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=scope):
-        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    _require_note_paper(_user["id"], paper_id, scope)
 
     _MAX_UPLOAD_SIZE = 50 * 1024 * 1024
     try:
@@ -512,8 +523,7 @@ async def api_kb_upload_file(
 
 @router.post("/papers/{paper_id}/notes/link", summary="Add link")
 def api_kb_add_link(paper_id: str, body: AddLinkBody, _user=Depends(auth_service.require_user)):
-    if not kb_service.is_paper_in_kb(_user["id"], paper_id, scope=body.scope):
-        raise HTTPException(status_code=404, detail="Paper not in knowledge base")
+    _require_note_paper(_user["id"], paper_id, body.scope)
     note = kb_service.add_note_link(_user["id"], paper_id, body.title, body.url, scope=body.scope)
     return note
 
