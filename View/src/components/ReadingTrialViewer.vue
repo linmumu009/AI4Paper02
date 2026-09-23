@@ -117,6 +117,7 @@ const bodyRef = ref<HTMLElement | null>(null)
 const selectionMenu = ref<{ anchor: ReadingAnchor; quote: string; x: number; y: number } | null>(null)
 const anchorMessage = ref('')
 let anchorRestored = false
+let sourceHighlight: Highlight | null = null
 
 function captureSelection(event: MouseEvent | KeyboardEvent) {
   if (!props.paperId || (event instanceof KeyboardEvent && !event.shiftKey)) return
@@ -140,11 +141,21 @@ function restoreSourceAnchor(anchor: ReadingAnchor | null | undefined = props.so
     if (element instanceof HTMLDetailsElement) element.open = true
     element = element.parentElement
   }
-  const selection = window.getSelection()
-  selection?.removeAllRanges()
-  selection?.addRange(range)
-  range.startContainer.parentElement?.scrollIntoView({ block: 'center' })
   anchorMessage.value = '已定位并选中笔记中的原文。'
+  nextTick(() => {
+    const body = bodyRef.value
+    if (!body || !body.contains(range.startContainer)) return
+    body.focus({ preventScroll: true })
+    const bounds = range.getBoundingClientRect()
+    body.scrollTop += bounds.top - body.getBoundingClientRect().top - (body.clientHeight - bounds.height) / 2
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+    if (typeof Highlight !== 'undefined' && CSS.highlights) {
+      sourceHighlight = new Highlight(range)
+      CSS.highlights.set('reading-source', sourceHighlight)
+    }
+  })
 }
 watch(() => props.sourceAnchor, () => { anchorRestored = false; nextTick(() => restoreSourceAnchor()) })
 let tocObserver: IntersectionObserver | null = null
@@ -366,6 +377,7 @@ watch(showToc, (v) => {
 })
 
 onBeforeUnmount(() => {
+  if (sourceHighlight && CSS.highlights?.get('reading-source') === sourceHighlight) CSS.highlights.delete('reading-source')
   if (noticeTimer) clearTimeout(noticeTimer)
   tocObserver?.disconnect()
   _stopRefreshTimer()
@@ -487,6 +499,7 @@ onBeforeUnmount(() => {
         <!-- Markdown body -->
         <div
           ref="bodyRef"
+          tabindex="-1"
           @mouseup="captureSelection"
           @keyup="captureSelection"
           @scroll="selectionMenu = null"
@@ -790,5 +803,6 @@ onBeforeUnmount(() => {
 .markdown-viewer-body.reading-mode :deep(p) { text-indent: 2em; }
 .markdown-viewer-body.reading-mode :deep(li p), .markdown-viewer-body.reading-mode :deep(td p), .markdown-viewer-body.reading-mode :deep(th p), .markdown-viewer-body.reading-mode :deep(p:has(img)) { text-indent: 0; }
 .markdown-viewer-body ::selection { background: #e5bf62; color: #191919; }
+:global(::highlight(reading-source)) { background: #e5bf62; color: #191919; }
 @media (max-width: 600px) { .markdown-viewer-body.reading-mode { padding: 16px 16px 64px; } }
 </style>
