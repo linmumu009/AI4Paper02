@@ -82,7 +82,8 @@ const editor = useEditor({
       link: false,
     }),
     Image.configure({ inline: false, allowBase64: true }),
-    Link.configure({ openOnClick: true, autolink: true }),
+    // In the reading sidebar, the parent resolves source links in place.
+    Link.configure({ openOnClick: !props.compact, autolink: true }),
     Placeholder.configure({ placeholder: '开始写笔记...' }),
   ],
   editorProps: {
