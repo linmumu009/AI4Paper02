@@ -13,6 +13,7 @@ import AddToProjectDialog from '../components/project/AddToProjectDialog.vue'
 const props = defineProps<{
   id: string
   embedded?: boolean
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,6 +30,10 @@ const title = ref('')
 const lastSavedAt = ref('')
 const titleManuallyEdited = ref(false)
 const showProjectDialog = ref(false)
+const saveError = ref('')
+const externalUpdating = ref(false)
+let dirty = false
+let saveQueue: Promise<boolean> = Promise.resolve(true)
 
 // 离开路由的方式标记（仅路由模式下使用）
 const leaveMode = ref<'normal' | 'explicit-save' | null>(null)
@@ -74,6 +79,7 @@ const editor = useEditor({
   extensions: [
     StarterKit.configure({
       codeBlock: false,
+      link: false,
     }),
     Image.configure({ inline: false, allowBase64: true }),
     Link.configure({ openOnClick: true, autolink: true }),
@@ -85,6 +91,7 @@ const editor = useEditor({
     },
   },
   onUpdate() {
+    dirty = true
     syncAutoTitle()
     scheduleSave()
   },
@@ -116,7 +123,7 @@ async function flushSave() {
     clearTimeout(saveTimer)
     saveTimer = null
   }
-  await doSave()
+  return doSave()
 }
 
 async function loadNote() {
@@ -125,6 +132,7 @@ async function loadNote() {
   try {
     const data = await fetchNoteDetail(Number(props.id))
     note.value = data
+    dirty = false
     title.value = data.title
     if (editor.value) {
       // Loading an existing note must not trigger auto-title or autosave.
@@ -148,22 +156,47 @@ function scheduleSave() {
 }
 
 async function doSave() {
-  if (!note.value || !editor.value) return
-  saving.value = true
+  if (!note.value || !editor.value || !dirty) return saveQueue
+  // Capture before unmount and serialize autosaves with excerpt insertion.
+  const id = note.value.id
+  const html = editor.value.getHTML()
+  const savedTitle = title.value
+  const task = saveQueue.then(async () => {
+    saving.value = true
+    saveError.value = ''
+    try {
+      await updateNote(id, { title: savedTitle, content: html })
+      if (editor.value?.getHTML() === html && title.value === savedTitle) dirty = false
+      lastSavedAt.value = new Date().toLocaleTimeString()
+      emit('saved', { id, title: savedTitle })
+      return true
+    } catch {
+      saveError.value = '笔记尚未保存，请重试后再关闭。'
+      return false
+    } finally { saving.value = false }
+  })
+  saveQueue = task
+  return task
+}
+
+async function applyExternalUpdate(update: () => Promise<KbNote>): Promise<KbNote> {
+  if (loading.value || !note.value || !editor.value) throw new Error('笔记正在加载，请稍后重试。')
+  externalUpdating.value = true
+  editor.value?.setEditable(false, false)
   try {
-    const html = editor.value.getHTML()
-    await updateNote(note.value.id, { title: title.value, content: html })
+    if (!await flushSave()) throw new Error('笔记中的修改尚未保存，请先重试保存。')
+    const updated = await update()
+    note.value = updated
+    title.value = updated.title
+    editor.value?.commands.setContent(updated.content || '', { emitUpdate: false })
+    dirty = false
     lastSavedAt.value = new Date().toLocaleTimeString()
-    // 通知父组件：已保存，携带最新标题
-    emit('saved', { id: note.value.id, title: title.value })
-  } catch {
-    // silent
-  } finally {
-    saving.value = false
-  }
+    return updated
+  } finally { editor.value?.setEditable(true, false); externalUpdating.value = false }
 }
 
 function onTitleInput() {
+  dirty = true
   titleManuallyEdited.value = true
   scheduleSave()
 }
@@ -190,6 +223,7 @@ async function goBack() {
 }
 
 async function saveAndClose() {
+  if (props.compact) { await flushSave(); return }
   if (props.embedded) {
     if (saveTimer) clearTimeout(saveTimer)
     await doSave()
@@ -271,15 +305,17 @@ onBeforeRouteLeave(async (_to, _from, next) => {
 defineExpose({
   isEffectivelyEmpty,
   flushSave,
+  applyExternalUpdate,
 })
 </script>
 
 <template>
-  <div class="h-full flex flex-col bg-bg">
+  <div class="h-full flex flex-col bg-bg" :class="{ 'compact-editor': compact }" :inert="externalUpdating || undefined">
     <!-- Top bar -->
     <div class="flex items-center gap-3 px-4 py-3 border-b border-border bg-bg-sidebar shrink-0">
       <button
         class="w-8 h-8 rounded-lg flex items-center justify-center bg-bg-elevated hover:bg-bg-hover text-text-secondary hover:text-text-primary border-none cursor-pointer transition-colors text-sm"
+        v-if="!compact"
         @click="goBack"
         title="返回"
       >&larr;</button>
@@ -295,7 +331,7 @@ defineExpose({
       <span v-else-if="lastSavedAt" class="text-xs text-text-muted">已保存 {{ lastSavedAt }}</span>
 
       <button
-        v-if="note"
+        v-if="note && !compact"
         class="px-3 py-1.5 rounded-lg text-xs font-medium text-tinder-green border border-border bg-transparent cursor-pointer hover:bg-bg-hover"
         @click="showProjectDialog = true"
       >加入课题</button>
@@ -306,6 +342,7 @@ defineExpose({
       >保存</button>
     </div>
 
+    <p v-if="saveError" role="alert" class="px-4 py-2 text-sm text-red-500">{{ saveError }}</p>
     <!-- Toolbar -->
     <div class="flex items-center gap-0.5 px-4 py-2 border-b border-border bg-bg-sidebar shrink-0 overflow-x-auto">
       <button class="toolbar-btn" :class="{ active: editor?.isActive('heading', { level: 1 }) }" @click="toggleH1" title="标题 1">H1</button>
@@ -364,6 +401,10 @@ defineExpose({
 </template>
 
 <style scoped>
+.compact-editor > div:first-child { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+.compact-editor > div:first-child input { min-width: 120px; width: 100%; font-size: 15px; }
+.compact-editor :deep(.max-w-3xl) { padding: 16px; }
+.compact-editor :deep(.note-editor-content) { font-size: 15px; line-height: 1.7; overflow-wrap: anywhere; }
 .toolbar-btn {
   display: flex;
   align-items: center;

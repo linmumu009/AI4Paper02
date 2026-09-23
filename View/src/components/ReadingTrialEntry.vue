@@ -4,6 +4,7 @@ import { API_ORIGIN } from '../api'
 import MarkdownViewer from './MarkdownViewer.vue'
 import ReadingTrialViewer from './ReadingTrialViewer.vue'
 import type { KbScope } from '../api'
+import type { ReadingAnchor } from '../utils/readingAnchor'
 
 const props = defineProps<{
   paperId?: string
@@ -18,6 +19,8 @@ const version = ref('trial')
 const mode = ref<'mineru' | 'zh' | 'bilingual'>('bilingual')
 const dialog = ref<HTMLDialogElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
+const reader = ref<{ flushNotes?: () => Promise<boolean> } | null>(null)
+const sourceAnchor = ref<ReadingAnchor | null>(null)
 const choices = computed(() => [
   { value: 'mineru' as const, label: 'MinerU 解析', url: props.mineruUrl },
   { value: 'zh' as const, label: '中文翻译', url: props.zhUrl },
@@ -35,10 +38,15 @@ async function open() {
   await nextTick()
   dialog.value?.showModal()
 }
-function close() {
+async function close() {
+  if (reader.value?.flushNotes && !await reader.value.flushNotes()) return
   dialog.value?.close()
   opened.value = false
   trigger.value?.focus()
+}
+function navigateSource(payload: { mode: 'mineru' | 'zh' | 'bilingual'; anchor: ReadingAnchor }) {
+  mode.value = payload.mode
+  sourceAnchor.value = payload.anchor
 }
 </script>
 
@@ -51,11 +59,11 @@ function close() {
         <header class="trial-header">
           <strong>阅读体验对比</strong>
           <label>页面 <select v-model="version" aria-label="阅读版本"><option value="original">原版</option><option value="trial">新版（试用）</option></select></label>
-          <label>内容 <select v-model="mode" aria-label="阅读内容"><option v-for="item in choices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+          <label>内容 <select v-model="mode" aria-label="阅读内容" @change="sourceAnchor = null"><option v-for="item in choices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
           <button type="button" class="trial-close" @click="close">返回论文</button>
         </header>
         <div class="trial-stage" :style="version === 'original' ? { maxWidth: '792px' } : undefined">
-          <component :is="version === 'trial' ? ReadingTrialViewer : MarkdownViewer" :key="`${version}:${mode}`" :url="url" :mode="mode" :paper-id="paperId" :scope="scope" :auto-refresh-ms="translating && mode !== 'mineru' ? 4000 : 0" />
+          <component :is="version === 'trial' ? ReadingTrialViewer : MarkdownViewer" :key="version" ref="reader" :url="url" :mode="mode" :paper-id="paperId" :scope="scope" :source-anchor="sourceAnchor" :auto-refresh-ms="translating && mode !== 'mineru' ? 4000 : 0" @navigate-source="navigateSource" />
         </div>
       </dialog>
     </Teleport>
@@ -70,5 +78,5 @@ function close() {
 .trial-header { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--color-border); font-size: 13px; }
 .trial-header select, .trial-close { border: 1px solid var(--color-border); background: var(--color-bg-card); color: inherit; border-radius: 6px; padding: 5px 8px; }
 .trial-close { margin-left: auto; cursor: pointer; }
-.trial-stage { flex: 1; min-height: 0; display: flex; width: min(100%, 1100px); margin: 0 auto; padding: 12px; }
+.trial-stage { flex: 1; min-height: 0; display: flex; width: min(100%, 1564px); margin: 0 auto; padding: 12px; }
 </style>

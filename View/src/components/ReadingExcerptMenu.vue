@@ -7,8 +7,8 @@ import type { KbNote } from '../types/paper'
 import type { ReadingExcerptRequest } from '@shared/types/kb'
 import { excerptHtml, type ReadingAnchor } from '../utils/readingAnchor'
 
-const props = defineProps<{ paperId: string; scope: KbScope; mode: string; anchor: ReadingAnchor; quote: string; x: number; y: number }>()
-const emit = defineEmits<{ close: [] }>()
+const props = defineProps<{ paperId: string; scope: KbScope; mode: string; anchor: ReadingAnchor; quote: string; x: number; y: number; preferredNoteId?: number; appendToNote?: (id: number, update: () => Promise<KbNote>) => Promise<KbNote> }>()
+const emit = defineEmits<{ close: []; saved: [note: KbNote] }>()
 const notes = ref<KbNote[]>([])
 const chosen = ref('new')
 const loading = ref(true)
@@ -24,7 +24,7 @@ async function loadNotes() {
   error.value = ''
   try {
     notes.value = (await fetchNotes(props.paperId, props.scope)).notes.filter(note => note.type === 'markdown')
-    chosen.value = notes.value[0] ? String(notes.value[0].id) : 'new'
+    chosen.value = String(notes.value.find(note => note.id === props.preferredNoteId)?.id ?? notes.value[0]?.id ?? 'new')
     loaded.value = true
   } catch { error.value = '无法读取当前论文的笔记，请关闭后重试。' }
   finally { loading.value = false }
@@ -38,11 +38,12 @@ async function save() {
     if (chosen.value === 'new') saved.value = await createNote(props.paperId, newTitle.value.trim() || '阅读摘录', excerptHtml(props.quote, path), props.scope)
     else {
       const payload: ReadingExcerptRequest = { paper_id: props.paperId, scope: toApiKbScope(props.scope), text: props.quote, source_path: path }
-      const { data } = await http.post<KbNote>(`/kb/notes/${chosen.value}/excerpt`, payload)
-      saved.value = data
+      const update = async () => (await http.post<KbNote>(`/kb/notes/${chosen.value}/excerpt`, payload)).data
+      saved.value = props.appendToNote ? await props.appendToNote(Number(chosen.value), update) : await update()
     }
     window.dispatchEvent(new CustomEvent('reading-note-saved'))
-  } catch (cause: any) { error.value = cause?.response?.data?.detail || '保存失败，请重试。已选文字会保留。' }
+    emit('saved', saved.value)
+  } catch (cause: any) { error.value = cause?.response?.data?.detail || cause?.message || '保存失败，请重试。已选文字会保留。' }
   finally { saving.value = false }
 }
 </script>
@@ -53,8 +54,7 @@ async function save() {
     <p v-if="loading">正在读取当前论文的笔记…</p>
     <template v-else-if="saved">
       <p role="status">已添加到「{{ saved.title }}」</p>
-      <a :href="`/notes/${saved.id}`" target="_blank" rel="noopener">打开笔记 ↗</a>
-      <p class="excerpt-hint">在笔记中点击摘录即可返回这里。</p>
+      <p class="excerpt-hint">可以继续阅读。</p>
     </template>
     <button v-else-if="!loaded" @click="loadNotes">重新读取笔记</button>
     <template v-else>

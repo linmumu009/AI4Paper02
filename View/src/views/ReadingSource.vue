@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { API_ORIGIN, fetchUserPaperFiles, fetchKbPaperFiles, type KbScope } from '../api'
 import ReadingTrialViewer from '../components/ReadingTrialViewer.vue'
 import { parseReadingAnchor } from '../utils/readingAnchor'
 
 const route = useRoute()
+const router = useRouter()
 const paperId = computed(() => String(route.params.paperId || ''))
 const scope = computed<KbScope>(() => ['kb', 'inspiration', 'mypapers'].includes(String(route.query.scope)) ? route.query.scope as KbScope : 'kb')
 const mode = computed<'mineru' | 'zh' | 'bilingual'>(() => ['mineru', 'zh', 'bilingual'].includes(String(route.query.mode)) ? route.query.mode as 'mineru' | 'zh' | 'bilingual' : 'mineru')
@@ -18,7 +19,6 @@ watch([paperId, scope, mode], async () => {
   const current = ++request
   loading.value = true
   error.value = ''
-  url.value = ''
   try {
     const files = scope.value === 'mypapers' ? await fetchUserPaperFiles(paperId.value) : await fetchKbPaperFiles(paperId.value, scope.value)
     if (current !== request) return
@@ -34,17 +34,17 @@ watch([paperId, scope, mode], async () => {
 <template>
   <main class="source-page">
     <header><strong>笔记原文定位</strong><a href="/">返回论文首页</a></header>
-    <p v-if="loading" role="status">正在打开论文原文…</p>
+    <p v-if="loading && !url" role="status">正在打开论文原文…</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
     <template v-else-if="url">
       <p v-if="!anchor" role="status">定位信息无效，已打开原文。</p>
-      <ReadingTrialViewer :key="url" :url="url" :mode="mode" :paper-id="paperId" :scope="scope" :source-anchor="anchor" />
+      <ReadingTrialViewer :url="url" :mode="mode" :paper-id="paperId" :scope="scope" :source-anchor="anchor" @navigate-source="router.replace({ query: { ...route.query, mode: $event.mode }, hash: '#' + encodeURIComponent(JSON.stringify($event.anchor)) })" />
     </template>
   </main>
 </template>
 
 <style scoped>
-.source-page { height: calc(100dvh - 64px); min-height: 300px; display: flex; flex-direction: column; max-width: 1100px; margin: 0 auto; padding: 12px; }
+.source-page { height: calc(100dvh - 64px); min-height: 300px; display: flex; flex-direction: column; max-width: 1564px; margin: 0 auto; padding: 12px; }
 header { display: flex; justify-content: space-between; padding: 8px 4px 14px; font-size: 14px; }
 header a { text-decoration: underline; }
 </style>

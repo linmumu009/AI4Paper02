@@ -30,7 +30,8 @@ describe('reading excerpt destination', () => {
     await wrapper.find('.excerpt-save').trigger('click')
     await flushPromises()
     expect(api.createNote).toHaveBeenCalledWith('paper-1', '阅读摘录', expect.stringContaining('/reading-source/paper-1?'), 'mypapers')
-    expect(wrapper.find('a').attributes('href')).toBe('/notes/9')
+    expect(wrapper.find('a').exists()).toBe(false)
+    expect(wrapper.emitted('saved')?.[0]?.[0]).toEqual({ id: 9, title: '阅读摘录' })
     wrapper.unmount()
   })
   it('does not mistake a failed note lookup for an empty notebook list', async () => {

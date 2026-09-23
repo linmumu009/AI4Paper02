@@ -6,10 +6,19 @@ import { renderPaperMarkdown } from '../utils/paperMarkdown'
 import MarkdownToc, { type TocHeading } from './MarkdownToc.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { prepareTrialBilingual } from '../utils/readingTrial'
-import { captureReadingAnchor, locateReadingAnchor, type ReadingAnchor } from '../utils/readingAnchor'
+import { captureReadingAnchor, locateReadingAnchor, parseReadingAnchor, type ReadingAnchor } from '../utils/readingAnchor'
 import { readingPalette, readingPapers } from '../utils/readingPalette'
 import type { KbScope } from '../api'
 import ReadingExcerptMenu from './ReadingExcerptMenu.vue'
+import ReadingNotesPanel from './ReadingNotesPanel.vue'
+import type { KbNote } from '../types/paper'
+
+const notesOpen = ref(false)
+const lastNote = ref<KbNote | null>(null)
+const preferredNoteId = ref<number>()
+const savedNotice = ref('')
+const notesPanel = ref<{ flush: () => Promise<boolean>; append: (id: number, update: () => Promise<KbNote>) => Promise<KbNote> } | null>(null)
+let noticeTimer: ReturnType<typeof setTimeout> | null = null
 
 const settingsOpen = ref(false)
 const fontSize = ref(20)
@@ -32,7 +41,7 @@ try {
   else if (paper.value === 'dark') colorDepth.value = 92
   if (/^#[a-f\d]{6}$/i.test(saved.customColor || '')) customColor.value = saved.customColor
 } catch { /* Storage may be unavailable. */ }
-watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor], () => {
+watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor, notesOpen], () => {
   const body = bodyRef.value
   const top = body?.getBoundingClientRect().top ?? 0
   const anchor = body && Array.from(body.children).find(el => el.getBoundingClientRect().bottom > top)
@@ -64,6 +73,37 @@ const props = defineProps<{
    */
   autoRefreshMs?: number
 }>()
+const emit = defineEmits<{ navigateSource: [payload: { mode: 'mineru' | 'zh' | 'bilingual'; anchor: ReadingAnchor }] }>()
+
+function excerptSaved(note: KbNote) {
+  lastNote.value = note
+  preferredNoteId.value = note.id
+  selectionMenu.value = null
+  savedNotice.value = `已存入「${note.title}」`
+  if (noticeTimer) clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => { savedNotice.value = '' }, 6000)
+}
+async function appendToNote(id: number, update: () => Promise<KbNote>) {
+  return notesPanel.value ? notesPanel.value.append(id, update) : update()
+}
+async function flushNotes() { return await notesPanel.value?.flush() ?? true }
+async function toggleNotes() {
+  if (notesOpen.value && !await flushNotes()) return
+  notesOpen.value = !notesOpen.value
+}
+function sourceLink(href: string) {
+  const source = new URL(href, window.location.origin)
+  const anchor = parseReadingAnchor(source.hash)
+  const mode = source.searchParams.get('mode')
+  if (decodeURIComponent(source.pathname) !== `/reading-source/${props.paperId}` || !anchor || !['mineru', 'zh', 'bilingual'].includes(mode ?? '')) {
+    anchorMessage.value = '该摘录不属于当前论文，或定位信息已失效。'
+    return
+  }
+  if (mode === props.mode) { anchorRestored = false; restoreSourceAnchor(anchor) }
+  else emit('navigateSource', { mode: mode as 'mineru' | 'zh' | 'bilingual', anchor })
+  if (window.matchMedia('(max-width: 1100px)').matches) void toggleNotes()
+}
+defineExpose({ flushNotes })
 
 const html = ref('')
 const loading = ref(true)
@@ -89,10 +129,10 @@ function captureSelection(event: MouseEvent | KeyboardEvent) {
   selectionMenu.value = { anchor, quote: selection.toString(), x: Math.max(12, Math.min(rect.left, window.innerWidth - 312)), y: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 330)) }
 }
 
-function restoreSourceAnchor() {
-  if (!props.sourceAnchor || !bodyRef.value || anchorRestored) return
+function restoreSourceAnchor(anchor: ReadingAnchor | null | undefined = props.sourceAnchor) {
+  if (!anchor || !bodyRef.value || anchorRestored) return
   anchorRestored = true
-  const range = locateReadingAnchor(bodyRef.value, props.sourceAnchor)
+  const range = locateReadingAnchor(bodyRef.value, anchor)
   if (!range) { anchorMessage.value = '原文内容可能已更新，未能准确定位。请使用目录查找。'; return }
   bodyRef.value.querySelectorAll('details').forEach(details => { if (range.intersectsNode(details)) details.open = true })
   let element = range.startContainer.parentElement
@@ -106,7 +146,7 @@ function restoreSourceAnchor() {
   range.startContainer.parentElement?.scrollIntoView({ block: 'center' })
   anchorMessage.value = '已定位并选中笔记中的原文。'
 }
-watch(() => props.sourceAnchor, () => { anchorRestored = false; nextTick(restoreSourceAnchor) })
+watch(() => props.sourceAnchor, () => { anchorRestored = false; nextTick(() => restoreSourceAnchor()) })
 let tocObserver: IntersectionObserver | null = null
 let _refreshTimer: ReturnType<typeof setInterval> | null = null
 let _lastText = ''  // used to skip re-render when content unchanged
@@ -280,7 +320,7 @@ async function load() {
     }
     nextTick(() => {
       setupTocObserver()
-      requestAnimationFrame(restoreSourceAnchor)
+      requestAnimationFrame(() => restoreSourceAnchor())
       if (showAllSources.value) bodyRef.value?.querySelectorAll<HTMLDetailsElement>('details.trial-source').forEach(el => { el.open = true })
     })
   }
@@ -326,19 +366,22 @@ watch(showToc, (v) => {
 })
 
 onBeforeUnmount(() => {
+  if (noticeTimer) clearTimeout(noticeTimer)
   tocObserver?.disconnect()
   _stopRefreshTimer()
 })
 </script>
 
 <template>
+  <div class="reading-workspace" :class="{ 'notes-open': notesOpen }">
   <!-- Outer positioning context: no card visuals, no overflow clipping -->
   <div
     class="relative flex flex-col min-h-0 h-full flex-1"
     :class="[rootClass, 'trial-reader', `paper-${paper}`]"
     :style="{ ...paletteStyle, '--trial-size': `${fontSize}px`, '--trial-leading': leading, '--trial-width': `${measure}em`, '--trial-tracking': `${tracking}em` }"
   >
-    <ReadingExcerptMenu v-if="selectionMenu && paperId" :key="selectionMenu.anchor.start + ':' + selectionMenu.anchor.text" :paper-id="paperId" :scope="scope || 'kb'" :mode="mode || 'mineru'" v-bind="selectionMenu" @close="selectionMenu = null" />
+    <ReadingExcerptMenu v-if="selectionMenu && paperId" :key="selectionMenu.anchor.start + ':' + selectionMenu.anchor.text" :paper-id="paperId" :scope="scope || 'kb'" :mode="mode || 'mineru'" :preferred-note-id="preferredNoteId" :append-to-note="appendToNote" v-bind="selectionMenu" @close="selectionMenu = null" @saved="excerptSaved" />
+    <div v-if="savedNotice" class="saved-notice" role="status"><span>{{ savedNotice }}</span><button v-if="!notesOpen" @click="notesOpen = true">查看笔记</button><button aria-label="关闭保存提示" @click="savedNotice = ''">×</button></div>
     <!-- TOC: positioned absolutely to the left of the card -->
     <transition
       enter-active-class="transition-all duration-200 ease-out"
@@ -422,6 +465,7 @@ onBeforeUnmount(() => {
           <span v-else />
           <!-- Reading controls: shared by MinerU, Chinese and bilingual modes -->
           <div v-if="mode" class="bilingual-controls">
+            <button v-if="paperId" type="button" :aria-expanded="notesOpen" @click="toggleNotes">{{ notesOpen ? '收起笔记' : '论文笔记' }}</button>
             <button v-if="mode === 'bilingual'" type="button" @click="showAllSources = !showAllSources">{{ showAllSources ? '中文主读' : '展开全部原文' }}</button>
             <button type="button" :aria-expanded="settingsOpen" @click="settingsOpen = !settingsOpen">阅读设置</button>
           </div>
@@ -456,9 +500,17 @@ onBeforeUnmount(() => {
       </template>
     </div>
   </div>
+  <ReadingNotesPanel v-if="notesOpen && paperId" ref="notesPanel" :paper-id="paperId" :scope="scope || 'kb'" :preferred-id="preferredNoteId" :latest-note="lastNote" @selected="preferredNoteId = $event" @close="notesOpen = false" @source-link="sourceLink" />
+  </div>
 </template>
 
 <style scoped>
+.reading-workspace { position: relative; display: flex; gap: 12px; min-height: 0; height: 100%; width: 100%; max-width: 1100px; margin: 0 auto; }
+.reading-workspace.notes-open { max-width: 1540px; }
+.trial-reader { min-width: 0; }
+.saved-notice { position: absolute; z-index: 30; top: 48px; right: 16px; display: flex; gap: 10px; align-items: center; max-width: calc(100% - 32px); padding: 9px 12px; border: 1px solid var(--trial-line); border-radius: 8px; background: var(--trial-bg); color: var(--trial-ink); box-shadow: 0 3px 14px #0001; font-size: 12px; }
+.saved-notice span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-notice button { cursor: pointer; border: 0; background: transparent; color: inherit; white-space: nowrap; text-decoration: underline; }
 /* ── Headings ─────────────────────────────────────── */
 .markdown-viewer-body :deep(h1) {
   font-size: 1.45rem;
