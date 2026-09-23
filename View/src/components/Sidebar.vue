@@ -1822,20 +1822,21 @@ async function refreshAllExpandedNotes() {
   for (const pid of expandedPapers.value) {
     await loadPaperNotes(pid)
   }
+  for (const pid of myPaperExpandedPaperLinks.value) {
+    await loadMyPaperNotes(pid)
+  }
 }
 
 // 供父组件直接更新某条笔记的标题，避免必须依赖重新拉取列表
 function updateNoteTitle(paperId: string, noteId: number, title: string) {
-  const current = paperNotes.value.get(paperId)
-  if (!current) return
-  const nextNotes = current.map((n) =>
-    n.id === noteId
-      ? { ...n, title }
-      : n,
-  )
-  const nextMap = new Map(paperNotes.value)
-  nextMap.set(paperId, nextNotes)
-  paperNotes.value = nextMap
+  for (const notes of [paperNotes, myPaperNotes]) {
+    const current = notes.value.get(paperId)
+    if (!current) continue
+    const nextNotes = current.map(n => n.id === noteId ? { ...n, title } : n)
+    const nextMap = new Map(notes.value)
+    nextMap.set(paperId, nextNotes)
+    notes.value = nextMap
+  }
 }
 
 function switchToMyPapersTab() {

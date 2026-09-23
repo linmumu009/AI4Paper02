@@ -1241,6 +1241,20 @@ const sidebarRef = ref<InstanceType<typeof Sidebar> | null>(null)
 
 // Inline note editor（携带 noteId + paperId，方便右侧显示详情）
 const editingNote = ref<{ id: number; paperId: string } | null>(null)
+const noteUserPaper = ref<UserPaper | null>(null)
+
+watch(() => editingNote.value?.paperId, async (paperId, _previous, onCleanup) => {
+  let cancelled = false
+  onCleanup(() => { cancelled = true })
+  noteUserPaper.value = null
+  if (!paperId?.startsWith('up_')) return
+  try {
+    const paper = await fetchUserPaperDetail(paperId)
+    if (!cancelled) noteUserPaper.value = paper
+  } catch {
+    if (!cancelled) showError('加载笔记关联论文失败，请稍后重试')
+  }
+})
 
 // 从知识库点击的论文，在中间区域居中展示详情
 const sidebarPaperId = ref<string | null>(null)
@@ -1915,6 +1929,7 @@ async function openPaperFromSidebar(paperId: string) {
 }
 
 async function openNoteFromSidebar(payload: { id: number; paperId: string }) {
+  knowledgeWorkspaceActive.value = false
   viewingPdf.value = null
   viewingMd.value = null
   comparingPaperIds.value = null
@@ -2067,7 +2082,7 @@ const noteEditingPanelConfigs = computed<PanelConfigItem[]>(() => {
   return [
     { id: PANEL_IDS.PAPER_DETAIL, label: '论文详情', icon: '📄', available: true },
     { id: PANEL_IDS.NOTE_EDITOR, label: '笔记', icon: '📝', available: true },
-    { id: PANEL_IDS.PDF_VIEWER, label: 'PDF', icon: '📕', available: arxivOk },
+    { id: PANEL_IDS.PDF_VIEWER, label: 'PDF', icon: '📕', available: arxivOk || !!noteUserPaper.value?.pdf_static_url },
     { id: PANEL_IDS.AI_CHAT, label: 'AI 问答', icon: '💬', available: !!isAuthenticated.value && !!pid },
   ]
 })
@@ -2083,9 +2098,11 @@ const noteEditingContext = computed<ContentLayoutContext>(() => {
   if (!editingNote.value) return {}
   const pid = editingNote.value.paperId
   const arxivOk = !pid.startsWith('up_')
-  const pdfUrl = arxivOk ? digestArxivPdfUrl(pid) : undefined
+  const pdfUrl = noteUserPaper.value?.pdf_static_url || (arxivOk ? digestArxivPdfUrl(pid) : undefined)
   return {
     paperId: pid,
+    userPaperData: noteUserPaper.value ?? undefined,
+    paperViewScope: arxivOk ? 'kb' : 'mypapers',
     noteEditor: { id: editingNote.value.id, paperId: pid },
     pdfUrl,
     pdfViewerSrc: pdfUrl ? digestPdfJsSrc(pdfUrl, pid) : '',
