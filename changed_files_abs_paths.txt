@@ -426,3 +426,8 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_kb_save_fast
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\Controller\paperList_remove_duplications.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_paper_dedup_retry_idempotency.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_mypapers_notes.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ReadingTrialEntry.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ReadingTrialViewer.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingTrial.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\readingTrial.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingTrialEntry.test.ts

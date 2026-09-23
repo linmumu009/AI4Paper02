@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReadingTrialEntry from './ReadingTrialEntry.vue'
 import type { UserPaperFolder, UserPaper, UserPaperFileViewMode, KbNote } from '../types/paper'
 import type { UserPaperDerivativeType } from '../api'
 import TranslateProgressRing from './TranslateProgressRing.vue'
@@ -309,6 +310,7 @@ function noteIcon(type: string): string {
           class="pb-1"
           @click.stop
         >
+          <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
           <div
             v-if="paper.pdf_static_url"
             :class="subLinkRowClass(paper.paper_id, 'pdf')"

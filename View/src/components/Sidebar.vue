@@ -1,4 +1,5 @@
 ﻿<script setup lang="ts">
+import ReadingTrialEntry from './ReadingTrialEntry.vue'
 import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import type { KbTree, KbFolder, KbPaper, KbMenuItem, KbNote, KbCompareResult, KbCompareResultsTree, UserPaper, UserPaperTree, UserPaperFolder, CompareCartItem, UserPaperFileViewMode, UserPaperViewMdPayload } from '../types/paper'
@@ -2299,6 +2300,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
 
           <!-- Expanded area for root paper: file links + notes -->
           <div v-if="expandedPapers.has(paper.paper_id)" class="pb-1">
+            <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
             <!-- PDF link -->
             <div
               v-if="paper.pdf_static_url"
@@ -2689,6 +2691,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
               class="pb-1"
               @click.stop
             >
+              <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
               <div
                 v-if="paper.pdf_static_url"
                 :class="myPaperMdSubLinkClass(paper.paper_id, 'pdf')"

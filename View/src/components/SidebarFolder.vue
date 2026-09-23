@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ReadingTrialEntry from './ReadingTrialEntry.vue'
 import { ref } from 'vue'
 import type { KbFolder, KbPaper, KbNote, UserPaperViewMdPayload } from '../types/paper'
 import { API_ORIGIN, downloadPaperFile } from '../api'
@@ -422,6 +423,7 @@ function avatarColor(paperId: string): string {
 
         <!-- Expanded area: derivative file links + notes -->
         <div v-if="expandedPapers.has(paper.paper_id)" class="pb-1">
+          <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
           <!-- PDF link -->
           <div
             v-if="paper.pdf_static_url"
