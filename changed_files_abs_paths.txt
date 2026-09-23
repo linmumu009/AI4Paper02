@@ -439,3 +439,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\read
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\reading_excerpt_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_reading_excerpt.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingExcerptMenu.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingNoteLoad.test.ts

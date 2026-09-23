@@ -126,8 +126,9 @@ async function loadNote() {
     const data = await fetchNoteDetail(Number(props.id))
     note.value = data
     title.value = data.title
-    if (editor.value && data.content) {
-      editor.value.commands.setContent(data.content)
+    if (editor.value) {
+      // Loading an existing note must not trigger auto-title or autosave.
+      editor.value.commands.setContent(data.content || '', { emitUpdate: false })
     }
     // If the loaded title looks like a default (empty or "无标题笔记"), keep auto-title active
     const t = data.title.trim()
