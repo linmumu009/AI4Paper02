@@ -1818,6 +1818,9 @@ function toggleRootAddMenu(paperId: string) {
   rootAddMenuPaperId.value = rootAddMenuPaperId.value === paperId ? null : paperId
 }
 
+onMounted(() => window.addEventListener('reading-note-saved', refreshAllExpandedNotes))
+onBeforeUnmount(() => window.removeEventListener('reading-note-saved', refreshAllExpandedNotes))
+
 // Expose method for parent to refresh notes after editing
 async function refreshAllExpandedNotes() {
   for (const pid of expandedPapers.value) {
@@ -2300,7 +2303,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
 
           <!-- Expanded area for root paper: file links + notes -->
           <div v-if="expandedPapers.has(paper.paper_id)" class="pb-1">
-            <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
+            <ReadingTrialEntry :paper-id="paper.paper_id" :scope="props.scope" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
             <!-- PDF link -->
             <div
               v-if="paper.pdf_static_url"
@@ -2691,7 +2694,7 @@ defineExpose({ refreshAllExpandedNotes, updateNoteTitle, refreshMyPapers, switch
               class="pb-1"
               @click.stop
             >
-              <ReadingTrialEntry :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
+              <ReadingTrialEntry :paper-id="paper.paper_id" scope="mypapers" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
               <div
                 v-if="paper.pdf_static_url"
                 :class="myPaperMdSubLinkClass(paper.paper_id, 'pdf')"

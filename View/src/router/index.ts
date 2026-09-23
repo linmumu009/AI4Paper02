@@ -203,6 +203,12 @@ const router = createRouter({
       props: true,
     },
     {
+      path: '/reading-source/:paperId',
+      name: 'reading-source',
+      component: () => import('../views/ReadingSource.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/notes/:id',
       name: 'note-editor',
       component: () => import('../views/NoteEditor.vue'),

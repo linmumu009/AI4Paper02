@@ -431,3 +431,11 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ReadingTr
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingTrial.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\readingTrial.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingTrialEntry.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ReadingExcerptMenu.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\views\ReadingSource.vue
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingAnchor.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingPalette.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\readingAnchor.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\reading_excerpt_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_reading_excerpt.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingExcerptMenu.test.ts

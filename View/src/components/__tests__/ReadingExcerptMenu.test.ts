@@ -1,0 +1,44 @@
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import ReadingExcerptMenu from '../ReadingExcerptMenu.vue'
+
+const api = vi.hoisted(() => ({ fetchNotes: vi.fn(), createNote: vi.fn(), post: vi.fn() }))
+vi.mock('../../api', () => ({ fetchNotes: api.fetchNotes, createNote: api.createNote }))
+vi.mock('@shared/api/client', () => ({ http: { post: api.post } }))
+vi.mock('../../api/knowledgeBase', () => ({ toApiKbScope: (scope: string) => scope }))
+const props = { paperId: 'paper-1', scope: 'mypapers' as const, mode: 'zh', quote: '选中的正文', anchor: { start: 20, text: '选中的正文', prefix: '', suffix: '' }, x: 12, y: 20 }
+
+describe('reading excerpt destination', () => {
+  beforeEach(() => vi.resetAllMocks())
+  it('filters out file attachments and appends to the selected note', async () => {
+    api.fetchNotes.mockResolvedValue({ notes: [{ id: 2, type: 'file', title: '附件' }, { id: 3, type: 'markdown', title: '已有笔记' }] })
+    api.post.mockResolvedValue({ data: { id: 3, title: '已有笔记' } })
+    const wrapper = mount(ReadingExcerptMenu, { props })
+    await flushPromises()
+    expect(wrapper.findAll('option').map(option => option.text())).toEqual(['已有笔记', '新建笔记'])
+    await wrapper.find('.excerpt-save').trigger('click')
+    await flushPromises()
+    expect(api.post).toHaveBeenCalledWith('/kb/notes/3/excerpt', expect.objectContaining({ paper_id: 'paper-1', scope: 'mypapers', text: props.quote }))
+    expect(wrapper.text()).toContain('已添加到「已有笔记」')
+    wrapper.unmount()
+  })
+  it('creates a note with a clickable source when the paper has no notes', async () => {
+    api.fetchNotes.mockResolvedValue({ notes: [] })
+    api.createNote.mockResolvedValue({ id: 9, title: '阅读摘录' })
+    const wrapper = mount(ReadingExcerptMenu, { props })
+    await flushPromises()
+    await wrapper.find('.excerpt-save').trigger('click')
+    await flushPromises()
+    expect(api.createNote).toHaveBeenCalledWith('paper-1', '阅读摘录', expect.stringContaining('/reading-source/paper-1?'), 'mypapers')
+    expect(wrapper.find('a').attributes('href')).toBe('/notes/9')
+    wrapper.unmount()
+  })
+  it('does not mistake a failed note lookup for an empty notebook list', async () => {
+    api.fetchNotes.mockRejectedValue(new Error('offline'))
+    const wrapper = mount(ReadingExcerptMenu, { props })
+    await flushPromises()
+    expect(wrapper.find('.excerpt-save').exists()).toBe(false)
+    expect(wrapper.text()).toContain('重新读取笔记')
+    wrapper.unmount()
+  })
+})

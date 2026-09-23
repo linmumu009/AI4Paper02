@@ -6,6 +6,7 @@ All routes are prefixed with /api/kb and registered in api.py via
 """
 
 import os
+from urllib.parse import unquote, urlsplit
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
@@ -68,6 +69,13 @@ class CreateNoteBody(BaseModel):
 class UpdateNoteBody(BaseModel):
     title: Optional[str] = Field(None, max_length=256)
     content: Optional[str] = Field(None, max_length=500000)
+
+
+class ReadingExcerptBody(BaseModel):
+    paper_id: str = Field(..., min_length=1, max_length=256)
+    scope: str = Field(default="kb", pattern="^(kb|idea_library|mypapers)$")
+    text: str = Field(..., min_length=1, max_length=10000)
+    source_path: str = Field(..., min_length=1, max_length=150000)
 
 
 class AddLinkBody(BaseModel):
@@ -487,6 +495,21 @@ def api_kb_update_note(note_id: int, body: UpdateNoteBody, _user=Depends(auth_se
     note = kb_service.update_note(_user["id"], note_id, body.title, body.content)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
+    return _enrich_kb_note(note, _user["id"])
+
+
+@router.post("/notes/{note_id}/excerpt", summary="Append a reading excerpt")
+def api_kb_append_excerpt(note_id: int, body: ReadingExcerptBody, _user=Depends(auth_service.require_user)):
+    from services.reading_excerpt_service import append_excerpt
+    source = urlsplit(body.source_path)
+    if source.scheme or source.netloc or unquote(source.path) != f"/reading-source/{body.paper_id}" or not body.text.strip():
+        raise HTTPException(status_code=422, detail="无效的原文定位链接")
+    try:
+        note = append_excerpt(_user["id"], note_id, body.paper_id, body.scope, body.text, body.source_path)
+    except ValueError as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    if note is None:
+        raise HTTPException(status_code=404, detail="当前论文下未找到该笔记")
     return _enrich_kb_note(note, _user["id"])
 
 

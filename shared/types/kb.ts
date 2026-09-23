@@ -90,6 +90,13 @@ export interface KbNotesResponse {
   notes: KbNote[]
 }
 
+export interface ReadingExcerptRequest {
+  paper_id: string
+  scope: string
+  text: string
+  source_path: string
+}
+
 export interface KbAnnotation {
   id: number
   paper_id: string

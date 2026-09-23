@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import 'katex/dist/katex.min.css'
 import { IS_TAURI, tauriFetchText } from '../api'
 import { renderPaperMarkdown } from '../utils/paperMarkdown'
 import MarkdownToc, { type TocHeading } from './MarkdownToc.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
 import { prepareTrialBilingual } from '../utils/readingTrial'
+import { captureReadingAnchor, locateReadingAnchor, type ReadingAnchor } from '../utils/readingAnchor'
+import { readingPalette, readingPapers } from '../utils/readingPalette'
+import type { KbScope } from '../api'
+import ReadingExcerptMenu from './ReadingExcerptMenu.vue'
 
 const settingsOpen = ref(false)
 const fontSize = ref(20)
@@ -13,6 +17,9 @@ const leading = ref(1.8)
 const measure = ref(36)
 const tracking = ref(0)
 const paper = ref('warm')
+const colorDepth = ref(12)
+const customColor = ref('#bba673')
+const paletteStyle = computed(() => readingPalette(paper.value, colorDepth.value, customColor.value))
 const showAllSources = ref(false)
 try {
   const saved = JSON.parse(localStorage.getItem('ai4papers-reading-trial-v1') || '{}')
@@ -20,9 +27,12 @@ try {
   if (typeof saved.leading === 'number') leading.value = Math.max(1.5, Math.min(2.2, saved.leading))
   if (typeof saved.measure === 'number') measure.value = Math.max(28, Math.min(42, saved.measure))
   if (typeof saved.tracking === 'number') tracking.value = Math.max(0, Math.min(0.06, saved.tracking))
-  if (['warm', 'white', 'dark'].includes(saved.paper)) paper.value = saved.paper
+  if (readingPapers.some(item => item.value === saved.paper)) paper.value = saved.paper
+  if (typeof saved.colorDepth === 'number') colorDepth.value = Math.max(0, Math.min(100, saved.colorDepth))
+  else if (paper.value === 'dark') colorDepth.value = 92
+  if (/^#[a-f\d]{6}$/i.test(saved.customColor || '')) customColor.value = saved.customColor
 } catch { /* Storage may be unavailable. */ }
-watch([fontSize, leading, measure, tracking, paper], () => {
+watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor], () => {
   const body = bodyRef.value
   const top = body?.getBoundingClientRect().top ?? 0
   const anchor = body && Array.from(body.children).find(el => el.getBoundingClientRect().bottom > top)
@@ -30,7 +40,7 @@ watch([fontSize, leading, measure, tracking, paper], () => {
   nextTick(() => {
     if (body && anchor?.isConnected) body.scrollTop += anchor.getBoundingClientRect().top - body.getBoundingClientRect().top - offset
   })
-  try { localStorage.setItem('ai4papers-reading-trial-v1', JSON.stringify({ fontSize: fontSize.value, leading: leading.value, measure: measure.value, tracking: tracking.value, paper: paper.value })) } catch { /* Reading still works without persistence. */ }
+  try { localStorage.setItem('ai4papers-reading-trial-v1', JSON.stringify({ fontSize: fontSize.value, leading: leading.value, measure: measure.value, tracking: tracking.value, paper: paper.value, colorDepth: colorDepth.value, customColor: customColor.value })) } catch { /* Reading still works without persistence. */ }
 })
 watch(showAllSources, async () => {
   await nextTick()
@@ -40,6 +50,9 @@ watch(showAllSources, async () => {
 const props = defineProps<{
   /** 完整 URL（含 API_ORIGIN） */
   url: string
+  paperId?: string
+  scope?: KbScope
+  sourceAnchor?: ReadingAnchor | null
   /** 附加到根节点 class */
   rootClass?: string
   /** 内容模式：影响特定排版样式 */
@@ -61,6 +74,39 @@ const showToc = ref(false)
 const headings = ref<TocHeading[]>([])
 const activeHeadingId = ref('')
 const bodyRef = ref<HTMLElement | null>(null)
+const selectionMenu = ref<{ anchor: ReadingAnchor; quote: string; x: number; y: number } | null>(null)
+const anchorMessage = ref('')
+let anchorRestored = false
+
+function captureSelection(event: MouseEvent | KeyboardEvent) {
+  if (!props.paperId || (event instanceof KeyboardEvent && !event.shiftKey)) return
+  const selection = window.getSelection()
+  if (!selection?.rangeCount || selection.isCollapsed || !bodyRef.value) return
+  const range = selection.getRangeAt(0)
+  const anchor = captureReadingAnchor(bodyRef.value, range)
+  if (!anchor) { anchorMessage.value = '请选择正文文字；单次摘录请控制在 10000 字符以内。'; return }
+  const rect = range.getBoundingClientRect()
+  selectionMenu.value = { anchor, quote: selection.toString(), x: Math.max(12, Math.min(rect.left, window.innerWidth - 312)), y: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 330)) }
+}
+
+function restoreSourceAnchor() {
+  if (!props.sourceAnchor || !bodyRef.value || anchorRestored) return
+  anchorRestored = true
+  const range = locateReadingAnchor(bodyRef.value, props.sourceAnchor)
+  if (!range) { anchorMessage.value = '原文内容可能已更新，未能准确定位。请使用目录查找。'; return }
+  bodyRef.value.querySelectorAll('details').forEach(details => { if (range.intersectsNode(details)) details.open = true })
+  let element = range.startContainer.parentElement
+  while (element && element !== bodyRef.value) {
+    if (element instanceof HTMLDetailsElement) element.open = true
+    element = element.parentElement
+  }
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  range.startContainer.parentElement?.scrollIntoView({ block: 'center' })
+  anchorMessage.value = '已定位并选中笔记中的原文。'
+}
+watch(() => props.sourceAnchor, () => { anchorRestored = false; nextTick(restoreSourceAnchor) })
 let tocObserver: IntersectionObserver | null = null
 let _refreshTimer: ReturnType<typeof setInterval> | null = null
 let _lastText = ''  // used to skip re-render when content unchanged
@@ -234,6 +280,7 @@ async function load() {
     }
     nextTick(() => {
       setupTocObserver()
+      requestAnimationFrame(restoreSourceAnchor)
       if (showAllSources.value) bodyRef.value?.querySelectorAll<HTMLDetailsElement>('details.trial-source').forEach(el => { el.open = true })
     })
   }
@@ -241,6 +288,8 @@ async function load() {
 
 onMounted(load)
 watch(() => props.url, () => {
+  anchorRestored = false
+  selectionMenu.value = null
   _lastText = ''  // force re-render when URL changes even if content looks identical
   load()
 })
@@ -287,8 +336,9 @@ onBeforeUnmount(() => {
   <div
     class="relative flex flex-col min-h-0 h-full flex-1"
     :class="[rootClass, 'trial-reader', `paper-${paper}`]"
-    :style="{ '--trial-size': `${fontSize}px`, '--trial-leading': leading, '--trial-width': `${measure}em`, '--trial-tracking': `${tracking}em` }"
+    :style="{ ...paletteStyle, '--trial-size': `${fontSize}px`, '--trial-leading': leading, '--trial-width': `${measure}em`, '--trial-tracking': `${tracking}em` }"
   >
+    <ReadingExcerptMenu v-if="selectionMenu && paperId" :key="selectionMenu.anchor.start + ':' + selectionMenu.anchor.text" :paper-id="paperId" :scope="scope || 'kb'" :mode="mode || 'mineru'" v-bind="selectionMenu" @close="selectionMenu = null" />
     <!-- TOC: positioned absolutely to the left of the card -->
     <transition
       enter-active-class="transition-all duration-200 ease-out"
@@ -377,16 +427,25 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <p v-if="anchorMessage" class="px-4 py-2 text-sm" role="status">{{ anchorMessage }}</p>
         <div v-if="settingsOpen" class="trial-settings">
           <label>字号 {{ fontSize }}px <input v-model.number="fontSize" aria-label="字号" type="range" min="16" max="28" step="1" /></label>
           <label>行距 {{ leading }} <input v-model.number="leading" aria-label="行距" type="range" min="1.5" max="2.2" step="0.05" /></label>
           <label>行宽 {{ measure }}字 <input v-model.number="measure" aria-label="行宽" type="range" min="28" max="42" step="1" /></label>
           <label>字距 <input v-model.number="tracking" aria-label="字距" type="range" min="0" max="0.06" step="0.01" /></label>
-          <label>纸面 <select v-model="paper" aria-label="纸面"><option value="warm">柔和暖灰</option><option value="white">白色</option><option value="dark">深色</option></select></label>
+          <label>纸面 <select v-model="paper" aria-label="纸面" @change="paper === 'dark' ? colorDepth = 92 : undefined"><option v-for="item in readingPapers" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
+        </div>
+        <div v-if="settingsOpen" class="trial-settings">
+          <label>颜色深度 {{ colorDepth }}% <input v-model.number="colorDepth" aria-label="颜色深度" type="range" min="0" max="100" step="1" /></label>
+          <label v-if="paper === 'custom'">自选颜色 <input v-model="customColor" type="color" aria-label="自选颜色" /></label>
+          <span>正文首行缩进两字符</span>
         </div>
         <!-- Markdown body -->
         <div
           ref="bodyRef"
+          @mouseup="captureSelection"
+          @keyup="captureSelection"
+          @scroll="selectionMenu = null"
           class="flex-1 overflow-y-auto px-5 sm:px-6 py-4 text-text-primary markdown-viewer-body"
           :class="[
             mode ? 'reading-mode' : '',
@@ -632,7 +691,7 @@ onBeforeUnmount(() => {
 /* Chinese translation paragraph — inherits container font-size (= user's chosen value) */
 .markdown-viewer-body.bilingual-mode :deep(p:not(:has(> strong:only-child))) {
   color: var(--color-text-primary);
-  line-height: 1.8;
+  line-height: var(--trial-leading);
   margin: 0.2em 0 0.6em;
 }
 
@@ -676,5 +735,8 @@ onBeforeUnmount(() => {
 .markdown-viewer-body :deep(table) { display: block; max-width: 100%; overflow-x: auto; font-size: 0.85em; }
 .markdown-viewer-body :deep(pre) { font-size: 0.85em; max-width: 100%; overflow-x: auto; }
 .markdown-viewer-body :deep(a) { color: var(--trial-ink); text-decoration: underline; }
+.markdown-viewer-body.reading-mode :deep(p) { text-indent: 2em; }
+.markdown-viewer-body.reading-mode :deep(li p), .markdown-viewer-body.reading-mode :deep(td p), .markdown-viewer-body.reading-mode :deep(th p), .markdown-viewer-body.reading-mode :deep(p:has(img)) { text-indent: 0; }
+.markdown-viewer-body ::selection { background: #e5bf62; color: #191919; }
 @media (max-width: 600px) { .markdown-viewer-body.reading-mode { padding: 16px 16px 64px; } }
 </style>

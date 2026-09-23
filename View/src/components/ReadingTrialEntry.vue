@@ -3,8 +3,11 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { API_ORIGIN } from '../api'
 import MarkdownViewer from './MarkdownViewer.vue'
 import ReadingTrialViewer from './ReadingTrialViewer.vue'
+import type { KbScope } from '../api'
 
 const props = defineProps<{
+  paperId?: string
+  scope?: KbScope
   mineruUrl?: string | null
   zhUrl?: string | null
   bilingualUrl?: string | null
@@ -52,7 +55,7 @@ function close() {
           <button type="button" class="trial-close" @click="close">返回论文</button>
         </header>
         <div class="trial-stage" :style="version === 'original' ? { maxWidth: '792px' } : undefined">
-          <component :is="version === 'trial' ? ReadingTrialViewer : MarkdownViewer" :key="`${version}:${mode}`" :url="url" :mode="mode" :auto-refresh-ms="translating && mode !== 'mineru' ? 4000 : 0" />
+          <component :is="version === 'trial' ? ReadingTrialViewer : MarkdownViewer" :key="`${version}:${mode}`" :url="url" :mode="mode" :paper-id="paperId" :scope="scope" :auto-refresh-ms="translating && mode !== 'mineru' ? 4000 : 0" />
         </div>
       </dialog>
     </Teleport>
