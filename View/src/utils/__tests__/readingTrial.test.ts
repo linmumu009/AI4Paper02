@@ -8,7 +8,8 @@ describe('trial bilingual reading', () => {
     expect(doc.querySelector('details summary')?.textContent).toBe('查看英文原文')
     expect(doc.querySelector('details blockquote em')?.textContent).toBe('term')
     expect(doc.querySelector('details')?.hasAttribute('open')).toBe(false)
-    expect(doc.querySelector('body > p')?.textContent).toBe('中文内容')
+    expect(doc.querySelector('.trial-pair > p')?.textContent).toBe('中文内容')
+    expect(doc.querySelector('.trial-pair')?.firstElementChild?.tagName).toBe('P')
     expect(doc.querySelector('table td')?.textContent).toBe('12')
   })
   it('does not hide ordinary quotations or incomplete translations', () => {

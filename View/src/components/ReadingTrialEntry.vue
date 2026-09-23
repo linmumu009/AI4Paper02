@@ -51,7 +51,7 @@ function close() {
           <label>内容 <select v-model="mode" aria-label="阅读内容"><option v-for="item in choices" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
           <button type="button" class="trial-close" @click="close">返回论文</button>
         </header>
-        <div class="trial-stage">
+        <div class="trial-stage" :style="version === 'original' ? { maxWidth: '792px' } : undefined">
           <component :is="version === 'trial' ? ReadingTrialViewer : MarkdownViewer" :key="`${version}:${mode}`" :url="url" :mode="mode" :auto-refresh-ms="translating && mode !== 'mineru' ? 4000 : 0" />
         </div>
       </dialog>

@@ -668,7 +668,9 @@ onBeforeUnmount(() => {
 .markdown-viewer-body.reading-mode :deep(h1), .markdown-viewer-body.reading-mode :deep(h2), .markdown-viewer-body.reading-mode :deep(h3) { color: var(--trial-ink); border: 0; margin-top: 1.5em; }
 .markdown-viewer-body :deep(h1:first-child) { margin-top: 0.4em; }
 .markdown-viewer-body.reading-mode :deep(blockquote) { background: transparent; color: var(--trial-ink); border-left: 2px solid var(--trial-line); margin: 0.5em 0; padding: 0 0 0 1em; font-size: 1em; }
-.markdown-viewer-body :deep(.trial-source) { font-size: 0.95em; margin: 1.2em 0 0.3em; }
+.markdown-viewer-body :deep(.trial-pair) { margin: 0 0 1.2em; }
+.markdown-viewer-body :deep(.trial-pair > p:last-of-type) { margin-bottom: 0.25em; }
+.markdown-viewer-body :deep(.trial-source) { font-size: 0.95em; margin: 0 0 0.3em; }
 .markdown-viewer-body :deep(.trial-source summary) { color: var(--trial-muted); font-size: 0.75em; cursor: pointer; padding: 6px 0; }
 .markdown-viewer-body :deep(hr) { border: 0; height: 0; margin: 1.5em 0; }
 .markdown-viewer-body :deep(table) { display: block; max-width: 100%; overflow-x: auto; font-size: 0.85em; }

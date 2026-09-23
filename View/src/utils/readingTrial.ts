@@ -10,8 +10,18 @@ export function prepareTrialBilingual(html: string): string {
     details.className = 'trial-source'
     const summary = doc.createElement('summary')
     summary.textContent = '查看英文原文'
-    quote.before(details)
+    const group = doc.createElement('section')
+    group.className = 'trial-pair'
+    quote.before(group)
+    let sibling: Element | null = translation
+    while (sibling && sibling.tagName !== 'HR' && sibling.tagName !== 'BLOCKQUOTE') {
+      const next: Element | null = sibling.nextElementSibling
+      group.append(sibling)
+      sibling = next
+    }
     details.append(summary, quote)
+    group.append(details)
+    if (sibling?.tagName === 'HR') sibling.remove()
     marker.remove()
   }
   return doc.body.innerHTML
