@@ -310,7 +310,7 @@ function noteIcon(type: string): string {
           class="pb-1"
           @click.stop
         >
-          <ReadingTrialEntry :paper-id="paper.paper_id" scope="mypapers" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
+          <ReadingTrialEntry :paper-id="paper.paper_id" :paper-title="paper.title" scope="mypapers" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
           <div
             v-if="paper.pdf_static_url"
             :class="subLinkRowClass(paper.paper_id, 'pdf')"

@@ -423,7 +423,7 @@ function avatarColor(paperId: string): string {
 
         <!-- Expanded area: derivative file links + notes -->
         <div v-if="expandedPapers.has(paper.paper_id)" class="pb-1">
-          <ReadingTrialEntry :paper-id="paper.paper_id" :scope="scope as any" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
+          <ReadingTrialEntry :paper-id="paper.paper_id" :paper-title="paper.paper_data.short_title" :scope="scope as any" :mineru-url="paper.mineru_static_url" :zh-url="paper.zh_static_url" :bilingual-url="paper.bilingual_static_url" :translating="paper.translate_status === 'processing'" />
           <!-- PDF link -->
           <div
             v-if="paper.pdf_static_url"

@@ -100,8 +100,8 @@ defineExpose({ flush, append })
 .reading-notes-panel { display: flex; flex-direction: column; min-height: 0; width: 380px; flex-shrink: 0; border: 1px solid var(--color-border); border-radius: 12px; overflow: hidden; background: var(--color-bg-card); color: var(--color-text-primary); }
 header { display: flex; justify-content: space-between; align-items: center; padding: 14px; gap: 12px; border-bottom: 1px solid var(--color-border); }
 header strong { font-size: 15px; } header small { display: block; margin-top: 3px; font-size: 11px; color: var(--color-text-muted); }
-button, select { font: inherit; font-size: 12px; border: 1px solid var(--color-border); border-radius: 6px; padding: 5px 8px; background: var(--color-bg-card); color: inherit; }
-button { cursor: pointer; } button:disabled { opacity: 0.5; cursor: wait; }
+button, select { font: inherit; font-size: 12px; border: 1px solid var(--color-border); border-radius: 8px; min-height: 30px; padding: 5px 8px; background: var(--color-bg-card); color: inherit; }
+button { cursor: pointer; } button:hover:not(:disabled) { background: var(--color-bg-hover); } button:focus-visible, select:focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; } button:disabled { opacity: 0.5; cursor: wait; }
 .note-choices { padding: 10px 12px; display: flex; gap: 8px; } .note-choices select { min-width: 0; flex: 1; }
 .note-editor-slot { flex: 1; min-height: 0; overflow: hidden; }
 .panel-message { padding: 12px; font-size: 13px; }

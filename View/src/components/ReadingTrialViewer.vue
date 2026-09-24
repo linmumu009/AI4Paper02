@@ -403,7 +403,7 @@ onBeforeUnmount(() => {
     >
       <aside
         v-if="showToc && headings.length > 0"
-        class="absolute z-20 left-0 top-12 bottom-0 w-64 mr-2 border border-border rounded-xl bg-bg-sidebar overflow-hidden flex flex-col shadow-lg"
+        class="reader-controls absolute z-20 left-0 top-12 bottom-0 w-64 mr-2 border border-border rounded-xl bg-bg-sidebar overflow-hidden flex flex-col shadow-lg"
       >
         <!-- TOC header -->
         <div class="shrink-0 px-3 py-2.5 border-b border-border flex items-center justify-between gap-2">
@@ -451,7 +451,7 @@ onBeforeUnmount(() => {
         <!-- TOC toggle button (only when there are headings) -->
         <div
           v-if="headings.length > 0 || mode"
-          class="shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border bg-bg-elevated/50"
+          class="reader-toolbar shrink-0 flex items-center justify-between px-3 py-1.5 border-b border-border"
         >
           <button
             v-if="headings.length > 0"
@@ -484,14 +484,14 @@ onBeforeUnmount(() => {
         </div>
 
         <p v-if="anchorMessage" class="px-4 py-2 text-sm" role="status">{{ anchorMessage }}</p>
-        <div v-if="settingsOpen" class="trial-settings">
+        <div v-if="settingsOpen" class="trial-settings reader-controls">
           <label>字号 {{ fontSize }}px <input v-model.number="fontSize" aria-label="字号" type="range" min="16" max="28" step="1" /></label>
           <label>行距 {{ leading }} <input v-model.number="leading" aria-label="行距" type="range" min="1.5" max="2.2" step="0.05" /></label>
           <label>行宽 {{ measure }}字 <input v-model.number="measure" aria-label="行宽" type="range" min="28" max="42" step="1" /></label>
           <label>字距 <input v-model.number="tracking" aria-label="字距" type="range" min="0" max="0.06" step="0.01" /></label>
           <label>纸面 <select v-model="paper" aria-label="纸面" @change="paper === 'dark' ? colorDepth = 92 : undefined"><option v-for="item in readingPapers" :key="item.value" :value="item.value">{{ item.label }}</option></select></label>
         </div>
-        <div v-if="settingsOpen" class="trial-settings">
+        <div v-if="settingsOpen" class="trial-settings reader-controls">
           <label>颜色深度 {{ colorDepth }}% <input v-model.number="colorDepth" aria-label="颜色深度" type="range" min="0" max="100" step="1" /></label>
           <label v-if="paper === 'custom'">自选颜色 <input v-model="customColor" type="color" aria-label="自选颜色" /></label>
           <span>正文首行缩进两字符</span>
@@ -518,7 +518,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.reading-workspace { position: relative; display: flex; gap: 12px; min-height: 0; height: 100%; width: 100%; max-width: 1100px; margin: 0 auto; }
+.reading-workspace { --reader-ui-bg: var(--color-bg-card); --reader-ui-ink: var(--color-text-primary); --reader-ui-muted: var(--color-text-muted); --reader-ui-border: var(--color-border); --reader-ui-hover: var(--color-bg-hover); position: relative; display: flex; gap: 12px; min-height: 0; height: 100%; width: 100%; max-width: 1100px; margin: 0 auto; }
 .reading-workspace.notes-open { max-width: 1540px; }
 .trial-reader { min-width: 0; }
 .saved-notice { position: absolute; z-index: 30; top: 48px; right: 16px; display: flex; gap: 10px; align-items: center; max-width: calc(100% - 32px); padding: 9px 12px; border: 1px solid var(--trial-line); border-radius: 8px; background: var(--trial-bg); color: var(--trial-ink); box-shadow: 0 3px 14px #0001; font-size: 12px; }
@@ -783,6 +783,7 @@ onBeforeUnmount(() => {
 .paper-white { --trial-bg: #fff; --trial-ink: #292929; --trial-muted: #595959; --trial-line: #ddd; }
 .paper-dark { --trial-bg: #232522; --trial-ink: #e5e5dc; --trial-muted: #bcbfb5; --trial-line: #53574e; }
 .trial-reader > div { background: var(--trial-bg); }
+.markdown-viewer-body { background: var(--trial-bg); }
 .trial-settings { display: flex; flex-wrap: wrap; gap: 12px 24px; padding: 12px 20px; color: var(--trial-ink); border-bottom: 1px solid var(--trial-line); font-size: 13px; }
 .trial-settings label { display: flex; align-items: center; gap: 8px; }
 .trial-settings input { width: 100px; }
@@ -805,4 +806,16 @@ onBeforeUnmount(() => {
 .markdown-viewer-body ::selection { background: #e5bf62; color: #191919; }
 :global(::highlight(reading-source)) { background: #e5bf62; color: #191919; }
 @media (max-width: 600px) { .markdown-viewer-body.reading-mode { padding: 16px 16px 64px; } }
+</style>
+
+<style scoped>
+/* Site chrome uses site tokens; typography and paper colors remain local to the body. */
+.reader-toolbar, .reader-controls { --color-text-primary: var(--reader-ui-ink); --color-text-secondary: var(--reader-ui-muted); --color-text-muted: var(--reader-ui-muted); --color-border: var(--reader-ui-border); --color-bg-sidebar: var(--reader-ui-bg); background: var(--reader-ui-bg); color: var(--reader-ui-ink); border-color: var(--reader-ui-border); }
+.reader-toolbar { min-height: 44px; flex-wrap: wrap; gap: 6px; }
+.trial-reader .trial-settings { background: var(--reader-ui-bg); color: var(--reader-ui-ink); border-color: var(--reader-ui-border); }
+.trial-settings select, .reader-toolbar .bilingual-controls button { background: var(--reader-ui-bg); color: var(--reader-ui-ink); border: 1px solid var(--reader-ui-border); border-radius: 8px; min-height: 30px; }
+.reader-toolbar button:hover { background: var(--reader-ui-hover); }
+.reader-toolbar button[aria-expanded="true"] { border-color: var(--color-accent-primary); box-shadow: inset 0 -2px var(--color-accent-primary); }
+.reader-toolbar button:focus-visible, .trial-settings :is(input, select):focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; }
+.trial-settings input { accent-color: var(--color-accent-primary); }
 </style>
