@@ -737,24 +737,15 @@ onBeforeUnmount(() => {
   border-radius: 0 6px 6px 0;
 }
 
-/* [译] marker — styled as a small label */
-.markdown-viewer-body.bilingual-mode :deep(p > strong:only-child) {
-  display: inline-flex;
-  align-items: center;
-  font-size: 0.72em;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: hsl(var(--bilingual-hue), var(--bilingual-saturation), 42%);
-  background: hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, calc(var(--bilingual-intensity) * 0.02));
-  border: 1px solid hsla(var(--bilingual-hue), var(--bilingual-saturation), 50%, 0.25);
-  border-radius: 4px;
-  padding: 0.1em 0.5em;
-  margin: 0.25em 0 0.1em;
-  line-height: 1.5;
+/* Emphasis belongs to the paper, not to the reader's UI labels. */
+.markdown-viewer-body.reading-mode :deep(strong) {
+  font-size: inherit;
+  color: inherit;
+  font-weight: 700;
 }
 
 /* Chinese translation paragraph — inherits container font-size (= user's chosen value) */
-.markdown-viewer-body.bilingual-mode :deep(p:not(:has(> strong:only-child))) {
+.markdown-viewer-body.bilingual-mode :deep(p) {
   color: var(--color-text-primary);
   line-height: var(--trial-leading);
   margin: 0.2em 0 0.6em;
