@@ -442,3 +442,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingNoteLoad.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\ReadingNotesPanel.vue
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\ReadingFlow.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingSession.ts

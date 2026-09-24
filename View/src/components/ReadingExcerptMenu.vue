@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { createNote, fetchNotes, type KbScope } from '../api'
 import { http } from '@shared/api/client'
 import { toApiKbScope } from '../api/knowledgeBase'
@@ -9,6 +9,21 @@ import { excerptHtml, type ReadingAnchor } from '../utils/readingAnchor'
 
 const props = defineProps<{ paperId: string; scope: KbScope; mode: string; anchor: ReadingAnchor; quote: string; x: number; y: number; preferredNoteId?: number; appendToNote?: (id: number, update: () => Promise<KbNote>) => Promise<KbNote> }>()
 const emit = defineEmits<{ close: []; saved: [note: KbNote] }>()
+const menu = ref<HTMLElement | null>(null)
+function dismissOutside(event: PointerEvent) {
+  if (event.target instanceof Node && !menu.value?.contains(event.target)) emit('close')
+}
+function dismissOnEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); emit('close') }
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', dismissOutside, true)
+  document.addEventListener('keydown', dismissOnEscape, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', dismissOutside, true)
+  document.removeEventListener('keydown', dismissOnEscape, true)
+})
 const notes = ref<KbNote[]>([])
 const chosen = ref('new')
 const loading = ref(true)
@@ -49,7 +64,7 @@ async function save() {
 </script>
 
 <template>
-  <aside class="excerpt-menu" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="添加摘录到笔记" @pointerup.stop @keydown.esc.stop="emit('close')">
+  <aside ref="menu" class="excerpt-menu" :style="{ left: `${x}px`, top: `${y}px` }" role="dialog" aria-label="添加摘录到笔记" @pointerup.stop @keydown.esc.stop="emit('close')">
     <div class="excerpt-top"><strong>添加到笔记</strong><button aria-label="关闭摘录菜单" @click="emit('close')">×</button></div>
     <p v-if="loading">正在读取当前论文的笔记…</p>
     <template v-else-if="saved">

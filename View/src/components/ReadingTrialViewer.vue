@@ -119,10 +119,25 @@ const anchorMessage = ref('')
 let anchorRestored = false
 let sourceHighlight: Highlight | null = null
 
+function positionKey() { return `ai4papers.reading-position:${props.scope || 'kb'}:${props.paperId || props.url}:${props.mode || 'mineru'}` }
+function rememberPosition() {
+  selectionMenu.value = null
+  if (bodyRef.value) {
+    try { sessionStorage.setItem(positionKey(), String(bodyRef.value.scrollTop)) } catch { /* Optional session storage. */ }
+  }
+}
+function restorePosition() {
+  if (props.sourceAnchor || !bodyRef.value) return
+  try {
+    const offset = Number(sessionStorage.getItem(positionKey()))
+    if (Number.isFinite(offset) && offset > 0) bodyRef.value.scrollTop = offset
+  } catch { /* Optional session storage. */ }
+}
+
 function captureSelection(event: MouseEvent | KeyboardEvent) {
   if (!props.paperId || (event instanceof KeyboardEvent && !event.shiftKey)) return
   const selection = window.getSelection()
-  if (!selection?.rangeCount || selection.isCollapsed || !bodyRef.value) return
+  if (!selection?.rangeCount || selection.isCollapsed || !bodyRef.value) { selectionMenu.value = null; return }
   const range = selection.getRangeAt(0)
   const anchor = captureReadingAnchor(bodyRef.value, range)
   if (!anchor) { anchorMessage.value = '请选择正文文字；单次摘录请控制在 10000 字符以内。'; return }
@@ -331,7 +346,7 @@ async function load() {
     }
     nextTick(() => {
       setupTocObserver()
-      requestAnimationFrame(() => restoreSourceAnchor())
+      requestAnimationFrame(() => { if (!isBackgroundRefresh) restorePosition(); restoreSourceAnchor() })
       if (showAllSources.value) bodyRef.value?.querySelectorAll<HTMLDetailsElement>('details.trial-source').forEach(el => { el.open = true })
     })
   }
@@ -502,7 +517,7 @@ onBeforeUnmount(() => {
           tabindex="-1"
           @mouseup="captureSelection"
           @keyup="captureSelection"
-          @scroll="selectionMenu = null"
+          @scroll="rememberPosition"
           class="flex-1 overflow-y-auto px-5 sm:px-6 py-4 text-text-primary markdown-viewer-body"
           :class="[
             mode ? 'reading-mode' : '',

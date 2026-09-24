@@ -7,6 +7,28 @@ vi.mock('../ReadingExcerptMenu.vue', () => ({ default: { name: 'ReadingExcerptMe
 vi.mock('../ReadingNotesPanel.vue', () => ({ default: { name: 'ReadingNotesPanel', template: '<aside class="test-notes">并排笔记</aside>' } }))
 
 describe('reading without navigation', () => {
+  it('restores the same paper position after remount', async () => {
+    sessionStorage.clear()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '# 阅读位置\n\n正文。' }))
+    vi.stubGlobal('CSS', { escape: (text: string) => text })
+    const frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+    const props = { url: '/resume.md', mode: 'zh' as const, paperId: 'resume', scope: 'mypapers' as const }
+    const first = mount(ReadingTrialViewer, { props })
+    await flushPromises()
+    frames.splice(0).forEach(callback => callback(0))
+    const body = first.find('.markdown-viewer-body')
+    ;(body.element as HTMLElement).scrollTop = 650
+    await body.trigger('scroll')
+    first.unmount()
+    const second = mount(ReadingTrialViewer, { props })
+    await flushPromises()
+    frames.splice(0).forEach(callback => callback(0))
+    expect((second.find('.markdown-viewer-body').element as HTMLElement).scrollTop).toBe(650)
+    second.unmount()
+    sessionStorage.clear()
+    vi.unstubAllGlobals()
+  })
   it('saves quietly and opens notes only on request, keeping the same reader mounted', async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, text: async () => '# 摘要\n\n需要继续阅读的正文内容。' })
     vi.stubGlobal('fetch', fetch)

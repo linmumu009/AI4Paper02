@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { readingSessionKey, type ReadingSession } from '../utils/readingSession'
 import { API_ORIGIN } from '../api'
 import MarkdownViewer from './MarkdownViewer.vue'
 import ReadingTrialViewer from './ReadingTrialViewer.vue'
@@ -14,10 +15,11 @@ const props = defineProps<{
   zhUrl?: string | null
   bilingualUrl?: string | null
   translating?: boolean
+  resume?: ReadingSession
 }>()
 const opened = ref(false)
-const version = ref('trial')
-const mode = ref<'mineru' | 'zh' | 'bilingual'>('bilingual')
+const version = ref(props.resume?.version || 'trial')
+const mode = ref<'mineru' | 'zh' | 'bilingual'>(props.resume?.mode || 'bilingual')
 const dialog = ref<HTMLDialogElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
 const reader = ref<{ flushNotes?: () => Promise<boolean> } | null>(null)
@@ -36,6 +38,7 @@ watch(choices, () => {
 }, { immediate: true })
 async function open() {
   opened.value = true
+  rememberSession()
   await nextTick()
   dialog.value?.showModal()
 }
@@ -43,8 +46,16 @@ async function close() {
   if (reader.value?.flushNotes && !await reader.value.flushNotes()) return
   dialog.value?.close()
   opened.value = false
+  try { sessionStorage.removeItem(readingSessionKey) } catch { /* Storage may be unavailable. */ }
   trigger.value?.focus()
 }
+function rememberSession() {
+  if (!opened.value || !props.paperId) return
+  const { resume, ...paper } = props
+  try { sessionStorage.setItem(readingSessionKey, JSON.stringify({ ...paper, path: location.pathname + location.search, version: version.value, mode: mode.value })) } catch { /* Reading still works without storage. */ }
+}
+watch([version, mode], rememberSession)
+onMounted(() => { if (props.resume) void open() })
 function navigateSource(payload: { mode: 'mineru' | 'zh' | 'bilingual'; anchor: ReadingAnchor }) {
   mode.value = payload.mode
   sourceAnchor.value = payload.anchor
@@ -53,8 +64,8 @@ function navigateSource(payload: { mode: 'mineru' | 'zh' | 'bilingual'; anchor: 
 
 <template>
   <div v-if="choices.length" class="trial-entry" @click.stop>
-    <div class="text-[10px] text-text-muted">阅读页面：原版入口保留在下方</div>
-    <button ref="trigger" type="button" class="trial-launch" @click="open">新版阅读（试用） ↗</button>
+    <div v-if="!resume" class="text-[10px] text-text-muted">阅读页面：原版入口保留在下方</div>
+    <button v-if="!resume" ref="trigger" type="button" class="trial-launch" @click="open">新版阅读（试用） ↗</button>
     <Teleport to="body">
       <dialog v-if="opened" ref="dialog" class="trial-dialog" aria-label="论文阅读对比" @cancel.prevent="close" @click.stop>
         <header class="trial-header">

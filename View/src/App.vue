@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import Navbar from './components/Navbar.vue'
+import ReadingTrialEntry from './components/ReadingTrialEntry.vue'
+import { readReadingSession } from './utils/readingSession'
+
+const resumedReading = readReadingSession()
 import GlobalChatDrawer from './components/GlobalChatDrawer.vue'
 import FloatingActions from './components/FloatingActions.vue'
 import EngagementToast from './components/EngagementToast.vue'
@@ -121,6 +125,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <ReadingTrialEntry v-if="resumedReading && isAuthenticated" v-bind="resumedReading" :resume="resumedReading" style="display: none" />
   <div class="h-screen flex flex-col bg-bg">
     <!-- Top nav bar -->
     <Navbar />

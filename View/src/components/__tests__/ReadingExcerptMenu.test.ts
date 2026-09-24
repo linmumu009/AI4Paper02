@@ -10,6 +10,21 @@ const props = { paperId: 'paper-1', scope: 'mypapers' as const, mode: 'zh', quot
 
 describe('reading excerpt destination', () => {
   beforeEach(() => vi.resetAllMocks())
+  it('dismisses on outside pointer or Escape, but keeps controls inside usable', async () => {
+    api.fetchNotes.mockResolvedValue({ notes: [] })
+    const onClose = vi.fn()
+    const wrapper = mount(ReadingExcerptMenu, { props: { ...props, onClose }, attachTo: document.body })
+    await flushPromises()
+    await wrapper.find('input').trigger('pointerdown')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(wrapper.emitted('close')).toHaveLength(2)
+    wrapper.unmount()
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+  })
   it('filters out file attachments and appends to the selected note', async () => {
     api.fetchNotes.mockResolvedValue({ notes: [{ id: 2, type: 'file', title: '附件' }, { id: 3, type: 'markdown', title: '已有笔记' }] })
     api.post.mockResolvedValue({ data: { id: 3, title: '已有笔记' } })
