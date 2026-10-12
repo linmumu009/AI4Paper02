@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from services import analytics_service, auth_service, chat_service, data_service, engagement_service, entitlement_service, kb_service
 from services.quota_stream_service import guard_quota_stream
+from services import user_paper_service
 from routers._deps import _get_optional_user, _tier_label, _tier_quota_limit, _analytics_limiter
 
 router = APIRouter(prefix="/api", tags=["papers"])
@@ -213,7 +214,13 @@ def api_post_paper_chat(
     body: PaperChatBody,
     user=Depends(auth_service.require_user),
 ):
-    if data_service.get_paper_detail(paper_id, user_id=user["id"]) is None:
+    # Uploaded papers live in the current user's private library, not the feed.
+    paper = (
+        user_paper_service.get_paper(user["id"], paper_id)
+        if paper_id.startswith("up_")
+        else data_service.get_paper_detail(paper_id, user_id=user["id"])
+    )
+    if paper is None:
         raise HTTPException(status_code=404, detail=f"Paper {paper_id} not found")
 
     boost: dict = {}
