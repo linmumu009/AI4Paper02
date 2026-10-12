@@ -5,6 +5,7 @@ import { IS_TAURI, tauriFetchText } from '../api'
 import { renderPaperMarkdown } from '../utils/paperMarkdown'
 import MarkdownToc, { type TocHeading } from './MarkdownToc.vue'
 import LoadingSpinner from './LoadingSpinner.vue'
+import { foldReadingCitations } from '../utils/readingCitations'
 import { prepareTrialBilingual } from '../utils/readingTrial'
 import { captureReadingAnchor, locateReadingAnchor, parseReadingAnchor, type ReadingAnchor } from '../utils/readingAnchor'
 import { readingPalette, readingPapers } from '../utils/readingPalette'
@@ -20,6 +21,41 @@ const savedNotice = ref('')
 const notesPanel = ref<{ flush: () => Promise<boolean>; append: (id: number, update: () => Promise<KbNote>) => Promise<KbNote> } | null>(null)
 let noticeTimer: ReturnType<typeof setTimeout> | null = null
 
+const fullCitations = ref(false)
+const citationPopup = ref<{ text: string; x: number; y: number } | null>(null)
+let citationButton: HTMLButtonElement | null = null
+function closeCitation() {
+  citationButton?.setAttribute('aria-expanded', 'false')
+  citationButton = null
+  citationPopup.value = null
+}
+function citationClick(event: MouseEvent) {
+  const button = (event.target as Element)?.closest<HTMLButtonElement>('.reading-citation-toggle')
+  if (!button) return
+  event.preventDefault()
+  if (button === citationButton) { closeCitation(); return }
+  closeCitation()
+  selectionMenu.value = null
+  citationButton = button
+  button.setAttribute('aria-expanded', 'true')
+  const rect = button.getBoundingClientRect()
+  citationPopup.value = { text: button.previousElementSibling?.textContent || '', x: Math.max(12, Math.min(rect.left, window.innerWidth - 332)), y: Math.max(12, Math.min(rect.bottom + 8, window.innerHeight - 220)) }
+}
+function citationOutside(event: PointerEvent) {
+  if (!(event.target as Element)?.closest?.('.reading-citation-toggle, .citation-popup')) closeCitation()
+}
+function citationEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && citationPopup.value) { event.preventDefault(); event.stopPropagation(); closeCitation() }
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', citationOutside, true)
+  document.addEventListener('keydown', citationEscape, true)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', citationOutside, true)
+  document.removeEventListener('keydown', citationEscape, true)
+})
+watch(fullCitations, closeCitation)
 const settingsOpen = ref(false)
 const fontSize = ref(20)
 const leading = ref(1.8)
@@ -32,6 +68,7 @@ const paletteStyle = computed(() => readingPalette(paper.value, colorDepth.value
 const showAllSources = ref(false)
 try {
   const saved = JSON.parse(localStorage.getItem('ai4papers-reading-trial-v1') || '{}')
+  if (typeof saved.fullCitations === 'boolean') fullCitations.value = saved.fullCitations
   if (typeof saved.fontSize === 'number') fontSize.value = Math.max(16, Math.min(28, saved.fontSize))
   if (typeof saved.leading === 'number') leading.value = Math.max(1.5, Math.min(2.2, saved.leading))
   if (typeof saved.measure === 'number') measure.value = Math.max(28, Math.min(42, saved.measure))
@@ -41,7 +78,7 @@ try {
   else if (paper.value === 'dark') colorDepth.value = 92
   if (/^#[a-f\d]{6}$/i.test(saved.customColor || '')) customColor.value = saved.customColor
 } catch { /* Storage may be unavailable. */ }
-watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor, notesOpen], () => {
+watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor, notesOpen, fullCitations], () => {
   const body = bodyRef.value
   const top = body?.getBoundingClientRect().top ?? 0
   const anchor = body && Array.from(body.children).find(el => el.getBoundingClientRect().bottom > top)
@@ -49,7 +86,7 @@ watch([fontSize, leading, measure, tracking, paper, colorDepth, customColor, not
   nextTick(() => {
     if (body && anchor?.isConnected) body.scrollTop += anchor.getBoundingClientRect().top - body.getBoundingClientRect().top - offset
   })
-  try { localStorage.setItem('ai4papers-reading-trial-v1', JSON.stringify({ fontSize: fontSize.value, leading: leading.value, measure: measure.value, tracking: tracking.value, paper: paper.value, colorDepth: colorDepth.value, customColor: customColor.value })) } catch { /* Reading still works without persistence. */ }
+  try { localStorage.setItem('ai4papers-reading-trial-v1', JSON.stringify({ fullCitations: fullCitations.value, fontSize: fontSize.value, leading: leading.value, measure: measure.value, tracking: tracking.value, paper: paper.value, colorDepth: colorDepth.value, customColor: customColor.value })) } catch { /* Reading still works without persistence. */ }
 })
 watch(showAllSources, async () => {
   await nextTick()
@@ -121,6 +158,7 @@ let sourceHighlight: Highlight | null = null
 
 function positionKey() { return `ai4papers.reading-position:${props.scope || 'kb'}:${props.paperId || props.url}:${props.mode || 'mineru'}` }
 function rememberPosition() {
+  closeCitation()
   selectionMenu.value = null
   if (bodyRef.value) {
     try { sessionStorage.setItem(positionKey(), String(bodyRef.value.scrollTop)) } catch { /* Optional session storage. */ }
@@ -135,6 +173,7 @@ function restorePosition() {
 }
 
 function captureSelection(event: MouseEvent | KeyboardEvent) {
+  if ((event.target as Element)?.closest?.('.reading-citation-toggle')) return
   if (!props.paperId || (event instanceof KeyboardEvent && !event.shiftKey)) return
   const selection = window.getSelection()
   if (!selection?.rangeCount || selection.isCollapsed || !bodyRef.value) { selectionMenu.value = null; return }
@@ -313,7 +352,8 @@ async function load() {
     _lastText = text
     const rendered = renderPaperMarkdown(text)
     const raw = props.mode === 'bilingual' ? prepareTrialBilingual(rendered) : rendered
-    const withIds = injectHeadingIds(raw)
+    closeCitation()
+    const withIds = injectHeadingIds(foldReadingCitations(raw))
     headings.value = withIds.headings
     html.value = rewriteRelativeAssetUrls(withIds.html, props.url)
     activeHeadingId.value = headings.value[0]?.id ?? ''
@@ -407,6 +447,7 @@ onBeforeUnmount(() => {
     :class="[rootClass, 'trial-reader', `paper-${paper}`]"
     :style="{ ...paletteStyle, '--trial-size': `${fontSize}px`, '--trial-leading': leading, '--trial-width': `${measure}em`, '--trial-tracking': `${tracking}em` }"
   >
+    <aside v-if="citationPopup" class="citation-popup" role="dialog" aria-label="文献引用" :style="{ left: `${citationPopup.x}px`, top: `${citationPopup.y}px` }"><header><strong>文献引用</strong><button type="button" aria-label="关闭引用" @click="closeCitation">×</button></header><p>{{ citationPopup.text }}</p></aside>
     <ReadingExcerptMenu v-if="selectionMenu && paperId" :key="selectionMenu.anchor.start + ':' + selectionMenu.anchor.text" :paper-id="paperId" :scope="scope || 'kb'" :mode="mode || 'mineru'" :preferred-note-id="preferredNoteId" :append-to-note="appendToNote" v-bind="selectionMenu" @close="selectionMenu = null" @saved="excerptSaved" />
     <div v-if="savedNotice" class="saved-notice" role="status"><span>{{ savedNotice }}</span><button v-if="!notesOpen" @click="notesOpen = true">查看笔记</button><button aria-label="关闭保存提示" @click="savedNotice = ''">×</button></div>
     <!-- TOC: positioned absolutely to the left of the card -->
@@ -509,18 +550,21 @@ onBeforeUnmount(() => {
         <div v-if="settingsOpen" class="trial-settings reader-controls">
           <label>颜色深度 {{ colorDepth }}% <input v-model.number="colorDepth" aria-label="颜色深度" type="range" min="0" max="100" step="1" /></label>
           <label v-if="paper === 'custom'">自选颜色 <input v-model="customColor" type="color" aria-label="自选颜色" /></label>
+          <label><input v-model="fullCitations" type="checkbox" class="citation-checkbox" />显示完整引用</label>
           <span>正文首行缩进两字符</span>
         </div>
         <!-- Markdown body -->
         <div
           ref="bodyRef"
           tabindex="-1"
+          @click="citationClick"
           @mouseup="captureSelection"
           @keyup="captureSelection"
           @scroll="rememberPosition"
           class="flex-1 overflow-y-auto px-5 sm:px-6 py-4 text-text-primary markdown-viewer-body"
           :class="[
             mode ? 'reading-mode' : '',
+            fullCitations ? 'citations-full' : 'citations-folded',
             mode === 'bilingual' ? 'bilingual-mode' : '',
           ]"
           v-html="html"
@@ -824,4 +868,17 @@ onBeforeUnmount(() => {
 .reader-toolbar button[aria-expanded="true"] { border-color: var(--color-accent-primary); box-shadow: inset 0 -2px var(--color-accent-primary); }
 .reader-toolbar button:focus-visible, .trial-settings :is(input, select):focus-visible { outline: 2px solid var(--color-accent-primary); outline-offset: 2px; }
 .trial-settings input { accent-color: var(--color-accent-primary); }
+</style>
+
+<style scoped>
+.markdown-viewer-body :deep(.reading-citation-toggle) { display: none; }
+.markdown-viewer-body.citations-folded :deep(.reading-citation-text) { display: none; }
+.markdown-viewer-body.citations-folded :deep(.reading-citation-toggle) { display: inline-block; vertical-align: super; font: inherit; font-size: 0.65em; line-height: 1; color: var(--trial-muted); background: none; border: 0; padding: 0 0.15em; cursor: pointer; text-indent: 0; }
+.markdown-viewer-body :deep(.reading-citation-toggle::after) { content: attr(data-citation-number); }
+.markdown-viewer-body :deep(.reading-citation-toggle:focus-visible) { outline: 2px solid var(--trial-muted); outline-offset: 3px; }
+.citation-popup { position: fixed; z-index: 110; width: min(320px, calc(100vw - 24px)); max-height: 208px; overflow: auto; padding: 12px 16px; border-radius: 10px; border: 1px solid var(--trial-line); background: var(--trial-bg); color: var(--trial-ink); box-shadow: 0 6px 24px #0002; font-size: 14px; }
+.citation-popup header { display: flex; justify-content: space-between; align-items: center; }
+.citation-popup button { background: none; border: 0; color: inherit; cursor: pointer; font-size: 20px; }
+.citation-popup p { margin-top: 8px; line-height: 1.7; overflow-wrap: anywhere; }
+.trial-settings input.citation-checkbox { width: auto; }
 </style>

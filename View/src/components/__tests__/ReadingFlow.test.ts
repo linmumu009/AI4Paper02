@@ -7,6 +7,33 @@ vi.mock('../ReadingExcerptMenu.vue', () => ({ default: { name: 'ReadingExcerptMe
 vi.mock('../ReadingNotesPanel.vue', () => ({ default: { name: 'ReadingNotesPanel', template: '<aside class="test-notes">并排笔记</aside>' } }))
 
 describe('reading without navigation', () => {
+  it('opens and dismisses citations without scrolling or replacing the paper', async () => {
+    localStorage.clear()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '# Test\n\n与近期研究一致 (Li et al., 2026; Zhu et al., 2026)，继续阅读（§3）。' }))
+    vi.stubGlobal('CSS', { escape: (text: string) => text })
+    const wrapper = mount(ReadingTrialViewer, { props: { url: '/citations.md', mode: 'zh' }, attachTo: document.body })
+    await flushPromises()
+    const body = wrapper.find('.markdown-viewer-body').element as HTMLElement
+    body.scrollTop = 120
+    await wrapper.find('.reading-citation-toggle').trigger('click')
+    expect(wrapper.find('.citation-popup').text()).toContain('Li et al., 2026; Zhu et al., 2026')
+    expect(body.scrollTop).toBe(120)
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.citation-popup').exists()).toBe(false)
+    await wrapper.find('.reading-citation-toggle').trigger('click')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(wrapper.find('.citation-popup').exists()).toBe(false)
+    const settings = wrapper.findAll('button').find(button => button.text() === '阅读设置')!
+    await settings.trigger('click')
+    await wrapper.find('.citation-checkbox').setValue(true)
+    expect(wrapper.find('.markdown-viewer-body').classes()).toContain('citations-full')
+    expect(wrapper.find('.markdown-viewer-body').element).toBe(body)
+    wrapper.unmount()
+    localStorage.clear()
+    vi.unstubAllGlobals()
+  })
   it('restores the same paper position after remount', async () => {
     sessionStorage.clear()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '# 阅读位置\n\n正文。' }))
