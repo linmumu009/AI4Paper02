@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
-import ReadingTrialEntry from './ReadingTrialEntry.vue'
-import { ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
+const ReadingTrialEntry = defineAsyncComponent(() => import('./ReadingTrialEntry.vue'))
+import { defineAsyncComponent, ref, computed, onBeforeUnmount, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import type { KbTree, KbFolder, KbPaper, KbMenuItem, KbNote, KbCompareResult, KbCompareResultsTree, UserPaper, UserPaperTree, UserPaperFolder, CompareCartItem, UserPaperFileViewMode, UserPaperViewMdPayload } from '../types/paper'
 import type { UserPaperDerivativeType } from '../api'

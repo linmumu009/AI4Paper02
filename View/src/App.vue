@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
+import { defineAsyncComponent, computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import Navbar from './components/Navbar.vue'
-import ReadingTrialEntry from './components/ReadingTrialEntry.vue'
+const ReadingTrialEntry = defineAsyncComponent(() => import('./components/ReadingTrialEntry.vue'))
 import { readReadingSession } from './utils/readingSession'
 
 const resumedReading = readReadingSession()

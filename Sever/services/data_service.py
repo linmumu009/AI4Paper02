@@ -466,19 +466,8 @@ def list_dates(user_id: int = 0) -> list[str]:
     """
     # Try DB first
     try:
-        from services.pipeline_db_service import (
-            is_digest_ready_for_publication,
-            list_dates_with_data,
-        )
-        candidate_dates = set(list_dates_with_data(user_id))
-        if user_id != 0:
-            candidate_dates.update(list_dates_with_data(0))
-        ready_dates = [
-            date_str
-            for date_str in candidate_dates
-            if is_digest_ready_for_publication(user_id, date_str)
-            or (user_id != 0 and is_digest_ready_for_publication(0, date_str))
-        ]
+        from services.pipeline_db_service import list_publishable_dates
+        ready_dates = list_publishable_dates(user_id)
         if ready_dates:
             return sorted(ready_dates, reverse=True)
     except Exception:

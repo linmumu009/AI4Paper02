@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onMounted } from 'vue'
+import { defineAsyncComponent, computed, ref, watch, nextTick, onMounted } from 'vue'
 import { readingSessionKey, type ReadingSession } from '../utils/readingSession'
 import { API_ORIGIN } from '../api'
-import MarkdownViewer from './MarkdownViewer.vue'
-import ReadingTrialViewer from './ReadingTrialViewer.vue'
+const MarkdownViewer = defineAsyncComponent(() => import('./MarkdownViewer.vue'))
+const ReadingTrialViewer = defineAsyncComponent(() => import('./ReadingTrialViewer.vue'))
 import type { KbScope } from '../api'
 import type { ReadingAnchor } from '../utils/readingAnchor'
 

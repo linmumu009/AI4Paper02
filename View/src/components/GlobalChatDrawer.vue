@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { watch, onMounted, onUnmounted, computed, ref } from 'vue'
+import { defineAsyncComponent, watch, onMounted, onUnmounted, computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import PaperChat from './PaperChat.vue'
+const PaperChat = defineAsyncComponent(() => import('./PaperChat.vue'))
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { fetchPaperDetail } from '../api'
 import { useToast } from '../composables/useToast'

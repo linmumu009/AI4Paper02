@@ -1408,6 +1408,55 @@ def list_dates_with_data(user_id: int = 0) -> list[str]:
         conn.close()
 
 
+def list_publishable_dates(user_id: int = 0) -> list[str]:
+    """Check all dates in one snapshot, without rerunning pipeline diagnostics.
+
+    A user's complete batch or the system's complete batch may expose a date;
+    outputs from different users must never complete one another's batch.
+    """
+    conn = _connect()
+    try:
+        conn.execute("BEGIN")
+        rows = conn.execute(
+            """
+            SELECT p.user_id, p.date_str,
+                   TRIM(s.summary_raw) != '' AND TRIM(s.summary_limit) != '' AS summaries_ready,
+                   a.blocks_json
+            FROM pipeline_selected_papers p
+            LEFT JOIN pipeline_summaries s
+              ON s.user_id=p.user_id AND s.date_str=p.date_str
+             AND s.paper_arxiv_id=p.paper_arxiv_id
+            LEFT JOIN pipeline_paper_assets a
+              ON a.user_id=p.user_id AND a.date_str=p.date_str
+             AND a.paper_arxiv_id=p.paper_arxiv_id
+            WHERE p.user_id IN (?, 0) AND p.is_final_selected=1
+            """,
+            (user_id,),
+        )
+        batches: dict[tuple[int, str], bool] = {}
+        for row in rows:
+            key = (row["user_id"], row["date_str"])
+            if not batches.get(key, True):
+                continue
+            try:
+                blocks = json.loads(row["blocks_json"] or "{}") if row["summaries_ready"] else {}
+            except (json.JSONDecodeError, TypeError):
+                blocks = {}
+            batches[key] = _blocks_have_meaningful_text(blocks)
+        ready = {date for (_, date), complete in batches.items() if complete}
+        notices = conn.execute(
+            "SELECT user_id, date_str FROM pipeline_date_notices WHERE user_id IN (?, 0)",
+            (user_id,),
+        )
+        for row in notices:
+            # Notices only publish batches with no final selections.
+            if (row["user_id"], row["date_str"]) not in batches:
+                ready.add(row["date_str"])
+        return sorted(ready, reverse=True)
+    finally:
+        conn.close()
+
+
 def list_all_dates_with_data() -> list[str]:
     """Return all distinct dates across all users (default run only)."""
     return list_dates_with_data(user_id=0)

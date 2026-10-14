@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { defineAsyncComponent, ref, watch, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import Sidebar from '../components/Sidebar.vue'
 import DatePill from '../components/DatePill.vue'
 import PaperCard from '../components/PaperCard.vue'
 import ActionButtons from '../components/ActionButtons.vue'
 import WhyNotDrawer from '../components/WhyNotDrawer.vue'
-import ContentLayout from '../components/ContentLayout.vue'
+const ContentLayout = defineAsyncComponent(() => import('../components/ContentLayout.vue'))
 import type { ContentLayoutContext } from '../components/ContentLayout.vue'
 import PdfPanel from '../components/panels/PdfPanel.vue'
 import UserPaperUploadDialog from '../components/UserPaperUploadDialog.vue'
@@ -42,9 +42,9 @@ import ResearchWorkspaceShell from '../components/workspace/ResearchWorkspaceShe
 import WorkspaceModeSwitch from '../components/workspace/WorkspaceModeSwitch.vue'
 import WorkspacePaperRow from '../components/workspace/WorkspacePaperRow.vue'
 import PaperInspector from '../components/workspace/PaperInspector.vue'
-import ImmersivePaperReader from '../components/workspace/ImmersivePaperReader.vue'
-import KnowledgeWorkspace from '../components/workspace/KnowledgeWorkspace.vue'
-import UserPaperImmersiveReader from '../components/workspace/UserPaperImmersiveReader.vue'
+const ImmersivePaperReader = defineAsyncComponent(() => import('../components/workspace/ImmersivePaperReader.vue'))
+const KnowledgeWorkspace = defineAsyncComponent(() => import('../components/workspace/KnowledgeWorkspace.vue'))
+const UserPaperImmersiveReader = defineAsyncComponent(() => import('../components/workspace/UserPaperImmersiveReader.vue'))
 
 const router = useRouter()
 const route = useRoute()

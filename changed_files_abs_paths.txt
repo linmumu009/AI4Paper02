@@ -446,3 +446,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingSession
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingCitations.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\readingCitations.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_uploaded_paper_chat.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_publishable_dates.py
