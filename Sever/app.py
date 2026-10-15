@@ -1006,7 +1006,7 @@ def main(argv=None):
                     isolated = step in _DIGEST_OUTPUT_STEPS and coverage.get("valid_count", 0) > 0
                     recorder.finish_step(
                         step,
-                        status="partial" if isolated else "failed",
+                        status="soft_failed" if isolated else "failed",
                         exit_code=5 if isolated else 1,
                         error_type="incomplete_coverage",
                         error_message=message[:500],
