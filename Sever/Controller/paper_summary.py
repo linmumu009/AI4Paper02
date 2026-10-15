@@ -524,6 +524,7 @@ def run() -> None:
                     try:
                         _pdb.upsert_summary_raw(uid, date_str, src.stem, content)
                     except Exception as db_exc:
+                        failures.append(src.stem)
                         print(f"\n[WARN] DB write summary failed for {src.stem}: {db_exc!r}", flush=True)
             except Exception as e:
                 failures.append(src.stem)
@@ -542,6 +543,11 @@ def run() -> None:
         print(f"[SUMMARY] DB output complete for user={uid} date={date_str}", flush=True)
     if empty or failures:
         failed_ids = sorted(set(failures))
+        if output_mode == "db" and _pdb is not None:
+            coverage = _pdb.get_db_step_coverage("paper_summary", uid, date_str)
+            if coverage.get("valid_count", 0) > 0:
+                print(f"[SUMMARY] partial output; retry paper_ids={failed_ids}, empty={empty}", flush=True)
+                raise SystemExit(_pdb.PARTIAL_OUTPUT_EXIT_CODE)
         raise RuntimeError(
             f"summary generation incomplete: empty={empty}, errors={len(failures)}, "
             f"paper_ids={failed_ids}"

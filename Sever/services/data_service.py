@@ -811,8 +811,14 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 before_date = date_str
                 # Public/system data must still belong to a complete published
                 # digest.  User-owned pipeline data is accessible independently.
-                if candidate_uid == 0 and not is_digest_ready_for_publication(0, date_str):
-                    continue
+                if candidate_uid == 0:
+                    if not is_digest_ready_for_publication(0, date_str):
+                        continue
+                    from services.pipeline_db_service import get_digest_publication, get_digest_publication_readiness
+                    if get_digest_publication(0, date_str) is not None:
+                        published_ids = get_digest_publication_readiness(0, date_str)["paper_ids"]
+                        if paper_id not in published_ids:
+                            continue
 
                 info = bundle.get("info") or {}
                 summary_row = bundle.get("summary") or {}

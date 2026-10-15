@@ -477,6 +477,10 @@ _DB_OUTPUT_STEPS = {
     "paper_summary", "summary_limit", "paper_assets",
 }
 
+# These controllers process independent papers. Only their explicit partial
+# result may continue; an unexpected process/configuration failure stays fatal.
+_DIGEST_OUTPUT_STEPS = {"paper_summary", "summary_limit", "paper_assets"}
+
 # Idea pipeline steps: these already write to idea_service DB regardless of --output-mode.
 # In per-user DB mode, skip the file-based sentinel check and let the controllers
 # handle per-user idempotency themselves via the idea_service DB.
@@ -973,7 +977,13 @@ def main(argv=None):
 
             print(f"RUN step: {step}", flush=True)
             recorder.emit(f"RUN step: {step}", event_type="custom")
-            run_step(step, step_args, env=env, recorder=recorder)
+            try:
+                run_step(step, step_args, env=env, recorder=recorder)
+            except subprocess.CalledProcessError as exc:
+                from services.pipeline_db_service import PARTIAL_OUTPUT_EXIT_CODE
+                if not (output_mode == "db" and step in _DIGEST_OUTPUT_STEPS
+                        and exc.returncode == PARTIAL_OUTPUT_EXIT_CODE):
+                    raise
 
             # A subprocess exit code of zero only proves that the controller
             # returned normally.  DB-producing steps must also prove that every
@@ -993,21 +1003,33 @@ def main(argv=None):
                         f"DB output incomplete after step={step} user={uid_int} "
                         f"date={run_date}: {coverage}"
                     )
+                    isolated = step in _DIGEST_OUTPUT_STEPS and coverage.get("valid_count", 0) > 0
                     recorder.finish_step(
                         step,
-                        status="failed",
-                        exit_code=1,
+                        status="partial" if isolated else "failed",
+                        exit_code=5 if isolated else 1,
                         error_type="incomplete_coverage",
                         error_message=message[:500],
                         metrics=coverage,
                     )
                     recorder.emit(
                         message,
-                        level="error",
+                        level="warning" if isolated else "error",
                         event_type="paper_count",
                         payload=coverage,
                     )
-                    raise RuntimeError(message)
+                    if not isolated:
+                        raise RuntimeError(message)
+
+                if step == "paper_assets" and coverage.get("expected_count", 0) > 0:
+                    publication = _pdb.publish_digest(uid_int, run_date)
+                    recorder.emit(
+                        f"Digest published: {len(publication['paper_ids'])} papers, "
+                        f"{len(publication['excluded_ids'])} excluded for retry",
+                        level="warning" if publication["excluded_ids"] else "info",
+                        event_type="digest_publication",
+                        payload=publication,
+                    )
 
             if step == "arxiv_search":
                 selected = detect_selected_count(run_date)

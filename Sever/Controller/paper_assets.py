@@ -921,6 +921,7 @@ def run() -> None:
                                 blocks=obj.get("blocks", []),
                             )
                         except Exception as db_exc:
+                            errors += 1
                             print(f"\n[WARN] DB write paper_assets failed for {src.stem}: {db_exc!r}", flush=True)
             except Exception as e:
                 errors += 1
@@ -946,6 +947,10 @@ def run() -> None:
     print(f"[PAPER_ASSETS] total={total} written={len(results)} errors={errors}", flush=True)
     print("============结束生成 paper_assets ============", flush=True)
     if errors:
+        if output_mode == "db" and _pdb is not None:
+            coverage = _pdb.get_db_step_coverage("paper_assets", uid, date_str)
+            if coverage.get("valid_count", 0) > 0:
+                raise SystemExit(_pdb.PARTIAL_OUTPUT_EXIT_CODE)
         raise SystemExit(1)
 
 

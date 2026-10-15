@@ -1467,6 +1467,10 @@ def run() -> None:
             )
     print("============结束生成 summary_limit ============", flush=True)
     if errors:
+        if output_mode == "db" and _pdb is not None:
+            coverage = _pdb.get_db_step_coverage("summary_limit", uid, date_str)
+            if coverage.get("valid_count", 0) > 0:
+                raise SystemExit(_pdb.PARTIAL_OUTPUT_EXIT_CODE)
         raise SystemExit(1)
 
 

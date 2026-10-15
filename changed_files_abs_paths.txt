@@ -447,3 +447,4 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\readingCitatio
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\readingCitations.test.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_uploaded_paper_chat.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_publishable_dates.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_partial_digest_publication.py

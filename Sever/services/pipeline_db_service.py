@@ -34,6 +34,7 @@ from typing import Any, Optional
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
+PARTIAL_OUTPUT_EXIT_CODE = 5
 
 
 def _connect() -> sqlite3.Connection:
@@ -58,6 +59,15 @@ def init_db() -> None:
     conn = _connect()
     try:
         conn.executescript("""
+            -- Explicit publication boundary for a batch with isolated failures.
+            CREATE TABLE IF NOT EXISTS pipeline_digest_publications (
+                user_id INTEGER NOT NULL,
+                date_str TEXT NOT NULL,
+                paper_ids_json TEXT NOT NULL,
+                excluded_ids_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (user_id, date_str)
+            );
             -- ----------------------------------------------------------------
             -- pipeline_runs: one row per (user, date, pipeline) execution
             -- ----------------------------------------------------------------
@@ -1279,6 +1289,15 @@ def get_digest_papers(
 
     # Load selections
     selected_ids = get_final_arxiv_ids(effective_uid, date_str)
+    publication = get_digest_publication(effective_uid, date_str)
+    if publication is not None:
+        conn = _connect()
+        try:
+            _, valid_ids = _ready_digest_ids(conn, effective_uid, date_str)
+        finally:
+            conn.close()
+        published_ids = set(publication["paper_ids"]) & valid_ids
+        selected_ids = [paper_id for paper_id in selected_ids if paper_id in published_ids]
     if not selected_ids:
         return []
 
@@ -1419,7 +1438,7 @@ def list_publishable_dates(user_id: int = 0) -> list[str]:
         conn.execute("BEGIN")
         rows = conn.execute(
             """
-            SELECT p.user_id, p.date_str,
+            SELECT p.user_id, p.date_str, p.paper_arxiv_id,
                    TRIM(s.summary_raw) != '' AND TRIM(s.summary_limit) != '' AS summaries_ready,
                    a.blocks_json
             FROM pipeline_selected_papers p
@@ -1434,16 +1453,27 @@ def list_publishable_dates(user_id: int = 0) -> list[str]:
             (user_id,),
         )
         batches: dict[tuple[int, str], bool] = {}
+        publications = {
+            (row["user_id"], row["date_str"]): set(json.loads(row["paper_ids_json"]))
+            for row in conn.execute(
+                "SELECT user_id, date_str, paper_ids_json FROM pipeline_digest_publications "
+                "WHERE user_id IN (?, 0)", (user_id,),
+            )
+        }
+        partial_ready: set[str] = set()
         for row in rows:
             key = (row["user_id"], row["date_str"])
-            if not batches.get(key, True):
+            if not batches.get(key, True) and key not in publications:
                 continue
             try:
                 blocks = json.loads(row["blocks_json"] or "{}") if row["summaries_ready"] else {}
             except (json.JSONDecodeError, TypeError):
                 blocks = {}
-            batches[key] = _blocks_have_meaningful_text(blocks)
-        ready = {date for (_, date), complete in batches.items() if complete}
+            complete = _blocks_have_meaningful_text(blocks)
+            batches[key] = batches.get(key, True) and complete
+            if complete and row["paper_arxiv_id"] in publications.get(key, set()):
+                partial_ready.add(row["date_str"])
+        ready = {date for (_, date), complete in batches.items() if complete} | partial_ready
         notices = conn.execute(
             "SELECT user_id, date_str FROM pipeline_date_notices WHERE user_id IN (?, 0)",
             (user_id,),
@@ -1970,6 +2000,81 @@ def get_db_step_coverage(step: str, user_id: int, date_str: str) -> dict:
         conn.close()
 
 
+def get_digest_publication(user_id: int, date_str: str) -> Optional[dict]:
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT paper_ids_json, excluded_ids_json FROM pipeline_digest_publications "
+            "WHERE user_id=? AND date_str=?", (user_id, date_str),
+        ).fetchone()
+        if row is None:
+            return None
+        return {"paper_ids": json.loads(row["paper_ids_json"]),
+                "excluded_ids": json.loads(row["excluded_ids_json"])}
+    finally:
+        conn.close()
+
+
+def _ready_digest_ids(conn: sqlite3.Connection, user_id: int, date_str: str) -> tuple[set[str], set[str]]:
+    rows = conn.execute(
+        """SELECT p.paper_arxiv_id, s.summary_raw, s.summary_limit, a.blocks_json
+           FROM pipeline_selected_papers p
+           LEFT JOIN pipeline_summaries s
+             ON s.user_id=p.user_id AND s.date_str=p.date_str AND s.paper_arxiv_id=p.paper_arxiv_id
+           LEFT JOIN pipeline_paper_assets a
+             ON a.user_id=p.user_id AND a.date_str=p.date_str AND a.paper_arxiv_id=p.paper_arxiv_id
+           WHERE p.user_id=? AND p.date_str=? AND p.is_final_selected=1""",
+        (user_id, date_str),
+    )
+    selected: set[str] = set()
+    ready: set[str] = set()
+    for row in rows:
+        paper_id = row["paper_arxiv_id"]
+        selected.add(paper_id)
+        if not (row["summary_raw"] or "").strip() or not (row["summary_limit"] or "").strip():
+            continue
+        try:
+            blocks = json.loads(row["blocks_json"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if _blocks_have_meaningful_text(blocks):
+            ready.add(paper_id)
+    return selected, ready
+
+
+def publish_digest(user_id: int, date_str: str) -> dict:
+    """Atomically publish only complete papers after the output stages finish.
+
+    Selections and missing outputs remain intact so a rerun retries failed papers.
+    A run with no usable papers must fail rather than publish an empty batch.
+    """
+    conn = _connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        selected, ready = _ready_digest_ids(conn, user_id, date_str)
+        if not ready:
+            raise RuntimeError(f"No complete papers to publish for user={user_id} date={date_str}")
+        excluded = selected - ready
+        conn.execute(
+            """INSERT INTO pipeline_digest_publications
+               (user_id, date_str, paper_ids_json, excluded_ids_json, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, date_str) DO UPDATE SET
+                 paper_ids_json=excluded.paper_ids_json,
+                 excluded_ids_json=excluded.excluded_ids_json, updated_at=excluded.updated_at""",
+            (user_id, date_str, json.dumps(sorted(ready)), json.dumps(sorted(excluded)), _now_iso()),
+        )
+        conn.execute(
+            "DELETE FROM pipeline_date_notices WHERE user_id=? AND date_str=? "
+            "AND notice_type IN ('pipeline_processing', 'pipeline_temporarily_unavailable', "
+            "'source_temporarily_unavailable')", (user_id, date_str),
+        )
+        conn.commit()
+        return {"paper_ids": sorted(ready), "excluded_ids": sorted(excluded)}
+    finally:
+        conn.close()
+
+
 def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
     """Return whether one user's digest is safe to expose as a complete batch."""
     if not has_final_selections(user_id, date_str):
@@ -2001,12 +2106,24 @@ def get_digest_publication_readiness(user_id: int, date_str: str) -> dict:
         for step in ("paper_summary", "summary_limit", "paper_assets")
     }
     ready = all(item.get("complete") for item in coverage.values())
+    publication = get_digest_publication(user_id, date_str)
+    published_ids = None
+    if publication is not None:
+        conn = _connect()
+        try:
+            _, valid_ids = _ready_digest_ids(conn, user_id, date_str)
+        finally:
+            conn.close()
+        published_ids = sorted(set(publication["paper_ids"]) & valid_ids)
+        ready = bool(published_ids)
     return {
         "ready": ready,
         "user_id": user_id,
         "date_str": date_str,
-        "reason": "complete" if ready else "incomplete_coverage",
+        "reason": ("partial" if publication and publication["excluded_ids"] else "complete")
+        if ready else "incomplete_coverage",
         "coverage": coverage,
+        "paper_ids": published_ids,
     }
 
 
