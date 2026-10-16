@@ -448,3 +448,5 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\utils\__tests__\read
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_uploaded_paper_chat.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_publishable_dates.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_partial_digest_publication.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__\GlobalSearchPalette.test.ts
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\search.ts

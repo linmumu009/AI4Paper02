@@ -407,8 +407,8 @@ onBeforeUnmount(() => {
 
       <button
         type="button"
-        title="搜索研究资产 (Ctrl/⌘ K)"
-        aria-label="搜索研究资产"
+        title="搜索论文与研究资产 (Ctrl/⌘ K)"
+        aria-label="搜索论文与研究资产"
         class="navbar-search-button flex h-8 w-8 items-center justify-center rounded-full border-none bg-transparent text-text-muted transition-all duration-200 hover:bg-bg-hover hover:text-text-secondary sm:h-9 sm:w-9"
         @click="globalSearch.open()"
       >

@@ -1,26 +1,10 @@
 import { http } from '@shared/api/client'
+import type { GlobalSearchResponse, GlobalSearchScope } from '@shared/types/search'
+export type { GlobalSearchResult, GlobalSearchResultType, GlobalSearchResponse, GlobalSearchScope, PaperCollectionStatus } from '@shared/types/search'
 
-export type GlobalSearchResultType = 'paper' | 'note' | 'compare' | 'research' | 'project' | 'user_paper'
-
-export interface GlobalSearchResult {
-  type: GlobalSearchResultType
-  id: string
-  title: string
-  subtitle: string
-  route: string
-  updated_at: string
-  score: number
-}
-
-export interface GlobalSearchResponse {
-  query: string
-  results: GlobalSearchResult[]
-  total: number
-}
-
-export async function fetchGlobalSearch(query: string, limit = 30): Promise<GlobalSearchResponse> {
+export async function fetchGlobalSearch(query: string, limit = 30, scope: GlobalSearchScope = 'all'): Promise<GlobalSearchResponse> {
   const { data } = await http.get<GlobalSearchResponse>('/search', {
-    params: { q: query, limit },
+    params: { q: query, limit, scope },
   })
   return data
 }

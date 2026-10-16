@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { fetchGlobalSearch, type GlobalSearchResult } from '../api/globalSearch'
+import { fetchGlobalSearch, type GlobalSearchResult, type GlobalSearchScope, type PaperCollectionStatus } from '../api/globalSearch'
 import { useGlobalSearch } from '../composables/useGlobalSearch'
 import { useGlobalChat } from '../composables/useGlobalChat'
 import { isAuthenticated } from '../stores/auth'
@@ -14,6 +14,7 @@ interface PaletteItem {
   subtitle: string
   route?: string
   action?: 'chat'
+  collectionStatus?: PaperCollectionStatus
 }
 
 const router = useRouter()
@@ -22,6 +23,13 @@ const { isOpen, close } = useGlobalSearch()
 
 const inputRef = ref<HTMLInputElement | null>(null)
 const query = ref('')
+const scope = ref<GlobalSearchScope>('all')
+const hasMore = ref(false)
+const scopes: { value: GlobalSearchScope; label: string }[] = [
+  { value: 'all', label: '全部' },
+  { value: 'mine', label: '我的资产' },
+  { value: 'uncollected', label: '未收藏论文' },
+]
 const remoteResults = ref<GlobalSearchResult[]>([])
 const recentItems = ref<PaletteItem[]>([])
 const loading = ref(false)
@@ -59,10 +67,15 @@ const resultItems = computed<PaletteItem[]>(() => {
       title: item.title,
       subtitle: item.subtitle,
       route: item.route,
+      collectionStatus: item.collection_status,
     })),
-    ...matchingQuickItems.value,
+    ...(scope.value === 'uncollected' ? [] : matchingQuickItems.value),
   ]
 })
+
+function collectionLabel(status: PaperCollectionStatus): string {
+  return { collected: '已收藏', uncollected: '未收藏', uploaded: '我的上传' }[status]
+}
 
 function typeLabel(type: GlobalSearchResult['type']): string {
   const labels: Record<GlobalSearchResult['type'], string> = {
@@ -90,7 +103,7 @@ function loadRecentItems() {
 
 async function runSearch(value: string) {
   const serial = ++requestSerial
-  if (!value || !isAuthenticated.value) {
+  if (!value || !isOpen.value) {
     remoteResults.value = []
     loading.value = false
     return
@@ -98,8 +111,11 @@ async function runSearch(value: string) {
   loading.value = true
   error.value = ''
   try {
-    const response = await fetchGlobalSearch(value, 30)
-    if (serial === requestSerial) remoteResults.value = response.results
+    const response = await fetchGlobalSearch(value, 30, scope.value)
+    if (serial === requestSerial) {
+      remoteResults.value = response.results
+      hasMore.value = Boolean(response.has_more)
+    }
   } catch {
     if (serial === requestSerial) {
       remoteResults.value = []
@@ -110,21 +126,41 @@ async function runSearch(value: string) {
   }
 }
 
-watch(query, (value) => {
+watch([query, scope], ([value]) => {
+  ++requestSerial
   selectedIndex.value = 0
   if (debounceTimer) clearTimeout(debounceTimer)
+  remoteResults.value = []
+  hasMore.value = false
+  error.value = ''
+  loading.value = Boolean(value.trim() && isOpen.value)
+  if (!isOpen.value) return
   debounceTimer = setTimeout(() => { void runSearch(value.trim()) }, 220)
 })
 
 watch(isOpen, async (open) => {
-  if (!open) return
+  ++requestSerial
+  if (debounceTimer) clearTimeout(debounceTimer)
+  if (!open) {
+    loading.value = false
+    return
+  }
   query.value = ''
+  scope.value = 'all'
+  hasMore.value = false
   remoteResults.value = []
   error.value = ''
   selectedIndex.value = 0
   loadRecentItems()
   await nextTick()
   inputRef.value?.focus()
+})
+
+watch(isAuthenticated, () => {
+  ++requestSerial
+  remoteResults.value = []
+  scope.value = 'all'
+  if (isOpen.value) void runSearch(query.value.trim())
 })
 
 function moveSelection(delta: number) {
@@ -168,6 +204,7 @@ function onGlobalKeydown(event: KeyboardEvent) {
 
 onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
 onBeforeUnmount(() => {
+  ++requestSerial
   window.removeEventListener('keydown', onGlobalKeydown)
   if (debounceTimer) clearTimeout(debounceTimer)
 })
@@ -194,7 +231,7 @@ onBeforeUnmount(() => {
           aria-modal="true"
           aria-labelledby="global-search-title"
         >
-          <h2 id="global-search-title" class="sr-only">搜索研究资产</h2>
+          <h2 id="global-search-title" class="sr-only">搜索论文与研究资产</h2>
           <div class="flex items-center gap-3 border-b border-border px-4 py-3">
             <svg aria-hidden="true" class="h-5 w-5 shrink-0 text-text-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
@@ -205,8 +242,8 @@ onBeforeUnmount(() => {
               class="min-w-0 flex-1 border-none bg-transparent text-base text-text-primary outline-none placeholder:text-text-muted"
               type="search"
               autocomplete="off"
-              placeholder="搜索论文、笔记、对比报告和研究会话…"
-              aria-label="搜索研究资产"
+              placeholder="输入 arXiv 编号、论文标题、作者或关键词…"
+              aria-label="搜索论文与研究资产"
               aria-controls="global-search-results"
               :aria-activedescendant="resultItems[selectedIndex] ? `global-search-item-${selectedIndex}` : undefined"
               @keydown="onInputKeydown"
@@ -216,7 +253,19 @@ onBeforeUnmount(() => {
           </div>
 
           <div v-if="!isAuthenticated" class="border-b border-border/60 px-4 py-2 text-xs text-text-muted">
-            登录后可搜索知识库、笔记、对比报告和研究会话；当前仍可使用快捷入口和最近阅读。
+            可搜索全站已分析论文；登录后还可搜索收藏、上传和笔记。
+          </div>
+
+          <div class="flex gap-1 border-b border-border/60 px-4 py-2" role="group" aria-label="搜索范围">
+            <button
+              v-for="option in scopes.filter(option => isAuthenticated || option.value !== 'mine')"
+              :key="option.value"
+              type="button"
+              class="rounded-full px-3 py-1 text-xs transition-colors"
+              :class="scope === option.value ? 'bg-bg-hover text-text-primary' : 'text-text-muted hover:bg-bg-hover/70'"
+              :aria-pressed="scope === option.value"
+              @click="scope = option.value"
+            >{{ option.label }}</button>
           </div>
 
           <div id="global-search-results" class="min-h-0 flex-1 overflow-y-auto p-2" role="listbox">
@@ -225,7 +274,7 @@ onBeforeUnmount(() => {
               v-else-if="normalizedQuery && !loading && resultItems.length === 0"
               class="px-3 py-8 text-center text-sm text-text-muted"
             >
-              没有找到相关研究资产
+              没有找到匹配内容，试试 arXiv 编号、标题或作者。
             </p>
             <template v-else>
               <p class="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-text-muted">
@@ -247,11 +296,17 @@ onBeforeUnmount(() => {
                   {{ item.type }}
                 </span>
                 <span class="min-w-0 flex-1">
-                  <span class="block truncate text-sm font-medium text-text-primary">{{ item.title }}</span>
-                  <span class="mt-0.5 block truncate text-xs text-text-muted">{{ item.subtitle }}</span>
+                  <span class="line-clamp-2 text-sm font-medium text-text-primary">{{ item.title }}</span>
+                  <span class="mt-0.5 block truncate text-xs text-text-muted" :title="item.subtitle">{{ item.subtitle }}</span>
                 </span>
+                <span
+                  v-if="item.collectionStatus"
+                  class="shrink-0 rounded-full border px-2 py-0.5 text-[10px]"
+                  :class="item.collectionStatus === 'collected' ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' : 'border-border text-text-muted'"
+                >{{ collectionLabel(item.collectionStatus) }}</span>
                 <span aria-hidden="true" class="text-text-muted/60">↵</span>
               </button>
+              <p v-if="hasMore" class="px-3 py-2 text-xs text-text-muted">已显示前 30 项，可补充关键词缩小范围。</p>
             </template>
           </div>
 
