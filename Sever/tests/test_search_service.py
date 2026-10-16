@@ -239,6 +239,16 @@ class SearchServiceTests(unittest.TestCase):
         found = self._search("2610.10001")["results"][0]
         self.assertEqual(found["title"], "图记忆")
 
+    def test_keyword_search_includes_archived_original_abstract(self):
+        self._analysis()
+        with patch.object(pipeline_db, "_DB_PATH", self.paper_db):
+            pipeline_db.upsert_paper_info(0, "2026-10-14", "2610.10001", abstract="Different paraphrase")
+        conn = sqlite3.connect(self.paper_db)
+        conn.execute("UPDATE pipeline_arxiv_list SET abstract_text='Rare archived concept'")
+        conn.commit()
+        conn.close()
+        self.assertEqual(self._search("archived concept")["results"][0]["id"], "2610.10001")
+
 
 if __name__ == "__main__":
     unittest.main()

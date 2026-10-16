@@ -134,13 +134,14 @@ def _search_analyses(conn: sqlite3.Connection, user_id: int | None, q: str, limi
             "SELECT paper_id, created_at FROM kb_papers WHERE user_id=? AND scope='kb'", (user_id,),
         )}
     where, params = _matches_sql(
-        ["p.paper_arxiv_id", "m.title", "m.authors_json", "i.title", "a.title", "i.abstract", "i.institution",
+        ["p.paper_arxiv_id", "m.title", "m.authors_json", "m.abstract_text", "i.title", "a.title", "i.abstract", "i.institution",
          "s.headline", "s.summary_raw", "s.summary_limit"], q,
     )
     rows = conn.execute(
         f"""SELECT p.user_id, p.date_str, p.paper_arxiv_id, p.updated_at,
                    COALESCE(NULLIF(m.title, ''), NULLIF(i.title, ''), NULLIF(a.title, '')) AS title,
-                   m.authors_json, i.institution, i.abstract, s.headline, s.summary_raw, s.summary_limit
+                   m.authors_json, m.abstract_text AS source_abstract, i.institution, i.abstract,
+                   s.headline, s.summary_raw, s.summary_limit
             FROM pipeline_selected_papers p
             JOIN pipeline_summaries s ON s.user_id=p.user_id AND s.date_str=p.date_str
               AND s.paper_arxiv_id=p.paper_arxiv_id
@@ -186,7 +187,7 @@ def _search_analyses(conn: sqlite3.Connection, user_id: int | None, q: str, limi
                 heading = re.search(r"(?m)^\s*笔记标题\s*[:：]\s*(.+)$", text)
             title = heading.group(1).strip() if heading else paper_id
         searchable = " ".join(str(v or "") for v in (
-            paper_id, title, row["institution"], row["abstract"], row["headline"],
+            paper_id, title, row["institution"], row["abstract"], row["source_abstract"], row["headline"],
             row["summary_raw"], row["summary_limit"], author_text,
         ))
         results.append({
