@@ -168,18 +168,13 @@ _SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 def _write_pipeline_processing_notices(date_str: str) -> None:
     """Make an in-progress digest visible instead of exposing an unexplained gap."""
     try:
-        from services import pipeline_db_service as _pdb
-        from services.user_settings_service import list_users_with_custom_configs
+        from services.date_notice_service import upsert_notice_for_all_users
 
-        user_ids = {0}
-        user_ids.update(int(uid) for uid in list_users_with_custom_configs())
-        for user_id in user_ids:
-            _pdb.upsert_date_notice(
-                user_id,
-                date_str,
-                "pipeline_processing",
-                "今日论文正在生成，完成后会自动显示，请稍后查看。",
-            )
+        upsert_notice_for_all_users(
+            date_str,
+            "pipeline_processing",
+            "今日论文正在生成，完成后会自动显示，请稍后查看。",
+        )
     except Exception as exc:
         print(f"[SCHEDULER] 无法写入生成中提示: {exc!r}", flush=True)
 
@@ -187,11 +182,8 @@ def _write_pipeline_processing_notices(date_str: str) -> None:
 def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
     """Expose a professional empty state while the shared source is unavailable."""
     try:
-        from services import pipeline_db_service as _pdb
-        from services.user_settings_service import list_users_with_custom_configs
+        from services.date_notice_service import upsert_notice_for_all_users
 
-        user_ids = {0}
-        user_ids.update(int(uid) for uid in list_users_with_custom_configs())
         if exit_code == 2:
             notice_type = "source_temporarily_unavailable"
             message = (
@@ -207,8 +199,7 @@ def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
         else:
             notice_type = "pipeline_temporarily_unavailable"
             message = "今日内容生成暂时失败，系统正在自动恢复，请稍后再查看。"
-        for user_id in user_ids:
-            _pdb.upsert_date_notice(user_id, date_str, notice_type, message)
+        upsert_notice_for_all_users(date_str, notice_type, message)
     except Exception as exc:
         print(f"[SCHEDULER] 无法写入共享阶段故障提示: {exc!r}", flush=True)
 
@@ -1116,19 +1107,14 @@ def _run_multiuser_scheduler_thread(
 
             schedule_outcome = "no_new_papers"
             _orch_log(f"[SCHEDULER] 今日 arxiv 论文为 0 篇，跳过每用户阶段 (per_user)")
-            # Ensure all custom users also see a date notice so the frontend shows the right card
-            try:
-                from services.user_settings_service import list_users_with_custom_configs as _luc
-                _all_uids = [0] + [u for u in _luc() if u != 0]
-            except Exception:
-                _all_uids = [0]
+            # Ensure every registered user sees an explicit empty-day explanation.
             try:
                 _notice = _pdb.get_date_notice(0, today)
                 _notice_type = _notice["type"] if _notice else "no_papers_empty"
                 _notice_msg = _notice["message"] if _notice else "今天 ArXiv 在您关注的领域暂无新论文（搜索窗口内无结果）。"
-                for _uid in _all_uids:
-                    if _uid != 0:
-                        _pdb.upsert_date_notice(_uid, today, _notice_type, _notice_msg)
+                from services.date_notice_service import upsert_notice_for_all_users
+
+                upsert_notice_for_all_users(today, _notice_type, _notice_msg)
             except Exception as _ne:
                 _orch_log(f"[SCHEDULER] 无法写入每用户 date_notice: {_ne!r}")
             return

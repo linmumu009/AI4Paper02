@@ -650,6 +650,16 @@ def list_users() -> list[dict]:
         conn.close()
 
 
+def list_user_ids() -> list[int]:
+    """Return every registered user id without loading or mutating tier data."""
+    conn = _connect()
+    try:
+        rows = conn.execute("SELECT id FROM auth_users ORDER BY id").fetchall()
+        return [int(row["id"]) for row in rows]
+    finally:
+        conn.close()
+
+
 def update_user_tier(user_id: int, tier: str, duration_days: int = 30) -> Optional[dict]:
     if tier not in VALID_TIERS:
         raise HTTPException(status_code=400, detail="非法 tier 值")
