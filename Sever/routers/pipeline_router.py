@@ -179,26 +179,23 @@ def _write_pipeline_processing_notices(date_str: str) -> None:
         print(f"[SCHEDULER] 无法写入生成中提示: {exc!r}", flush=True)
 
 
-def _write_shared_failure_notices(date_str: str, exit_code: int) -> None:
+def _write_shared_failure_notices(
+    date_str: str,
+    exit_code: int,
+    *,
+    retry_budget_exhausted: bool = False,
+) -> None:
     """Expose a professional empty state while the shared source is unavailable."""
     try:
-        from services.date_notice_service import upsert_notice_for_all_users
+        from services.date_notice_service import (
+            shared_failure_notice,
+            upsert_notice_for_all_users,
+        )
 
-        if exit_code == 2:
-            notice_type = "source_temporarily_unavailable"
-            message = (
-                "arXiv 论文源当前限流，系统正在自动重试。"
-                "今日内容尚未生成，请稍后再查看。"
-            )
-        elif exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE:
-            notice_type = "source_temporarily_unavailable"
-            message = (
-                "arXiv 当日批次暂未返回论文，系统会在稍后自动重试。"
-                "当前仍可阅读最近一期内容。"
-            )
-        else:
-            notice_type = "pipeline_temporarily_unavailable"
-            message = "今日内容生成暂时失败，系统正在自动恢复，请稍后再查看。"
+        notice_type, message = shared_failure_notice(
+            exit_code,
+            retry_budget_exhausted=retry_budget_exhausted,
+        )
         upsert_notice_for_all_users(date_str, notice_type, message)
     except Exception as exc:
         print(f"[SCHEDULER] 无法写入共享阶段故障提示: {exc!r}", flush=True)
@@ -241,6 +238,7 @@ def _publish_multi_user_run_notices(
     shared_stage_succeeded: bool,
     per_user_stage_completed: bool,
     failed_user_ids: list[int],
+    retry_budget_exhausted: bool = False,
 ) -> None:
     """Keep successful users visible when only one personalized run fails."""
     action = multi_user_notice_action(
@@ -251,7 +249,11 @@ def _publish_multi_user_run_notices(
         has_failed_users=bool(failed_user_ids),
     )
     if action == "shared_failure":
-        _write_shared_failure_notices(date_str, exit_code)
+        _write_shared_failure_notices(
+            date_str,
+            exit_code,
+            retry_budget_exhausted=retry_budget_exhausted,
+        )
         return
 
     # Shared inputs and every per-user subprocess result are known. Remove the
@@ -1280,6 +1282,11 @@ def _run_multiuser_scheduler_thread(
                 uid for uid, user_exit in user_exit_codes.items()
                 if user_exit != 0
             ],
+            retry_budget_exhausted=bool(
+                trigger == "scheduled"
+                and exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
+                and _scheduled_attempt_count(today) + 1 >= _SCHEDULER_MAX_RETRIES
+            ),
         )
 
         # Update parent DB run status

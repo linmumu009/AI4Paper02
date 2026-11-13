@@ -14,6 +14,22 @@ from services import auth_service, date_notice_service, pipeline_db_service  # n
 
 
 class DateNoticeAudienceTests(unittest.TestCase):
+    def test_exhausted_source_retry_notice_does_not_promise_another_retry(self) -> None:
+        notice_type, message = date_notice_service.shared_failure_notice(
+            4,
+            retry_budget_exhausted=True,
+        )
+
+        self.assertEqual(notice_type, "source_temporarily_unavailable")
+        self.assertIn("自动检查已结束", message)
+        self.assertNotIn("稍后自动重试", message)
+
+    def test_pending_source_retry_notice_explains_automatic_retry(self) -> None:
+        notice_type, message = date_notice_service.shared_failure_notice(4)
+
+        self.assertEqual(notice_type, "source_temporarily_unavailable")
+        self.assertIn("稍后自动重试", message)
+
     def test_notice_audience_includes_registered_and_configured_users(self) -> None:
         with (
             patch.object(auth_service, "list_user_ids", return_value=[3, 28]),

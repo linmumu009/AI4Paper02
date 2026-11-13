@@ -11,6 +11,36 @@ from services.user_settings_service import list_users_with_custom_configs
 logger = logging.getLogger(__name__)
 
 
+def shared_failure_notice(
+    exit_code: int,
+    *,
+    retry_budget_exhausted: bool = False,
+) -> tuple[str, str]:
+    """Return a truthful shared-stage notice for the current retry state."""
+    if exit_code == 2:
+        return (
+            "source_temporarily_unavailable",
+            "arXiv 论文源当前限流，系统正在自动重试。"
+            "今日内容尚未生成，请稍后再查看。",
+        )
+    if exit_code == 4:
+        if retry_budget_exhausted:
+            return (
+                "source_temporarily_unavailable",
+                "arXiv 当日独立批次仍未发布，今日自动检查已结束。"
+                "当前仍可阅读最近一期内容；管理员可稍后补跑。",
+            )
+        return (
+            "source_temporarily_unavailable",
+            "arXiv 当日批次暂未返回论文，系统会在稍后自动重试。"
+            "当前仍可阅读最近一期内容。",
+        )
+    return (
+        "pipeline_temporarily_unavailable",
+        "今日内容生成暂时失败，系统正在自动恢复，请稍后再查看。",
+    )
+
+
 def list_notice_user_ids() -> list[int]:
     """Return all users who should receive an explicit daily status notice.
 
