@@ -275,6 +275,31 @@ def _normalized_summary_source(value: Any) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def _parse_summary_for_display(
+    raw_text: Any,
+    concise_text: Any,
+    paper_id: str,
+    *,
+    title_hint: Any = "",
+) -> tuple[Optional[dict], str]:
+    """Prefer a valid concise card, then the existing valid detailed summary.
+
+    Non-empty model output is not necessarily parseable. A malformed concise
+    introduction must not hide a paper whose detailed summary is complete.
+    Returning the effective source also prevents a duplicate variant toggle
+    when the detailed text itself is being used as the public card.
+    """
+    for source in (concise_text, raw_text):
+        if not isinstance(source, str) or not source.strip():
+            continue
+        parsed = _finalize_renderable_summary(
+            _parse_limit_md(source, paper_id), paper_id, title_hint=title_hint
+        )
+        if parsed is not None:
+            return parsed, source
+    return None, ""
+
+
 def _parse_detailed_summary(
     raw_text: Any,
     concise_text: Any,
@@ -609,13 +634,9 @@ def _get_papers_from_db(date: str, user_id: int = 0) -> Optional[list[dict]]:
             # Parse limit markdown if available
             raw_text = dp.get("summary_raw", "")
             limit_text = dp.get("summary_limit", "") or raw_text
-            if not isinstance(limit_text, str) or not limit_text.strip():
-                # A selected paper is not publication-ready until its summary
-                # exists. Never expose a blank, half-built card to users.
-                continue
-            parsed = _parse_limit_md(limit_text, paper_id)
-            parsed = _finalize_renderable_summary(
-                parsed,
+            parsed, limit_text = _parse_summary_for_display(
+                raw_text,
+                limit_text,
                 paper_id,
                 title_hint=dp.get("title"),
             )
@@ -825,11 +846,9 @@ def get_paper_detail(paper_id: str, user_id: int = 0) -> Optional[dict]:
                 assets_row = bundle.get("assets") or {}
                 raw_text = summary_row.get("summary_raw", "")
                 limit_text = summary_row.get("summary_limit", "") or raw_text
-                if not isinstance(limit_text, str) or not limit_text.strip():
-                    continue
-                data = _parse_limit_md(limit_text, paper_id)
-                data = _finalize_renderable_summary(
-                    data,
+                data, limit_text = _parse_summary_for_display(
+                    raw_text,
+                    limit_text,
                     paper_id,
                     title_hint=assets_row.get("title", "") or info.get("title", ""),
                 )
