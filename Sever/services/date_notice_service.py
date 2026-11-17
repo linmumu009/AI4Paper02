@@ -27,12 +27,12 @@ def shared_failure_notice(
         if retry_budget_exhausted:
             return (
                 "source_temporarily_unavailable",
-                "arXiv 当日独立批次仍未发布，今日自动检查已结束。"
-                "当前仍可阅读最近一期内容；管理员可稍后补跑。",
+                "arXiv 当日批次或完整元数据尚未就绪，今日自动检查已结束。"
+                "系统将在后续日期自动补缺；当前仍可阅读最近一期内容。",
             )
         return (
             "source_temporarily_unavailable",
-            "arXiv 当日批次暂未返回论文，系统会在稍后自动重试。"
+            "arXiv 当日批次或完整元数据尚未就绪，系统会在稍后自动重试。"
             "当前仍可阅读最近一期内容。",
         )
     return (

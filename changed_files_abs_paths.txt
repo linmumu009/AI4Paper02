@@ -452,3 +452,6 @@ D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\View\src\components\__tests__
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\shared\types\search.ts
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\date_notice_service.py
 D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_date_notice_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\services\pipeline_backfill_service.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\Sever\tests\test_pipeline_cross_day_backfill.py
+D:\Datas\Programming\Cursor\AI4Paper02\ArxivPaper4\docs\cross_day_backfill.md

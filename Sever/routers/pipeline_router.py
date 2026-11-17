@@ -23,6 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from services import auth_service
+from services.pipeline_backfill_service import BACKFILL_TRIGGER, next_backfill_date
 from services.pipeline_schedule_policy import (
     DEFAULT_ARXIV_READY_HOUR,
     DEFAULT_ARXIV_READY_MINUTE,
@@ -457,6 +458,12 @@ def _source_retry_presentation(
         finished_at = datetime.now(timezone.utc)
     if finished_at.tzinfo is None:
         finished_at = finished_at.replace(tzinfo=timezone.utc)
+
+    if history_record.get("trigger") == BACKFILL_TRIGGER:
+        return (
+            "历史批次仍未就绪，将按跨天补缺计划重新检查",
+            {"retry_budget_exhausted": False, "next_retry_at": None},
+        )
 
     if history_record.get("trigger") != "scheduled":
         return (
@@ -901,7 +908,7 @@ def _run_multiuser_scheduler_thread(
     force = bool(cfg.get("force", False))
     trigger = cfg.get("trigger", "scheduled")
     deepseek_offpeak_enabled = bool(
-        trigger == "scheduled"
+        trigger in {"scheduled", BACKFILL_TRIGGER}
         and cfg.get("deepseek_offpeak_enabled", True)
     )
 
@@ -1098,7 +1105,7 @@ def _run_multiuser_scheduler_thread(
             arxiv_count = None  # unknown; err on side of continuing
 
         if arxiv_count == 0:
-            if trigger == "scheduled" and is_arxiv_release_day(today):
+            if trigger in {"scheduled", BACKFILL_TRIGGER} and is_arxiv_release_day(today):
                 schedule_outcome = "source_empty_retry"
                 exit_code = SCHEDULED_SOURCE_EMPTY_EXIT_CODE
                 _orch_log(
@@ -1192,6 +1199,17 @@ def _run_multiuser_scheduler_thread(
                 per_user_env["SLLM"] = str(sllm)
             _orch_log(f"[SCHEDULER] user={uid} 开始  详细日志: {os.path.basename(per_user_log)}")
             ec = _run_pipeline_subprocess(per_user_cmd, per_user_env, per_user_log)
+            if ec == 0:
+                from services import pipeline_db_service as _coverage_db
+
+                incomplete = {
+                    step: coverage
+                    for step in ("paper_summary", "summary_limit", "paper_assets")
+                    if not (coverage := _coverage_db.get_db_step_coverage(step, uid, today)).get("complete")
+                }
+                if incomplete:
+                    _orch_log(f"[SCHEDULER] user={uid} 部分卡片已发布但仍有缺口，保留输入等待补跑: {incomplete}")
+                    ec = 1
             _orch_log(f"[SCHEDULER] user={uid} 完成 exit={ec}")
             try:
                 from services import pipeline_db_service as _pdb
@@ -1315,6 +1333,7 @@ def _run_multiuser_scheduler_thread(
             "exit_code": exit_code,
             "success": exit_code == 0,
             "arxiv_count": arxiv_count,
+            "coverage_complete": bool(exit_code == 0 and per_user_stage_completed),
             "outcome": schedule_outcome if exit_code == 0 else (
                 "source_empty_retry"
                 if exit_code == SCHEDULED_SOURCE_EMPTY_EXIT_CODE
@@ -1380,6 +1399,40 @@ def _run_multiuser_scheduler_thread(
                 except OSError:
                     pass
         _release_execution_lease(lease_token)
+
+
+def _try_start_scheduled_backfill(cfg: dict, now: datetime, history: list) -> bool:
+    """Reserve the same host-wide slot used by today's and manual pipelines."""
+    date_str = next_backfill_date(now, cfg, history)
+    if date_str is None:
+        return False
+    from services import pipeline_db_service as _pdb
+
+    refresh_empty_source = bool(
+        source_empty_result_needs_retry(history, date_str, cfg)
+        and not _pdb.get_arxiv_list_ids(date_str)
+    )
+    lease = _try_acquire_execution_lease("multi_user", date_str, BACKFILL_TRIGGER)
+    if lease is None:
+        return False
+    launch_cfg = {
+        **cfg,
+        "trigger": BACKFILL_TRIGGER,
+        "force": refresh_empty_source,
+        "max_concurrent_user_pipelines": 1,
+    }
+    thread = threading.Thread(
+        target=_run_with_execution_lease,
+        args=(_run_multiuser_scheduler_thread, lease["token"], launch_cfg, date_str),
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except Exception:
+        _release_execution_lease(lease["token"])
+        raise
+    print(f"[SCHEDULER] 已启动跨天自动补缺 date={date_str}；复用执行锁、缓存和闲时模型配置", flush=True)
+    return True
 
 
 def _is_pid_alive(pid: int) -> bool:
@@ -1546,7 +1599,7 @@ def _scheduler_loop():
                 _scheduled_attempt_count(today),
             )
 
-            history = _load_schedule_history(limit=200)
+            history = _load_schedule_history(limit=2000)
             recover_empty_success = source_empty_result_needs_retry(
                 history,
                 today,
@@ -1587,6 +1640,7 @@ def _scheduler_loop():
 
             if _scheduled_attempt_is_due(now, due_cfg, retry_count_today):
                 if retry_cooldown_remaining > 0:
+                    _try_start_scheduled_backfill(cfg, now, history)
                     _scheduler_stop_event.wait(30)
                     continue
 
@@ -1690,6 +1744,8 @@ def _scheduler_loop():
                         f"[SCHEDULER] {today} 触发时 Pipeline 仍在运行中，本次跳过（lock 已释放，下次循环重试）",
                         flush=True,
                     )
+            else:
+                _try_start_scheduled_backfill(cfg, now, history)
         except Exception as exc:
             print(f"[SCHEDULER] 调度循环出现未预期异常（已捕获，线程继续运行）: {exc!r}", flush=True)
 

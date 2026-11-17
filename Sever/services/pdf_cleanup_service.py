@@ -32,6 +32,7 @@ _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DATA_ROOT = Path(_BASE_DIR) / "data"
 _DB_PATH = os.path.join(_BASE_DIR, "database", "paper_analysis.db")
 _STATE_PATH = os.path.join(_BASE_DIR, "database", "pdf_cleanup_state.json")
+_PIPELINE_LEASE_PATH = os.path.join(_BASE_DIR, "database", "pipeline_execution.lock")
 
 _MANAGED_DIRECTORY_SOURCES = (
     "file_collect",
@@ -44,6 +45,28 @@ _PRESSURE_COOLDOWN_SECONDS = 15 * 60
 
 class CleanupSafetyError(RuntimeError):
     """Raised when cleanup cannot prove that a deletion is safe."""
+
+
+def _active_pipeline_date() -> str | None:
+    """Protect historical inputs while a live pipeline owns the execution slot."""
+    try:
+        with open(_PIPELINE_LEASE_PATH, encoding="utf-8") as handle:
+            lease = json.load(handle)
+        pid = int(lease["pid"])
+        date_str = str(lease["date_str"])
+        if pid <= 0 or _date_from_dir_name(date_str) is None:
+            raise ValueError("invalid pipeline lease")
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return None
+        except PermissionError:
+            pass  # Another service account can still own a live worker.
+        return date_str
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise CleanupSafetyError("无法确认正在补跑的日期，已安全取消本次清理") from exc
 
 
 def _load_state() -> dict:
@@ -202,6 +225,7 @@ def run_cleanup(
     deleted = 0
     skipped_saved = 0
     skipped_recent = 0
+    skipped_active_pipeline = 0
     reclaimable_bytes = 0
     freed_bytes = 0
     errors: list[str] = []
@@ -225,6 +249,11 @@ def run_cleanup(
         if cache_date >= cutoff:
             skipped_recent += 1
             continue
+        # Re-read the lease per target: a backfill can begin after a cleanup
+        # scan started. Never remove inputs just because their date is old.
+        if cache_date.date().isoformat() == _active_pipeline_date():
+            skipped_active_pipeline += 1
+            continue
 
         try:
             size = _path_size(target)
@@ -241,6 +270,9 @@ def run_cleanup(
             continue
 
         try:
+            if cache_date.date().isoformat() == _active_pipeline_date():
+                skipped_active_pipeline += 1
+                continue
             _delete_target(target)
         except Exception as exc:
             errors.append(redact_sensitive_text(f"{target}: {exc}"))
@@ -266,6 +298,7 @@ def run_cleanup(
         "deleted": deleted,
         "skipped_saved": skipped_saved,
         "skipped_recent": skipped_recent,
+        "skipped_active_pipeline": skipped_active_pipeline,
         "reclaimable_bytes": reclaimable_bytes,
         "freed_bytes": reported_bytes,
         "freed_mb": round(reported_bytes / 1024 / 1024, 2),

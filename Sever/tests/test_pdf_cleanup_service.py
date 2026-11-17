@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -30,8 +32,12 @@ class PdfCleanupServiceTests(unittest.TestCase):
         )
         self.root_patch.start()
         self.state_patch.start()
+        self.lease_path = Path(self.temp_dir.name) / "pipeline_execution.lock"
+        self.lease_patch = patch.object(pdf_cleanup_service, "_PIPELINE_LEASE_PATH", str(self.lease_path))
+        self.lease_patch.start()
 
     def tearDown(self) -> None:
+        self.lease_patch.stop()
         self.state_patch.stop()
         self.root_patch.stop()
         self.temp_dir.cleanup()
@@ -114,6 +120,33 @@ class PdfCleanupServiceTests(unittest.TestCase):
 
         self.assertTrue(target.exists())
         self.assertFalse(self.state_path.exists())
+
+    def test_pressure_cleanup_preserves_active_historical_backfill_inputs(self) -> None:
+        pdf = self._write_file("raw_pdf/2000-01-01/2601.00001.pdf")
+        mineru = self._write_bundle("full_mineru_cache", "2601.00001")
+        other = self._write_file("raw_pdf/1999-12-31/2601.00002.pdf")
+        self.lease_path.write_text(json.dumps({"pid": os.getpid(), "date_str": "2000-01-01"}), encoding="utf-8")
+        with patch.object(pdf_cleanup_service, "_get_saved_paper_ids", return_value=set()):
+            result = pdf_cleanup_service.run_cleanup(retention_days=1, trigger="disk_pressure")
+        self.assertTrue(pdf.exists())
+        self.assertTrue(mineru.exists())
+        self.assertFalse(other.exists())
+        self.assertEqual(result["skipped_active_pipeline"], 2)
+        self.assertEqual(result["deleted"], 1)
+
+    def test_malformed_pipeline_lease_prevents_deletion(self) -> None:
+        pdf = self._write_file("raw_pdf/2000-01-01/2601.00001.pdf")
+        self.lease_path.write_text("{", encoding="utf-8")
+        with patch.object(pdf_cleanup_service, "_get_saved_paper_ids", return_value=set()), self.assertRaises(pdf_cleanup_service.CleanupSafetyError):
+            pdf_cleanup_service.run_cleanup(retention_days=1)
+        self.assertTrue(pdf.exists())
+
+    def test_dead_pipeline_lease_does_not_protect_expired_inputs(self) -> None:
+        self._write_file("raw_pdf/2000-01-01/2601.00001.pdf")
+        self.lease_path.write_text(json.dumps({"pid": 999999, "date_str": "2000-01-01"}), encoding="utf-8")
+        with patch.object(pdf_cleanup_service, "_get_saved_paper_ids", return_value=set()), patch.object(pdf_cleanup_service.os, "kill", side_effect=ProcessLookupError):
+            result = pdf_cleanup_service.run_cleanup(retention_days=1)
+        self.assertEqual(result["deleted"], 1)
 
     def test_delete_error_is_not_counted_or_marked_successful(self) -> None:
         target = self._write_file("raw_pdf/2000-01-01/2601.00001.pdf")

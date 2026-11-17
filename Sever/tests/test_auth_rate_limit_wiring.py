@@ -25,7 +25,15 @@ class AuthRateLimitWiringTests(unittest.TestCase):
 
     def test_user_llm_urls_are_validated_before_storage(self) -> None:
         source = (_SEVER / "routers" / "auth_router.py").read_text(encoding="utf-8")
-        self.assertIn('if "llm_base_url" in body.settings:', source)
+        start = source.index("def api_save_user_settings(")
+        end = source.index("\n\n#", start)
+        save_source = source[start:end]
+        self.assertIn("settings_to_save = dict(body.settings)", save_source)
+        self.assertIn('if "llm_base_url" in settings_to_save:', save_source)
+        self.assertLess(
+            save_source.index("_validate_user_llm_url("),
+            save_source.index("user_settings_service.save_settings("),
+        )
         self.assertEqual(source.count("_validate_user_llm_url(body.base_url)"), 2)
 
     def test_user_secrets_are_masked_before_api_response(self) -> None:
